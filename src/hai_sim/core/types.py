@@ -1,0 +1,134 @@
+"""Core data types shared across the framework.
+
+All actors (AI model, doctor digital twin) communicate through these types.
+Multi-label by default: every per-patient output is a vector of length
+``len(schema.labels)``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, TypeAlias
+
+import numpy as np
+
+Image: TypeAlias = np.ndarray
+"""An image is an ``np.ndarray``. Shape/dtype are implementation-defined.
+
+The mocks use ``np.zeros((1, 1), dtype=np.uint8)`` as placeholder. Real wrappers
+(TorchXRayVision, CheXNet, LLM vision SDKs) load and preprocess internally.
+"""
+
+
+@dataclass(frozen=True)
+class LabelSchema:
+    """Names of the labels (pathologies) the simulation reasons about.
+
+    For v0 the mocks use 5 fake labels. Switch to the 14 CheXpert names when
+    a real model is wired in.
+    """
+
+    labels: tuple[str, ...]
+
+    @property
+    def n(self) -> int:
+        return len(self.labels)
+
+    @classmethod
+    def default_v0(cls) -> LabelSchema:
+        return cls(labels=("L0", "L1", "L2", "L3", "L4"))
+
+    @classmethod
+    def chexpert(cls) -> LabelSchema:
+        return cls(
+            labels=(
+                "No Finding",
+                "Enlarged Cardiomediastinum",
+                "Cardiomegaly",
+                "Lung Opacity",
+                "Lung Lesion",
+                "Edema",
+                "Consolidation",
+                "Pneumonia",
+                "Atelectasis",
+                "Pneumothorax",
+                "Pleural Effusion",
+                "Pleural Other",
+                "Fracture",
+                "Support Devices",
+            )
+        )
+
+
+@dataclass(frozen=True)
+class Diagnosis:
+    """The 'classification + confidence' pair from an actor.
+
+    ``labels[i] == 1`` means the actor positively classifies pathology ``i``.
+    ``confidence[i]`` is the actor's P(label_i = 1 | input), in [0, 1].
+    """
+
+    labels: tuple[int, ...]
+    confidence: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.labels) != len(self.confidence):
+            raise ValueError(
+                f"labels (n={len(self.labels)}) and confidence (n={len(self.confidence)}) "
+                f"must have the same length"
+            )
+
+
+@dataclass(frozen=True)
+class ModelOutput:
+    """The full per-patient output from a `DiagnosticActor`.
+
+    ``uncertainty`` is a per-label vector. The aggregation (mean, max,
+    weighted) is the SortStrategy's job: don't collapse it here. For v0 the
+    uncertainty value mixes aleatoric and epistemic — splitting them is
+    deferred to a later iteration.
+
+    ``extra`` is for implementation-specific debug info (token logprobs from
+    an LLM, ensemble disagreement matrix, etc.). Stable consumers should not
+    rely on it.
+    """
+
+    diagnosis: Diagnosis
+    uncertainty: tuple[float, ...]
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if len(self.uncertainty) != len(self.diagnosis.labels):
+            raise ValueError(
+                f"uncertainty (n={len(self.uncertainty)}) must match diagnosis "
+                f"labels (n={len(self.diagnosis.labels)})"
+            )
+
+
+@dataclass(frozen=True)
+class PatientContext:
+    """Optional metadata an actor may use to modulate its decision.
+
+    Kept deliberately minimal in v0 — the doctor twin will grow this when
+    fatigue and case-complexity modifiers come in.
+    """
+
+    patient_id: int
+    arrival_time: float
+    age: float | None = None
+    sex: str | None = None
+    priority: int = 0
+
+
+@dataclass(frozen=True)
+class Patient:
+    """A patient in the simulation pipeline.
+
+    ``ground_truth`` is the dataset label (binary vector). The simulation
+    compares actor outputs against this to compute metrics.
+    """
+
+    id: int
+    images: tuple[Image, ...]
+    ground_truth: tuple[int, ...]
+    context: PatientContext
