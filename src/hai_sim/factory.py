@@ -57,6 +57,8 @@ def build_doctor(cfg: DoctorConfig, schema: LabelSchema, rng: np.random.Generato
             alpha_unc=cfg.alpha_unc,
             beta_unc=cfg.beta_unc,
             use_ai_hint=cfg.use_ai_hint,
+            assisted_policy=cfg.assisted_policy,
+            ai_hint_uncertainty_threshold=cfg.ai_hint_uncertainty_threshold,
         )
     raise ValueError(f"unknown doctor.kind: {cfg.kind}")
 

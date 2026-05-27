@@ -31,6 +31,8 @@ class DoctorConfig(_Strict):
     alpha_unc: float = 2.0
     beta_unc: float = 5.0
     use_ai_hint: bool = False
+    assisted_policy: Literal["noop", "follow_when_certain"] = "noop"
+    ai_hint_uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
 
 
 class SortConfig(_Strict):
