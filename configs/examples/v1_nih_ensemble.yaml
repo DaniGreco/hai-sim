@@ -10,8 +10,8 @@ label_schema: xrv
 patient_generator:
   kind: xrv_dataset
   dataset: nih
-  imgpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample/images
-  csvpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample_labels.csv
+  imgpath: data/nih_sample/images          # repo-relative; run hai-sim from the repo root
+  csvpath: data/nih_sample/sample_labels.csv
   arrival_rate: 0.5
   n_patients: 200
   sample_mode: random
