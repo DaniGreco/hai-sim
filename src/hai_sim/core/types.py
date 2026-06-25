@@ -59,6 +59,36 @@ class LabelSchema:
             )
         )
 
+    @classmethod
+    def xrv(cls) -> LabelSchema:
+        """The 18 pathologies of a TorchXRayVision DenseNet, in model-output order.
+
+        Order MUST match ``xrv.models.DenseNet().pathologies`` so the model's
+        output vector indexes line up with this schema 1:1. Do not reorder.
+        """
+        return cls(
+            labels=(
+                "Atelectasis",
+                "Consolidation",
+                "Infiltration",
+                "Pneumothorax",
+                "Edema",
+                "Emphysema",
+                "Fibrosis",
+                "Effusion",
+                "Pneumonia",
+                "Pleural_Thickening",
+                "Cardiomegaly",
+                "Nodule",
+                "Mass",
+                "Hernia",
+                "Lung Lesion",
+                "Fracture",
+                "Lung Opacity",
+                "Enlarged Cardiomediastinum",
+            )
+        )
+
 
 @dataclass(frozen=True)
 class Diagnosis:
@@ -111,6 +141,12 @@ class PatientContext:
 
     Kept deliberately minimal in v0 — the doctor twin will grow this when
     fatigue and case-complexity modifiers come in.
+
+    ``ground_truth`` is a *simulation device*, not clinical information: it is
+    injected by the engine only into the context handed to the doctor stage so
+    that *simulated* readers (e.g. ``FixedAccuracyDoctor``) can corrupt the true
+    label at a configured error rate. Real image-reading actors (the CNN
+    wrapper) must ignore it. It is ``None`` for actors that should not see it.
     """
 
     patient_id: int
@@ -118,14 +154,17 @@ class PatientContext:
     age: float | None = None
     sex: str | None = None
     priority: int = 0
+    ground_truth: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
 class Patient:
     """A patient in the simulation pipeline.
 
-    ``ground_truth`` is the dataset label (binary vector). The simulation
-    compares actor outputs against this to compute metrics.
+    ``ground_truth`` is the dataset label, one entry per schema label. Entries
+    are ``1`` (present), ``0`` (absent), or ``-1`` (not annotated by this
+    dataset for this patient — real CXR datasets only label a subset of the
+    model's pathologies). Metrics skip ``-1`` entries.
     """
 
     id: int

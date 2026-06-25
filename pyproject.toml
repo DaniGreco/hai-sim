@@ -25,6 +25,16 @@ dev = [
     "mypy>=1.8",
     "ruff>=0.3",
 ]
+# Real pre-trained CXR inference stack. Heavy (~hundreds of MB on CPU).
+# Install CPU-only torch to keep it light:
+#   uv pip install -e ".[models]" --extra-index-url https://download.pytorch.org/whl/cpu
+models = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "torchxrayvision>=1.2",
+    "scikit-image>=0.22",
+    "kagglehub>=0.3",
+]
 
 [project.scripts]
 hai-sim = "hai_sim.cli:main"
@@ -40,7 +50,27 @@ target-version = "py311"
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    # torchxrayvision ships weights pickled with an older torch; the loader emits
+    # benign SourceChangeWarning. Silence to keep test output clean. `Warning` is
+    # the builtin base category, so this needs no torch import when the extra is absent.
+    "ignore::Warning:torch.serialization",
+]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
+
+# Third-party libraries without type stubs / py.typed markers.
+[[tool.mypy.overrides]]
+module = [
+    "yaml",
+    "torch.*",
+    "torchvision.*",
+    "torchxrayvision.*",
+    "skimage.*",
+    "kagglehub.*",
+]
+ignore_missing_imports = true
