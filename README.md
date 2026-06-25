@@ -48,11 +48,10 @@ multi-doctor calibration, AI+doctor fusion policy.
 uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 uv pip install -e ".[models]"
 
-# 1. get real images (needs a Kaggle API token at %USERPROFILE%\.kaggle\kaggle.json)
+# 1. get real images into data/nih_sample/ (needs a Kaggle API token; see data/README.md)
 uv run python scripts/download_nih_sample.py
-#    -> paste the printed imgpath / csvpath into the scenario YAML
 
-# 2. run — single-model entropy UQ, or the cross-domain Deep Ensemble
+# 2. run from the repo root — single-model entropy UQ, or the cross-domain Deep Ensemble
 uv run hai-sim run configs/examples/v1_nih_torchxrv.yaml
 uv run hai-sim run configs/examples/v1_nih_ensemble.yaml
 ```

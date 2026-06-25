@@ -37,3 +37,7 @@ htmlcov/
 out/
 runs/
 *.log
+
+# Local data (datasets / large files) — not versioned; keep only the README
+/data/*
+!/data/README.md

@@ -1,11 +1,10 @@
 # Real pre-trained CXR model (TorchXRayVision DenseNet121) + trivial doctor,
 # driven by real NIH ChestX-ray14 sample images.
 #
-# Prereq: download the NIH sample (~5.6k images) and point imgpath/csvpath below.
+# Prereq: download the NIH sample (~5.6k images) into data/nih_sample/:
 #   uv run python scripts/download_nih_sample.py
-# then set patient_generator.imgpath / .csvpath to the printed paths.
 #
-# Run:
+# Run (from the repo root, so the relative data/ paths resolve):
 #   uv run hai-sim run configs/examples/v1_nih_torchxrv.yaml
 
 name: v1_nih_torchxrv
@@ -15,8 +14,8 @@ label_schema: xrv          # 18 pathologies, model-output order
 patient_generator:
   kind: xrv_dataset
   dataset: nih
-  imgpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample/images
-  csvpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample_labels.csv
+  imgpath: data/nih_sample/images          # repo-relative; run hai-sim from the repo root
+  csvpath: data/nih_sample/sample_labels.csv
   arrival_rate: 0.5
   n_patients: 200
   sample_mode: random
