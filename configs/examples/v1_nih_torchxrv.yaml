@@ -1,0 +1,43 @@
+# Real pre-trained CXR model (TorchXRayVision DenseNet121) + trivial doctor,
+# driven by real NIH ChestX-ray14 sample images.
+#
+# Prereq: download the NIH sample (~5.6k images) and point imgpath/csvpath below.
+#   uv run python scripts/download_nih_sample.py
+# then set patient_generator.imgpath / .csvpath to the printed paths.
+#
+# Run:
+#   uv run hai-sim run configs/examples/v1_nih_torchxrv.yaml
+
+name: v1_nih_torchxrv
+seed: 42
+label_schema: xrv          # 18 pathologies, model-output order
+
+patient_generator:
+  kind: xrv_dataset
+  dataset: nih
+  imgpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample/images
+  csvpath: C:/Users/Daniele/.cache/kagglehub/datasets/nih-chest-xrays/sample/versions/4/sample_labels.csv
+  arrival_rate: 0.5
+  n_patients: 200
+  sample_mode: random
+
+ai:
+  kind: torchxrv
+  weights: densenet121-res224-all   # single weight set
+  uq: entropy                        # cheap single-pass uncertainty
+  decision_threshold: 0.5
+  service_time: 0.05
+
+doctor:
+  kind: fixed_accuracy
+  sensitivity: 0.85
+  specificity: 0.90
+  service_time_mu: 2.5
+  service_time_sigma: 0.4
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean
+
+n_ai_workers: 1
+n_doctor_workers: 1

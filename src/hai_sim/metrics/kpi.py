@@ -18,6 +18,7 @@ Conventions in this module:
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -47,7 +48,7 @@ class ActorKPIs:
     (the clinically expensive failure mode)."""
 
     accuracy: float
-    """Micro accuracy across ALL (patient × label) entries = (ΣTP + ΣTN) / total entries.
+    """Micro accuracy across ALL (patient x label) entries = (sum TP + sum TN) / total entries.
     Easy to misread when prevalence is low: predicting "all-zero" can score high accuracy
     while having recall 0. Reported for completeness; do NOT use it as the primary KPI."""
 
@@ -166,6 +167,11 @@ def _per_label_counts(
     for r in records:
         pred = _labels_for(r, actor)
         for i, (p, g) in enumerate(zip(pred, r.ground_truth, strict=True)):
+            if g not in (0, 1):
+                # g == -1 → label not annotated in this dataset for this patient.
+                # Real CXR datasets (NIH, CheXpert) only label a subset of the
+                # model's pathologies, so we can't score these entries: skip them.
+                continue
             if p == 1 and g == 1:
                 tp[i] += 1
             elif p == 1 and g == 0:
@@ -204,7 +210,7 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
         for i in range(n_labels)
     ]
 
-    # Micro accuracy across all (patient × label) entries. Note: with rare pathologies
+    # Micro accuracy across all (patient x label) entries. Note: with rare pathologies
     # the all-zero predictor can get high accuracy → also look at F1 / recall.
     total = sum(tp) + sum(fp) + sum(fn) + sum(tn)
     accuracy = _safe_div(sum(tp) + sum(tn), total)
@@ -217,7 +223,10 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
     fn_times: list[float] = []
     for r in records:
         pred = _labels_for(r, actor)
-        is_error = any(p != g for p, g in zip(pred, r.ground_truth, strict=True))
+        # Only labeled entries (g in {0,1}) count; g == -1 is "not annotated".
+        is_error = any(
+            p != g for p, g in zip(pred, r.ground_truth, strict=True) if g in (0, 1)
+        )
         is_fn = any(p == 0 and g == 1 for p, g in zip(pred, r.ground_truth, strict=True))
         if is_error:
             error_times.append(r.ts_doctor_end)
@@ -233,12 +242,11 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
     ttfe = error_times[0] if error_times else None
 
     # MTTF = Mean Time To Failure. Mean gap between consecutive error events.
-    # Reliability-engineering staple: large MTTF → errors well spread; small → bursty.
-    # Needs ≥ 2 events to have at least one gap.
+    # Reliability-engineering staple: large MTTF -> errors well spread; small -> bursty.
+    # Needs >= 2 events to have at least one gap.
     mttf: float | None = None
     if len(error_times) >= 2:
-        # zip-with-next: lengths intentionally differ by 1 → produces consecutive pairs.
-        gaps = [b - a for a, b in zip(error_times, error_times[1:])]
+        gaps = [b - a for a, b in itertools.pairwise(error_times)]
         mttf = sum(gaps) / len(gaps)
 
     # mean-time-to-FN. Same shape as MTTF but restricted to false-negative events
@@ -246,7 +254,7 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
     # radiology, since missing disease is much worse than overcalling it.
     mttfn: float | None = None
     if len(fn_times) >= 2:
-        gaps = [b - a for a, b in zip(fn_times, fn_times[1:])]
+        gaps = [b - a for a, b in itertools.pairwise(fn_times)]
         mttfn = sum(gaps) / len(gaps)
 
     return ActorKPIs(

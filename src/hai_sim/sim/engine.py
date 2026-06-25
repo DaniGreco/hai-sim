@@ -1,11 +1,11 @@
 """SimPy orchestration of the v0 pipeline.
 
 Pipeline:
-    PoissonPatientGenerator → input_queue (Store)
-                            → model_worker × N_ai (loops on input_queue)
-                            → triaged_store (PriorityStore, key=SortStrategy)
-                            → doctor_worker × N_doc (loops on triaged_store)
-                            → MetricsCollector
+    PatientGenerator -> input_queue (Store)
+                     -> model_worker xN_ai (loops on input_queue)
+                     -> triaged_store (PriorityStore, key=SortStrategy)
+                     -> doctor_worker xN_doc (loops on triaged_store)
+                     -> MetricsCollector
 """
 
 from __future__ import annotations
@@ -110,12 +110,19 @@ class SimulationEngine:
                 inflight: _InFlight = pitem.item
                 assert inflight.ai_out is not None
                 ts_doctor_start = env.now
+                # Inject ground truth into the doctor's context only: simulated
+                # readers use it as their accuracy mechanism. The AI stage above
+                # is handed the plain context and never sees the truth.
+                doc_context = replace(
+                    inflight.patient.context,
+                    ground_truth=inflight.patient.ground_truth,
+                )
                 yield env.timeout(
-                    self.doctor.service_time(inflight.patient.images, inflight.patient.context)
+                    self.doctor.service_time(inflight.patient.images, doc_context)
                 )
                 doc_out = self.doctor.diagnose(
                     inflight.patient.images,
-                    context=inflight.patient.context,
+                    context=doc_context,
                     ai_hint=inflight.ai_out,
                 )
                 ts_doctor_end = env.now

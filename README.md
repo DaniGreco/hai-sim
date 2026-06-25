@@ -18,13 +18,48 @@ protocol — `diagnose(images, *, context, ai_hint) → ModelOutput` — so any
 implementation can be swapped via the YAML scenario config. The doctor may
 optionally consult the AI's `ModelOutput` as a hint (see *Hybrid mode* below).
 
-## v0 scope
+## Scope
 
-- Mocks only: `RandomMockAI`, `RandomMockDoctor`, `PoissonPatientGenerator`
+**v0 — mocks (no extra deps):**
+- `RandomMockAI`, `RandomMockDoctor`, `PoissonPatientGenerator`
 - Sort strategies: `RandomSort`, `UncertaintyDescSort(mean|max|weighted)`
 - One assisted policy: `follow_when_certain` (per-label deferral on AI uncertainty)
 - Metrics: TTFE, MTTF, mean-time-to-FN, F1 macro per actor (AI / doctor / hybrid)
-- **NOT yet**: real CNN wrapper, fatigue model, X-ray machine, multi-doctor calibration
+
+**v1 — real models (`[models]` extra):**
+- `TorchXRayVisionAI`: inference-only DenseNet121 (18 pathologies), single weight
+  set or a cross-domain Deep Ensemble. AUC > 0.90 on several pathologies
+  (Edema, Effusion, Cardiomegaly, Pneumothorax, ...).
+- Swappable `UQMethod`: `EntropyUQ` (single pass) and `EnsembleUQ` (predictive
+  entropy / mean entropy / mutual information decomposition).
+- `FixedAccuracyDoctor`: trivial ground-truth-based reader with fixed
+  sensitivity/specificity — the controllable baseline twin.
+- `XRVDatasetPatientGenerator`: real CXR images as the patient stream
+  (NIH / RSNA / CheXpert via TorchXRayVision loaders). Unannotated labels → `-1`,
+  skipped by the metrics.
+
+**NOT yet**: fatigue/SDT composite doctor, MC Dropout, X-ray machine model,
+multi-doctor calibration, AI+doctor fusion policy.
+
+## Real models (v1)
+
+```powershell
+# install the heavy extra (CPU torch keeps it light)
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+uv pip install -e ".[models]"
+
+# 1. get real images (needs a Kaggle API token at %USERPROFILE%\.kaggle\kaggle.json)
+uv run python scripts/download_nih_sample.py
+#    -> paste the printed imgpath / csvpath into the scenario YAML
+
+# 2. run — single-model entropy UQ, or the cross-domain Deep Ensemble
+uv run hai-sim run configs/examples/v1_nih_torchxrv.yaml
+uv run hai-sim run configs/examples/v1_nih_ensemble.yaml
+```
+
+Model weights (~80 MB each) auto-download to `~/.torchxrayvision/` on first use.
+On Windows set `PYTHONUTF8=1` so the download progress bar doesn't crash the
+console (`cp1252` can't render its block characters).
 
 ## Quickstart
 
