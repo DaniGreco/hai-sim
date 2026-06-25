@@ -65,3 +65,28 @@ def test_real_model_runs_end_to_end() -> None:
 def test_schema_must_be_18() -> None:
     with pytest.raises(ValueError, match="18"):
         TorchXRayVisionAI(schema=LabelSchema.default_v0(), weights="densenet121-res224-all")
+
+
+def test_deep_ensemble_aligns_heterogeneous_members() -> None:
+    from hai_sim.core.types import PatientContext
+    from hai_sim.uq.methods import EnsembleUQ
+
+    schema = LabelSchema.xrv()
+    # nih (4 blanks) and chex (7 blanks) have different coverage; the wrapper must
+    # mask each member's blanks and still produce a clean 18-vector output.
+    ai = TorchXRayVisionAI(
+        schema=schema,
+        weights=("densenet121-res224-nih", "densenet121-res224-chex"),
+        uq=EnsembleUQ("mutual_information"),
+    )
+    assert len(ai._member_masks) == 2
+    assert ai._member_masks[0].sum() == 14  # nih covers 14 pathologies
+    assert ai._member_masks[1].sum() == 11  # chex covers 11
+
+    img = (np.random.default_rng(0).random((1, 224, 224)) * 2048.0 - 1024.0).astype(np.float32)
+    out = ai.diagnose([img], context=PatientContext(patient_id=0, arrival_time=0.0))
+    assert len(out.diagnosis.labels) == 18
+    # no NaN leaks into the output vectors
+    assert all(c == c for c in out.diagnosis.confidence)
+    assert all(u == u for u in out.uncertainty)
+    assert out.extra["uq_method"] == "ensemble:mutual_information"

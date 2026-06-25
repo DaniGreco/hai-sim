@@ -72,6 +72,9 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         self._torch: Any = None
         self._transform: Any = None
         self._models: list[Any] = []
+        # Per-member boolean mask over the 18 canonical positions: True where the
+        # member was trained on that pathology (xrv leaves untrained slots blank).
+        self._member_masks: list[np.ndarray] = []
         self._load()
 
     def _load(self) -> None:
@@ -93,12 +96,30 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
             model = xrv.models.DenseNet(weights=w)
             model.eval()
             model.to(self.device)
-            # Sanity: every member must share the canonical 18-pathology order.
-            if tuple(model.pathologies) != self.schema.labels:
+            # Every member outputs an 18-vector in canonical order, but dataset-
+            # specific members blank out the pathologies they weren't trained on
+            # (e.g. RSNA covers only Pneumonia + Lung Opacity). Build a validity
+            # mask and verify the non-blank slots line up with the schema order.
+            paths = list(model.pathologies)
+            if len(paths) != self.schema.n:
                 raise ValueError(
-                    f"weight set {w!r} pathologies do not match LabelSchema.xrv()"
+                    f"weight set {w!r} has {len(paths)} pathologies, expected {self.schema.n}"
                 )
+            mask = np.zeros(self.schema.n, dtype=bool)
+            for i, p in enumerate(paths):
+                if p == "":
+                    continue
+                if p != self.schema.labels[i]:
+                    raise ValueError(
+                        f"weight set {w!r} pathology at index {i} is {p!r}; expected "
+                        f"blank or {self.schema.labels[i]!r} (output order not aligned "
+                        f"to LabelSchema.xrv())"
+                    )
+                mask[i] = True
+            if not mask.any():
+                raise ValueError(f"weight set {w!r} has no usable pathologies")
             self._models.append(model)
+            self._member_masks.append(mask)
 
     def _to_model_input(self, image: Image) -> np.ndarray:
         """Return a (1, 224, 224) float array in xrv's expected range.
@@ -135,13 +156,19 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         model_input = self._to_model_input(images[0])
         tensor = torch.from_numpy(model_input)[None, ...].to(self.device)  # (1,1,224,224)
 
-        member_probs = np.empty((len(self._models), self.schema.n), dtype=np.float64)
+        # NaN marks "this member does not cover this pathology" → nan-aware UQ.
+        member_probs = np.full((len(self._models), self.schema.n), np.nan, dtype=np.float64)
         with torch.no_grad():
             for m, model in enumerate(self._models):
                 out = model(tensor)  # xrv DenseNet returns sigmoid probabilities
-                member_probs[m] = out[0].detach().cpu().numpy()
+                vals = out[0].detach().cpu().numpy()
+                mask = self._member_masks[m]
+                member_probs[m, mask] = vals[mask]
 
         probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
+        # A pathology no member covers comes back NaN → emit a benign negative.
+        probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
+        uncertainty = np.nan_to_num(np.asarray(uncertainty, dtype=float), nan=0.0)
         labels = (probs >= self.decision_threshold).astype(int)
 
         extra: dict[str, Any] = {"uq_method": self.uq.name, **uq_extra}

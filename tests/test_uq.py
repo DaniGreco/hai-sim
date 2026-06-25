@@ -45,3 +45,27 @@ def test_ensemble_decomposition_identity() -> None:
     # predictive entropy = aleatoric (mean entropy) + epistemic (mutual info)
     assert np.allclose(pe - me, mi, atol=1e-9)
     assert np.all(mi >= -1e-12)
+
+
+def test_ensemble_is_nan_aware() -> None:
+    # member 0 does not cover label 1 (NaN) → label 1 averages only member 1.
+    members = np.array([[0.8, np.nan], [0.6, 0.2]])
+    probs, mi, extra = EnsembleUQ("mutual_information").estimate(members)
+    assert np.isclose(probs[0], 0.7)
+    assert np.isclose(probs[1], 0.2)
+    assert extra["coverage"] == (2, 1)
+    # single-member label → no disagreement → MI 0
+    assert np.isclose(mi[1], 0.0, atol=1e-9)
+
+
+def test_ensemble_uncovered_label_is_nan() -> None:
+    members = np.array([[0.5, np.nan], [0.7, np.nan]])
+    probs, _, extra = EnsembleUQ("mutual_information").estimate(members)
+    assert np.isnan(probs[1])  # no member covers it; the wrapper maps NaN -> 0
+    assert extra["coverage"] == (2, 0)
+
+
+def test_entropy_is_nan_aware() -> None:
+    probs, _, _ = EntropyUQ().estimate(np.array([[0.5, np.nan], [0.5, np.nan]]))
+    assert np.isclose(probs[0], 0.5)
+    assert np.isnan(probs[1])
