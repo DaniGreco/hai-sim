@@ -125,8 +125,8 @@ def test_render_dashboard_writes_the_set(tmp_path: Path) -> None:
     render_dashboard(_synthetic_cache(), tmp_path, measure="predictive_entropy")
     for fname in (
         "error_curves.png",
-        "error_curves_mutual_information.png",
-        "per_pathology_fp.png",
+        "per_pathology_any.png",
         "per_pathology_fn.png",
+        "per_pathology_fp.png",
     ):
         assert (tmp_path / fname).exists()

@@ -404,17 +404,16 @@ def render_dashboard(
     threshold: float = 0.5,
     aggregator: Aggregator = "mean",
     title_extra: str = "",
-    comparison_measure: str | None = "mutual_information",
+    per_pathology_error_types: tuple[ErrorType, ...] = ("any", "fn", "fp"),
 ) -> None:
-    """Render the standard incremental figure set into ``out_dir``.
+    """Render the parametric figure set for one UQ ``measure`` into ``out_dir``.
 
-    Writes (overwriting each time, so a watcher / the cache builder can refresh
+    Writes (overwriting each time, so the cache builder / a manual call refreshes
     them as the cache grows):
 
-    - ``error_curves.png``               — main 2x3 with ``measure``
-    - ``error_curves_<comparison>.png``  — main 2x3 with ``comparison_measure``
-    - ``per_pathology_fp.png``           — per-pathology FP curves with ``measure``
-    - ``per_pathology_fn.png``           — per-pathology FN curves with ``measure``
+    - ``error_curves.png``         — main 2x3 (image/entry x any/fn/fp) with ``measure``
+    - ``per_pathology_<et>.png``   — one panel per pathology, for each ``et`` in
+      ``per_pathology_error_types`` (default any / fn / fp)
     """
     out_dir = Path(out_dir)
     render_error_curves(
@@ -425,18 +424,11 @@ def render_dashboard(
         aggregator=aggregator,
         title_extra=title_extra,
     )
-    if comparison_measure and comparison_measure != measure:
-        render_error_curves(
+    for error_type in per_pathology_error_types:
+        render_per_pathology(
             cache,
-            out_dir / f"error_curves_{comparison_measure}.png",
-            measure=comparison_measure,
+            out_dir / f"per_pathology_{error_type}.png",
+            measure=measure,
             threshold=threshold,
-            aggregator=aggregator,
-            title_extra=title_extra,
+            error_type=error_type,
         )
-    render_per_pathology(
-        cache, out_dir / "per_pathology_fp.png", measure=measure, threshold=threshold, error_type="fp"
-    )
-    render_per_pathology(
-        cache, out_dir / "per_pathology_fn.png", measure=measure, threshold=threshold, error_type="fn"
-    )
