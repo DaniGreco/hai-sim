@@ -116,3 +116,17 @@ def test_per_pathology_skips_unannotated(tmp_path: Path) -> None:
     summary = render_per_pathology(cache, out, error_type="fn")
     assert out.exists() and out.with_suffix(".json").exists()
     assert set(summary) == set(res)  # same annotated labels, any error type
+
+
+def test_render_dashboard_writes_the_set(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    from hai_sim.analysis.error_curve import render_dashboard
+
+    render_dashboard(_synthetic_cache(), tmp_path, measure="predictive_entropy")
+    for fname in (
+        "error_curves.png",
+        "error_curves_mutual_information.png",
+        "per_pathology_fp.png",
+        "per_pathology_fn.png",
+    ):
+        assert (tmp_path / fname).exists()

@@ -52,6 +52,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--plot-dir", default="out/analysis", help="where to write the evolving figure")
     p.add_argument("--no-plot", action="store_true", help="skip rendering the curves")
     p.add_argument("--fresh", action="store_true", help="ignore any existing cache and start over")
+    p.add_argument(
+        "--measure",
+        default="predictive_entropy",
+        choices=[
+            "mutual_information",
+            "predictive_entropy",
+            "mean_entropy",
+            "std",
+            "least_confidence",
+        ],
+        help="primary UQ measure for the rendered curves (default: predictive_entropy)",
+    )
     args = p.parse_args(argv)
 
     scenario = load_scenario(Path(args.scenario))
@@ -74,7 +86,6 @@ def main(argv: list[str] | None = None) -> int:
     seed = args.seed if args.seed is not None else scenario.seed
     target = _select_indices(len(dataset), args.limit, args.sample, seed)
     out_stem = Path(args.out)
-    plot_path = Path(args.plot_dir) / "error_curves.png"
     # Composition signature: dataset indices are only meaningful for this exact
     # filtering, so a differently-filtered cache must never be resumed into.
     fingerprint = (
@@ -114,10 +125,10 @@ def main(argv: list[str] | None = None) -> int:
     def _render(cache: InferenceCache, *, final: bool) -> None:
         if args.no_plot or cache.n_images == 0:
             return
-        from hai_sim.analysis.error_curve import render_error_curves
+        from hai_sim.analysis.error_curve import render_dashboard
 
         tag = "final" if final else f"N={cache.n_images}/{target_total}"
-        render_error_curves(cache, plot_path, title_extra=f"[{tag}]")
+        render_dashboard(cache, args.plot_dir, measure=args.measure, title_extra=f"[{tag}]")
 
     def on_checkpoint(cache: InferenceCache) -> None:
         cache.save(out_stem)
@@ -147,8 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"DONE {cache.n_images} images in {elapsed:.1f}s wall  "
         f"({mean_infer:.3f}s/img model inference)\n"
-        f"  cache  -> {out_stem}.npz (+ .json manifest)\n"
-        f"  figure -> {plot_path}",
+        f"  cache   -> {out_stem}.npz (+ .json manifest)\n"
+        f"  figures -> {args.plot_dir}/ (error_curves*.png, per_pathology_*.png)",
         flush=True,
     )
     return 0
