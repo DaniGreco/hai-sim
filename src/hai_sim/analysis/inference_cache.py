@@ -78,6 +78,11 @@ class InferenceCache:
     batch_size: int
     """Batch size used during inference; 1 ⇒ ``inference_seconds`` is true latency."""
 
+    dataset_fingerprint: str = ""
+    """Composition signature (dataset | views | unique_patients | dataset length).
+    Guards resume: a cache built over a differently-filtered dataset must not be
+    silently extended, because dataset indices would point at different images."""
+
     @property
     def n_images(self) -> int:
         return int(self.member_probs.shape[0])
@@ -117,6 +122,7 @@ class InferenceCache:
             "weights": list(self.weights),
             "pathologies": list(self.pathologies),
             "dataset": self.dataset,
+            "dataset_fingerprint": self.dataset_fingerprint,
             "batch_size": self.batch_size,
             "inference_seconds_per_image": {
                 "mean": float(np.mean(self.inference_seconds)) if self.n_images else 0.0,
@@ -153,6 +159,7 @@ class InferenceCache:
             pathologies=tuple(manifest["pathologies"]),
             dataset=str(manifest["dataset"]),
             batch_size=int(manifest["batch_size"]),
+            dataset_fingerprint=str(manifest.get("dataset_fingerprint", "")),
         )
 
 
@@ -183,6 +190,7 @@ def build_inference_cache(
     checkpoint_every: int = 0,
     on_checkpoint: Callable[[InferenceCache], None] | None = None,
     prior: InferenceCache | None = None,
+    dataset_fingerprint: str = "",
 ) -> InferenceCache:
     """Run the ensemble over ``indices`` and collect raw probabilities + timing.
 
@@ -230,6 +238,7 @@ def build_inference_cache(
             pathologies=tuple(model.schema.labels),
             dataset=dataset_name,
             batch_size=batch_size,
+            dataset_fingerprint=dataset_fingerprint,
         )
 
     processed = 0

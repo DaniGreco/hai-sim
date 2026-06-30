@@ -139,6 +139,8 @@ def build_xrv_dataset(cfg: PatientGenConfig) -> Any:
     common = {"imgpath": cfg.imgpath, "transform": transform}
     if cfg.dataset == "nih":
         kwargs = dict(common)
+        kwargs["views"] = list(cfg.views)
+        kwargs["unique_patients"] = cfg.unique_patients
         if cfg.csvpath is not None:
             kwargs["csvpath"] = _nih_numeric_age_csv(cfg.csvpath)
         ds = xrv.datasets.NIH_Dataset(**kwargs)

@@ -61,7 +61,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[error] scenario patient_generator.kind must be xrv_dataset, got {pg.kind}")
         return 2
 
-    print(f"building dataset ({pg.dataset}) from {pg.imgpath} ...", flush=True)
+    print(
+        f"building dataset ({pg.dataset}, views={list(pg.views)}, "
+        f"unique_patients={pg.unique_patients}) from {pg.imgpath} ...",
+        flush=True,
+    )
     dataset = build_xrv_dataset(pg)
     device = args.device or scenario.ai.device
     print(f"loading ensemble {scenario.ai.weights} on {device} ...", flush=True)
@@ -71,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
     target = _select_indices(len(dataset), args.limit, args.sample, seed)
     out_stem = Path(args.out)
     plot_path = Path(args.plot_dir) / "error_curves.png"
+    # Composition signature: dataset indices are only meaningful for this exact
+    # filtering, so a differently-filtered cache must never be resumed into.
+    fingerprint = (
+        f"{pg.dataset}|views={','.join(pg.views)}|"
+        f"unique={pg.unique_patients}|ndata={len(dataset)}"
+    )
 
     # Resume: reuse a compatible cache at the same stem unless --fresh was passed.
     prior: InferenceCache | None = None
@@ -80,10 +90,14 @@ def main(argv: list[str] | None = None) -> int:
             prior.weights != tuple(model.weight_list)
             or prior.pathologies != tuple(schema.labels)
             or prior.dataset != pg.dataset
+            or (prior.dataset_fingerprint and prior.dataset_fingerprint != fingerprint)
         ):
             print(
                 f"[error] existing cache {out_stem}.npz is incompatible "
-                "(weights/pathologies/dataset differ). Use --fresh or a different --out."
+                f"(weights/pathologies/dataset/views differ).\n"
+                f"  existing: {prior.dataset_fingerprint!r}\n"
+                f"  current : {fingerprint!r}\n"
+                "  Use --fresh or a different --out."
             )
             return 2
 
@@ -124,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint_every=args.checkpoint_every,
         on_checkpoint=on_checkpoint,
         prior=prior,
+        dataset_fingerprint=fingerprint,
     )
     cache.save(out_stem)
     _render(cache, final=True)
