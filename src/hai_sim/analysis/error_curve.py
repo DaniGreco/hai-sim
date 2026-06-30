@@ -99,21 +99,36 @@ def _auroc(score: np.ndarray, positive: np.ndarray) -> float:
 
 
 def _accuracy_decomposition(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
-    """Accuracy split into the two error rates, over annotated entries (gt in {0,1}).
+    """Decision-quality metrics at the threshold, over annotated entries (gt in {0,1}).
 
-    Returns ``acc``, ``fn`` (miss rate), ``fp`` (false-alarm rate) and ``n`` with
-    ``acc + fn + fp == 1``: every decision is either correct, a missed positive
-    (false negative), or a false alarm (false positive).
+    Returns, over all valid entries:
+    - ``acc``  = accuracy = (TP + TN) / N
+    - ``fn``   = miss rate = FN / N        (prevalence-dependent)
+    - ``fp``   = false-alarm rate = FP / N (prevalence-dependent)
+    - ``sens`` = sensitivity (recall) = TP / (TP + FN)   (prevalence-independent)
+    - ``spec`` = specificity = TN / (TN + FP)            (prevalence-independent)
+    with ``acc + fn + fp == 1``.
     """
     valid = gt >= 0
     p = pred[valid]
     g = gt[valid]
     n = int(p.size)
     if n == 0:
-        return {"acc": 0.0, "fn": 0.0, "fp": 0.0, "n": 0.0}
+        return {"acc": 0.0, "fn": 0.0, "fp": 0.0, "sens": 0.0, "spec": 0.0, "n": 0.0}
+    tp = float(((p == 1) & (g == 1)).sum())
+    tn = float(((p == 0) & (g == 0)).sum())
     fp = float(((p == 1) & (g == 0)).sum())
     fn = float(((p == 0) & (g == 1)).sum())
-    return {"acc": 1.0 - (fp + fn) / n, "fn": fn / n, "fp": fp / n, "n": float(n)}
+    pos = tp + fn
+    neg = tn + fp
+    return {
+        "acc": (tp + tn) / n,
+        "fn": fn / n,
+        "fp": fp / n,
+        "sens": tp / pos if pos else 0.0,
+        "spec": tn / neg if neg else 0.0,
+        "n": float(n),
+    }
 
 
 def compute_curve(
@@ -275,7 +290,8 @@ def render_error_curves(
     suptitle = (
         f"Uncertainty → error capture  |  measure={measure}  "
         f"threshold={threshold}  N={cache.n_images}\n"
-        f"aggregate: accuracy={agg['acc']:.1%}  missed/FN={agg['fn']:.1%}  "
+        f"aggregate: accuracy={agg['acc']:.1%}  sensitivity={agg['sens']:.1%}  "
+        f"specificity={agg['spec']:.1%}  |  missed/FN={agg['fn']:.1%}  "
         f"false-alarm/FP={agg['fp']:.1%}"
     )
     if title_extra:
@@ -389,8 +405,8 @@ def render_per_pathology(
         ax.plot(cr.x, cr.random, color="gray", ls=":", lw=1.2)
         ax.plot(cr.x, cr.actual, color="green", lw=1.7)
         ax.set_title(
-            f"{name}  acc={dec['acc']:.0%} FN={dec['fn']:.1%} FP={dec['fp']:.0%}\n"
-            f"AUROC={cr.auroc:.2f} skill={cr.skill:.2f} (E={cr.n_errors}/{cr.n_units})",
+            f"{name}  acc={dec['acc']:.0%} sens={dec['sens']:.0%} spec={dec['spec']:.0%}\n"
+            f"FN={dec['fn']:.1%} FP={dec['fp']:.0%}  AUROC={cr.auroc:.2f} skill={cr.skill:.2f}",
             fontsize=8,
         )
         ax.tick_params(labelsize=6)
@@ -403,6 +419,8 @@ def render_per_pathology(
             "accuracy": dec["acc"],
             "fn_rate": dec["fn"],
             "fp_rate": dec["fp"],
+            "sensitivity": dec["sens"],
+            "specificity": dec["spec"],
         }
     for j in range(n, nrows * ncols):  # hide unused cells
         axes[j // ncols][j % ncols].set_visible(False)
