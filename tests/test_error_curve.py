@@ -7,7 +7,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from hai_sim.analysis.error_curve import _auroc, compute_curve, render_error_curves
+from hai_sim.analysis.error_curve import (
+    _auroc,
+    compute_curve,
+    per_pathology_curves,
+    render_error_curves,
+    render_per_pathology,
+)
 from hai_sim.analysis.inference_cache import InferenceCache
 from hai_sim.core.types import LabelSchema
 
@@ -93,3 +99,20 @@ def test_render_produces_png_and_summary(tmp_path: Path) -> None:
     }
     for panel in summary.values():
         assert "skill" in panel and "auroc" in panel
+
+
+def test_per_pathology_skips_unannotated(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    cache = _synthetic_cache()
+    cache.ground_truth[:, 14:] = -1  # last 4 columns unannotated (like NIH)
+
+    res = per_pathology_curves(cache, error_type="any")
+    names = LabelSchema.xrv().labels
+    assert len(res) <= 14
+    for name in names[14:]:  # unannotated labels are skipped
+        assert name not in res
+
+    out = tmp_path / "pp.png"
+    summary = render_per_pathology(cache, out, error_type="fn")
+    assert out.exists() and out.with_suffix(".json").exists()
+    assert set(summary) == set(res)  # same annotated labels, any error type

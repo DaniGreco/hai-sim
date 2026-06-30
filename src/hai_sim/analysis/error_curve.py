@@ -206,7 +206,7 @@ def render_error_curves(
     unc_ent, errs_ent = _units_per_entry(cache, measure, threshold)
     rows: list[tuple[Mode, np.ndarray, dict[ErrorType, np.ndarray], str]] = [
         ("image", unc_img, errs_img, f"per-image (multi-label, agg={aggregator})"),
-        ("entry", unc_ent, errs_ent, "per-entry (single-label)"),
+        ("entry", unc_ent, errs_ent, "per-entry (all labels pooled)"),
     ]
     cols: list[tuple[ErrorType, str]] = [
         ("any", "any error"),
@@ -270,6 +270,124 @@ def render_error_curves(
                 "aggregator": aggregator,
                 "n_images": cache.n_images,
                 "panels": summary,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return summary
+
+
+def per_pathology_curves(
+    cache: InferenceCache,
+    *,
+    measure: str = "mutual_information",
+    threshold: float = 0.5,
+    error_type: ErrorType = "any",
+) -> dict[str, CurveResult]:
+    """One error-capture curve per annotated pathology (label kept separate).
+
+    Unlike the pooled per-entry view, each label is scored on its own entries, so
+    pathologies with very different prevalence / uncertainty scale don't mix.
+    Labels no member annotates (all ground truth -1, e.g. the non-NIH columns) are
+    skipped. Pooling all labels would let the most frequent / highest-uncertainty
+    pathology dominate the ranking — this separates where the UQ works from where
+    it doesn't.
+    """
+    m = measures_from_cache(cache.member_probs)
+    unc = np.nan_to_num(m[_resolve_measure(measure)], nan=0.0)
+    mean_p = np.nan_to_num(m["mean_p"], nan=0.0)
+    pred = (mean_p >= threshold).astype(np.int8)
+    gt = cache.ground_truth
+
+    results: dict[str, CurveResult] = {}
+    for k, name in enumerate(cache.pathologies):
+        valid = gt[:, k] >= 0
+        if not valid.any():
+            continue  # label not annotated by this dataset
+        p = pred[valid, k]
+        g = gt[valid, k]
+        if error_type == "fn":
+            err = (p == 0) & (g == 1)
+        elif error_type == "fp":
+            err = (p == 1) & (g == 0)
+        else:
+            err = p != g
+        results[name] = compute_curve(
+            unc[valid, k],
+            err,
+            error_type=error_type,
+            mode="entry",
+            measure=measure,
+            threshold=threshold,
+        )
+    return results
+
+
+def render_per_pathology(
+    cache: InferenceCache,
+    out_path: str | Path,
+    *,
+    measure: str = "mutual_information",
+    threshold: float = 0.5,
+    error_type: ErrorType = "any",
+    ncols: int = 4,
+) -> dict[str, dict[str, float]]:
+    """Render one small error-capture panel per annotated pathology + summary JSON."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    results = per_pathology_curves(
+        cache, measure=measure, threshold=threshold, error_type=error_type
+    )
+    names = list(results)
+    n = len(names)
+    nrows = max(1, -(-n // ncols))  # ceil
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows), squeeze=False)
+
+    summary: dict[str, dict[str, float]] = {}
+    for i, name in enumerate(names):
+        cr = results[name]
+        ax = axes[i // ncols][i % ncols]
+        ax.plot(cr.x, cr.oracle, color="red", ls="--", lw=1.0)
+        ax.plot(cr.x, cr.random, color="gray", ls=":", lw=1.2)
+        ax.plot(cr.x, cr.actual, color="green", lw=1.7)
+        ax.set_title(
+            f"{name}\nAUROC={cr.auroc:.2f} skill={cr.skill:.2f} (E={cr.n_errors}/{cr.n_units})",
+            fontsize=8,
+        )
+        ax.tick_params(labelsize=6)
+        ax.grid(alpha=0.25)
+        summary[name] = {
+            "skill": cr.skill,
+            "auroc": cr.auroc,
+            "n_errors": float(cr.n_errors),
+            "n_units": float(cr.n_units),
+        }
+    for j in range(n, nrows * ncols):  # hide unused cells
+        axes[j // ncols][j % ncols].set_visible(False)
+
+    fig.suptitle(
+        f"Per-pathology error capture ({error_type})  |  measure={measure}  "
+        f"threshold={threshold}  N={cache.n_images}",
+        fontsize=12,
+    )
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+    out_path.with_suffix(".json").write_text(
+        json.dumps(
+            {
+                "measure": measure,
+                "threshold": threshold,
+                "error_type": error_type,
+                "n_images": cache.n_images,
+                "pathologies": summary,
             },
             indent=2,
         ),
