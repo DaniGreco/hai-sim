@@ -98,6 +98,24 @@ def _auroc(score: np.ndarray, positive: np.ndarray) -> float:
     return (sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
 
 
+def _accuracy_decomposition(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
+    """Accuracy split into the two error rates, over annotated entries (gt in {0,1}).
+
+    Returns ``acc``, ``fn`` (miss rate), ``fp`` (false-alarm rate) and ``n`` with
+    ``acc + fn + fp == 1``: every decision is either correct, a missed positive
+    (false negative), or a false alarm (false positive).
+    """
+    valid = gt >= 0
+    p = pred[valid]
+    g = gt[valid]
+    n = int(p.size)
+    if n == 0:
+        return {"acc": 0.0, "fn": 0.0, "fp": 0.0, "n": 0.0}
+    fp = float(((p == 1) & (g == 0)).sum())
+    fn = float(((p == 0) & (g == 1)).sum())
+    return {"acc": 1.0 - (fp + fn) / n, "fn": fn / n, "fp": fp / n, "n": float(n)}
+
+
 def compute_curve(
     uncertainty: np.ndarray,
     is_error: np.ndarray,
@@ -248,9 +266,17 @@ def render_error_curves(
                 "n_units": float(cr.n_units),
             }
 
+    agg = _accuracy_decomposition(
+        (np.nan_to_num(measures_from_cache(cache.member_probs)["mean_p"], nan=0.0) >= threshold).astype(
+            np.int8
+        ),
+        cache.ground_truth,
+    )
     suptitle = (
         f"Uncertainty → error capture  |  measure={measure}  "
-        f"threshold={threshold}  N={cache.n_images}"
+        f"threshold={threshold}  N={cache.n_images}\n"
+        f"aggregate: accuracy={agg['acc']:.1%}  missed/FN={agg['fn']:.1%}  "
+        f"false-alarm/FP={agg['fp']:.1%}"
     )
     if title_extra:
         suptitle += f"  {title_extra}"
@@ -269,6 +295,7 @@ def render_error_curves(
                 "threshold": threshold,
                 "aggregator": aggregator,
                 "n_images": cache.n_images,
+                "accuracy_aggregate": agg,
                 "panels": summary,
             },
             indent=2,
@@ -347,15 +374,23 @@ def render_per_pathology(
     nrows = max(1, -(-n // ncols))  # ceil
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows), squeeze=False)
 
+    # Per-label accuracy decomposition at the chosen threshold (same for any/fn/fp).
+    mean_p = np.nan_to_num(measures_from_cache(cache.member_probs)["mean_p"], nan=0.0)
+    pred = (mean_p >= threshold).astype(np.int8)
+    path_index = {nm: k for k, nm in enumerate(cache.pathologies)}
+
     summary: dict[str, dict[str, float]] = {}
     for i, name in enumerate(names):
         cr = results[name]
+        k = path_index[name]
+        dec = _accuracy_decomposition(pred[:, k], cache.ground_truth[:, k])
         ax = axes[i // ncols][i % ncols]
         ax.plot(cr.x, cr.oracle, color="red", ls="--", lw=1.0)
         ax.plot(cr.x, cr.random, color="gray", ls=":", lw=1.2)
         ax.plot(cr.x, cr.actual, color="green", lw=1.7)
         ax.set_title(
-            f"{name}\nAUROC={cr.auroc:.2f} skill={cr.skill:.2f} (E={cr.n_errors}/{cr.n_units})",
+            f"{name}  acc={dec['acc']:.0%} FN={dec['fn']:.1%} FP={dec['fp']:.0%}\n"
+            f"AUROC={cr.auroc:.2f} skill={cr.skill:.2f} (E={cr.n_errors}/{cr.n_units})",
             fontsize=8,
         )
         ax.tick_params(labelsize=6)
@@ -365,6 +400,9 @@ def render_per_pathology(
             "auroc": cr.auroc,
             "n_errors": float(cr.n_errors),
             "n_units": float(cr.n_units),
+            "accuracy": dec["acc"],
+            "fn_rate": dec["fn"],
+            "fp_rate": dec["fp"],
         }
     for j in range(n, nrows * ncols):  # hide unused cells
         axes[j // ncols][j % ncols].set_visible(False)
