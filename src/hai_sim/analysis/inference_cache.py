@@ -287,10 +287,16 @@ def measures_from_cache(member_probs: np.ndarray) -> dict[str, np.ndarray]:
         std = np.nanstd(probs, axis=1)
     predictive_entropy = binary_entropy(mean_p)
     mutual_information = np.clip(predictive_entropy - mean_entropy, 0.0, None)
+    # Confidence-based: distance of the mean prob from a confident call. High near
+    # the 0.5 boundary, ~0 near 0/1. Per label it is rank-equivalent to
+    # predictive_entropy (binary entropy is monotone in min(p, 1-p)), so it gives
+    # the same per-pathology AUROC; it differs once aggregated across labels.
+    least_confidence = np.minimum(mean_p, 1.0 - mean_p)
     return {
         "mean_p": mean_p,
         "predictive_entropy": predictive_entropy,
         "mean_entropy": mean_entropy,
         "mutual_information": mutual_information,
         "std": std,
+        "least_confidence": least_confidence,
     }

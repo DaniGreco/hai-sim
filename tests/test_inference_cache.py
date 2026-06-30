@@ -71,6 +71,19 @@ def test_save_is_atomic_no_tmp_left(tmp_path: Path) -> None:
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_least_confidence_present_and_rank_equiv_to_predictive_entropy() -> None:
+    from hai_sim.analysis.error_curve import _rankdata_avg
+
+    cache = _synthetic_cache()
+    m = measures_from_cache(cache.member_probs)
+    assert "least_confidence" in m
+    lc = m["least_confidence"].ravel()
+    pe = m["predictive_entropy"].ravel()
+    assert np.all(lc >= 0) and np.all(lc <= 0.5 + 1e-9)
+    # Both are monotone in min(p, 1-p) → identical per-element ranking.
+    np.testing.assert_allclose(_rankdata_avg(lc), _rankdata_avg(pe))
+
+
 def test_measures_match_ensemble_uq() -> None:
     """measures_from_cache must reproduce EnsembleUQ image by image, measure by measure."""
     cache = _synthetic_cache()
