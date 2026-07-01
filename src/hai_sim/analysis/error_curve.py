@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -220,6 +220,37 @@ def _units_per_entry(
     return unc_vec[valid], errs
 
 
+def _draw_figure_header(
+    fig: Any,
+    *,
+    title: str,
+    params: dict[str, object],
+    stats: str | None = None,
+) -> None:
+    """Shared figure header used by every dashboard figure.
+
+    Bold ``title`` at the top-left, an optional ``stats`` line beneath it, and a
+    monospace ``key = value`` parameter table in a light box at the top-right — so
+    each figure carries the same at-a-glance provenance block. Positions are in
+    figure fractions, so they hold across the different per-figure sizes.
+    """
+    fig.text(0.01, 0.985, title, ha="left", va="top", fontsize=15, fontweight="bold")
+    if stats:
+        fig.text(0.01, 0.945, stats, ha="left", va="top", fontsize=10, color="#555555")
+    width = max((len(k) for k in params), default=0) + 1
+    table = "\n".join(f"{k:<{width}}= {v}" for k, v in params.items())
+    fig.text(
+        0.785,
+        0.99,
+        table,
+        ha="left",
+        va="top",
+        fontfamily="monospace",
+        fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f5f5f5", edgecolor="#bbbbbb"),
+    )
+
+
 def render_error_curves(
     cache: InferenceCache,
     out_path: str | Path,
@@ -238,18 +269,18 @@ def render_error_curves(
     unc_img, errs_img = _units_per_image(cache, measure, threshold, aggregator)
     unc_ent, errs_ent = _units_per_entry(cache, measure, threshold)
     rows: list[tuple[Mode, np.ndarray, dict[ErrorType, np.ndarray], str]] = [
-        ("image", unc_img, errs_img, f"per-image  ·  label→image agg = {aggregator}"),
-        ("entry", unc_ent, errs_ent, "per-entry  ·  no label aggregation"),
+        ("image", unc_img, errs_img, "per-image"),
+        ("entry", unc_ent, errs_ent, "per-entry"),
     ]
     cols: list[tuple[ErrorType, str]] = [
-        ("any", "any error"),
-        ("fn", "false negatives"),
-        ("fp", "false positives"),
+        ("any", "errors"),
+        ("fn", "FN"),
+        ("fp", "FP"),
     ]
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 9), squeeze=False)
+    fig, axes = plt.subplots(2, 3, figsize=(15, 9.5), squeeze=False)
     summary: dict[str, dict[str, float]] = {}
-    for r, (mode, unc, errs, row_title) in enumerate(rows):
+    for r, (mode, unc, errs, view) in enumerate(rows):
         for c, (etype, etitle) in enumerate(cols):
             ax = axes[r][c]
             cr = compute_curve(
@@ -264,10 +295,13 @@ def render_error_curves(
             ax.plot(cr.x, cr.oracle, color="red", ls="--", lw=1.2, label="ideal (oracle)")
             ax.plot(cr.x, cr.random, color="gray", ls=":", lw=1.4, label="random")
             ax.plot(cr.x, cr.actual, color="green", lw=1.9, label="actual")
+            # Panel header split in two anchors: label left, data right.
+            ax.set_title(f"Cumulative {etitle} · {view}", loc="left", fontsize=8.5)
             ax.set_title(
-                f"{row_title} — {etitle}\n"
-                f"skill={cr.skill:.2f}  AUROC={cr.auroc:.2f}  (E={cr.n_errors}/{cr.n_units})",
-                fontsize=9,
+                f"skill {cr.skill:+.2f} · AUROC {cr.auroc:.2f} · E {cr.n_errors}/{cr.n_units}",
+                loc="right",
+                fontsize=7.5,
+                color="dimgray",
             )
             unit = "images" if mode == "image" else "entries"
             ax.set_xlabel(f"{unit} reviewed (decreasing uncertainty →)", fontsize=8)
@@ -287,19 +321,25 @@ def render_error_curves(
         ).astype(np.int8),
         cache.ground_truth,
     )
-    suptitle = (
-        f"Uncertainty → error-capture curves   N={cache.n_images}"
-        f"{('   ' + title_extra) if title_extra else ''}\n"
-        f"member→label:  decision = mean-prob ≥ {threshold}   |   "
-        f"uncertainty = {measure}\n"
-        f"label→image:  {aggregator}  (top row)   ·   per-entry keeps each "
-        f"(image, label) separate (bottom row)\n"
-        f"accuracy={agg['acc']:.1%}  sensitivity={agg['sens']:.1%}  "
-        f"specificity={agg['spec']:.1%}  |  missed/FN={agg['fn']:.1%}  "
-        f"false-alarm/FP={agg['fp']:.1%}"
+    title = "Cumulative errors for a queue sorted by decreasing uncertainty"
+    if title_extra:
+        title += f"   {title_extra}"
+    _draw_figure_header(
+        fig,
+        title=title,
+        params={
+            "model_threshold": f"{threshold:g}",
+            "uncertainty": measure,
+            "choice_criterion": aggregator,
+            "N": cache.n_images,
+        },
+        stats=(
+            f"accuracy {agg['acc']:.1%}   ·   sensitivity {agg['sens']:.1%}   ·   "
+            f"specificity {agg['spec']:.1%}   ·   missed/FN {agg['fn']:.1%}   ·   "
+            f"false-alarm/FP {agg['fp']:.1%}"
+        ),
     )
-    fig.suptitle(suptitle, fontsize=11)
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.885))
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,10 +446,13 @@ def render_per_pathology(
         ax.plot(cr.x, cr.oracle, color="red", ls="--", lw=1.0)
         ax.plot(cr.x, cr.random, color="gray", ls=":", lw=1.2)
         ax.plot(cr.x, cr.actual, color="green", lw=1.7)
+        ax.set_title(name, loc="left", fontsize=8, fontweight="bold")
         ax.set_title(
-            f"{name}  acc={dec['acc']:.0%} sens={dec['sens']:.0%} spec={dec['spec']:.0%}\n"
-            f"FN={dec['fn']:.1%} FP={dec['fp']:.0%}  AUROC={cr.auroc:.2f} skill={cr.skill:.2f}",
-            fontsize=8,
+            f"FN {dec['fn']:.1%} · FP {dec['fp']:.0%} · AUROC {cr.auroc:.2f} · skill {cr.skill:+.2f}\n"
+            f"acc {dec['acc']:.0%} · sens {dec['sens']:.0%} · spec {dec['spec']:.0%}",
+            loc="right",
+            fontsize=6.5,
+            color="dimgray",
         )
         ax.tick_params(labelsize=6)
         ax.grid(alpha=0.25)
@@ -427,13 +470,19 @@ def render_per_pathology(
     for j in range(n, nrows * ncols):  # hide unused cells
         axes[j // ncols][j % ncols].set_visible(False)
 
-    fig.suptitle(
-        f"Per-pathology error capture ({error_type})   N={cache.n_images}\n"
-        f"member→label:  decision = mean-prob ≥ {threshold}   |   "
-        f"uncertainty = {measure}   ·   one label per panel (no label aggregation)",
-        fontsize=11,
+    etitle = {"any": "errors", "fn": "FN", "fp": "FP"}[error_type]
+    _draw_figure_header(
+        fig,
+        title=f"Per-pathology cumulative {etitle} for a queue sorted by decreasing uncertainty",
+        params={
+            "model_threshold": f"{threshold:g}",
+            "uncertainty": measure,
+            "error_type": error_type,
+            "N": cache.n_images,
+        },
+        stats="one label per panel  ·  no label aggregation  ·  each scored on its own entries",
     )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0 - 1.2 / (3 * nrows)))
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120)
