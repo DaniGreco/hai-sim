@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             return
         from hai_sim.analysis.error_curve import render_dashboard
 
-        tag = "final" if final else f"N={cache.n_images}/{target_total}"
+        tag = "final" if final else f"{cache.n_images}/{target_total}"
         render_dashboard(cache, args.plot_dir, measure=args.measure, title_extra=f"[{tag}]")
 
     def on_checkpoint(cache: InferenceCache) -> None:

@@ -238,8 +238,8 @@ def render_error_curves(
     unc_img, errs_img = _units_per_image(cache, measure, threshold, aggregator)
     unc_ent, errs_ent = _units_per_entry(cache, measure, threshold)
     rows: list[tuple[Mode, np.ndarray, dict[ErrorType, np.ndarray], str]] = [
-        ("image", unc_img, errs_img, f"per-image (multi-label, agg={aggregator})"),
-        ("entry", unc_ent, errs_ent, "per-entry (all labels pooled)"),
+        ("image", unc_img, errs_img, f"per-image  ·  label→image agg = {aggregator}"),
+        ("entry", unc_ent, errs_ent, "per-entry  ·  no label aggregation"),
     ]
     cols: list[tuple[ErrorType, str]] = [
         ("any", "any error"),
@@ -282,22 +282,24 @@ def render_error_curves(
             }
 
     agg = _accuracy_decomposition(
-        (np.nan_to_num(measures_from_cache(cache.member_probs)["mean_p"], nan=0.0) >= threshold).astype(
-            np.int8
-        ),
+        (
+            np.nan_to_num(measures_from_cache(cache.member_probs)["mean_p"], nan=0.0) >= threshold
+        ).astype(np.int8),
         cache.ground_truth,
     )
     suptitle = (
-        f"Uncertainty → error capture  |  measure={measure}  "
-        f"threshold={threshold}  N={cache.n_images}\n"
-        f"aggregate: accuracy={agg['acc']:.1%}  sensitivity={agg['sens']:.1%}  "
+        f"Uncertainty → error-capture curves   N={cache.n_images}"
+        f"{('   ' + title_extra) if title_extra else ''}\n"
+        f"member→label:  decision = mean-prob ≥ {threshold}   |   "
+        f"uncertainty = {measure}\n"
+        f"label→image:  {aggregator}  (top row)   ·   per-entry keeps each "
+        f"(image, label) separate (bottom row)\n"
+        f"accuracy={agg['acc']:.1%}  sensitivity={agg['sens']:.1%}  "
         f"specificity={agg['spec']:.1%}  |  missed/FN={agg['fn']:.1%}  "
         f"false-alarm/FP={agg['fp']:.1%}"
     )
-    if title_extra:
-        suptitle += f"  {title_extra}"
-    fig.suptitle(suptitle, fontsize=12)
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+    fig.suptitle(suptitle, fontsize=11)
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.93))
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -426,11 +428,12 @@ def render_per_pathology(
         axes[j // ncols][j % ncols].set_visible(False)
 
     fig.suptitle(
-        f"Per-pathology error capture ({error_type})  |  measure={measure}  "
-        f"threshold={threshold}  N={cache.n_images}",
-        fontsize=12,
+        f"Per-pathology error capture ({error_type})   N={cache.n_images}\n"
+        f"member→label:  decision = mean-prob ≥ {threshold}   |   "
+        f"uncertainty = {measure}   ·   one label per panel (no label aggregation)",
+        fontsize=11,
     )
-    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120)
