@@ -470,6 +470,12 @@ def render_per_pathology(
     for j in range(n, nrows * ncols):  # hide unused cells
         axes[j // ncols][j % ncols].set_visible(False)
 
+    gt = cache.ground_truth
+    valid = gt >= 0
+    tn = int(((pred == 0) & (gt == 0) & valid).sum())
+    fp = int(((pred == 1) & (gt == 0) & valid).sum())
+    tp = int(((pred == 1) & (gt == 1) & valid).sum())
+    fn = int(((pred == 0) & (gt == 1) & valid).sum())
     etitle = {"any": "errors", "fn": "FN", "fp": "FP"}[error_type]
     _draw_figure_header(
         fig,
@@ -480,7 +486,10 @@ def render_per_pathology(
             "error_type": error_type,
             "N": cache.n_images,
         },
-        stats="one label per panel  ·  no label aggregation  ·  each scored on its own entries",
+        stats=(
+            "one label per panel  ·  each scored on its own entries\n"
+            f"TN {tn}  ·  FP {fp}  ·  TP {tp}  ·  FN {fn}   (all labels pooled)"
+        ),
     )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0 - 1.2 / (3 * nrows)))
     out_path = Path(out_path)
