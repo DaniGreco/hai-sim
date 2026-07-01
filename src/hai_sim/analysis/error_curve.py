@@ -251,17 +251,18 @@ def _draw_figure_header(
     )
 
 
-def _end_xaxis_at(ax: Any, k: int) -> None:
-    """End the x-axis exactly at the last unit ``k`` and label that real value.
+def _frame_axes(ax: Any, k: int) -> None:
+    """Anchor both axes to the origin so the curves sit in the corner, not floating.
 
-    Matplotlib auto-scales to a round number (e.g. 60000); this pins the right edge
-    to the actual unit count and adds it as the rightmost tick, dropping any auto
-    tick in the last ~8% so the two labels don't collide.
+    The x-axis runs ``0..k`` (the real unit count, e.g. 4230 / 59220) with ``k`` added
+    as the rightmost tick — dropping any auto tick in the last ~8% so the labels don't
+    collide — instead of matplotlib's rounded-up limit; the y-axis starts at 0.
     """
     ax.set_xlim(0, k)
     ticks = [float(t) for t in ax.get_xticks() if 0 <= t < k * 0.92]
     ax.set_xticks([*ticks, k])
     ax.set_xlim(0, k)
+    ax.set_ylim(bottom=0)
 
 
 def render_error_curves(
@@ -321,7 +322,7 @@ def render_error_curves(
             ax.set_ylabel("cumulative errors", fontsize=8)
             ax.legend(fontsize=7, loc="lower right")
             ax.grid(alpha=0.25)
-            _end_xaxis_at(ax, cr.n_units)
+            _frame_axes(ax, cr.n_units)
             summary[f"{mode}/{etype}"] = {
                 "skill": cr.skill,
                 "auroc": cr.auroc,
@@ -470,7 +471,7 @@ def render_per_pathology(
         )
         ax.tick_params(labelsize=6)
         ax.grid(alpha=0.25)
-        _end_xaxis_at(ax, cr.n_units)
+        _frame_axes(ax, cr.n_units)
         summary[name] = {
             "skill": cr.skill,
             "auroc": cr.auroc,
