@@ -14,7 +14,7 @@ mirrors what each figure actually depends on:
   ``tta`` later live in sibling folders with their own caches).
 - ``--measure``    = **member->label** uncertainty: predictive_entropy / mean_entropy /
   mutual_information / std / least_confidence. The decision uses the members' mean prob.
-- ``--aggregator`` = **label->image** choice criterion for the per-image error_curves
+- ``--aggregator`` = **label->image** grouping criterion for the per-image error_curves
   (mean / max). It does NOT affect the per-pathology figures (each label kept separate),
   which is why those sit outside the ``mean/`` and ``max/`` subdirs.
 - ``--threshold``  = decision cut on the mean probability.
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(
         f"dashboard rendered  N={cache.n_images}  ->  {base}/\n"
-        f"  error_curves (choice_criterion={args.aggregator})  -> {base / args.aggregator}/error_curves.png\n"
+        f"  error_curves (grouping_criterion={args.aggregator})  -> {base / args.aggregator}/error_curves.png\n"
         f"  per_pathology_any/fn/fp (label-split, aggregator-independent) -> {base}/\n"
         f"  member->label uncertainty : {args.measure}  (decision = mean-prob >= {args.threshold})"
     )

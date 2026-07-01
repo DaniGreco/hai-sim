@@ -240,7 +240,7 @@ def _draw_figure_header(
     width = max((len(k) for k in params), default=0) + 1
     table = "\n".join(f"{k:<{width}}= {v}" for k, v in params.items())
     fig.text(
-        0.785,
+        0.75,
         0.99,
         table,
         ha="left",
@@ -330,7 +330,7 @@ def render_error_curves(
         params={
             "model_threshold": f"{threshold:g}",
             "uncertainty": measure,
-            "choice_criterion": aggregator,
+            "grouping_criterion": aggregator,
             "N": cache.n_images,
         },
         stats=(
