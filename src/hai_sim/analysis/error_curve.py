@@ -476,6 +476,7 @@ def render_per_pathology(
     fp = int(((pred == 1) & (gt == 0) & valid).sum())
     tp = int(((pred == 1) & (gt == 1) & valid).sum())
     fn = int(((pred == 0) & (gt == 1) & valid).sum())
+    tot = tn + fp + tp + fn or 1  # total annotated entries (guard against 0)
     etitle = {"any": "errors", "fn": "FN", "fp": "FP"}[error_type]
     _draw_figure_header(
         fig,
@@ -488,7 +489,8 @@ def render_per_pathology(
         },
         stats=(
             "one label per panel  ·  each scored on its own entries\n"
-            f"TN {tn}  ·  FP {fp}  ·  TP {tp}  ·  FN {fn}   (all labels pooled)"
+            f"TN {tn} ({tn / tot:.1%})  ·  FP {fp} ({fp / tot:.1%})  ·  "
+            f"TP {tp} ({tp / tot:.1%})  ·  FN {fn} ({fn / tot:.1%})   (all labels pooled)"
         ),
     )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0 - 1.2 / (3 * nrows)))
