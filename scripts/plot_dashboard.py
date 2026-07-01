@@ -10,8 +10,8 @@ mirrors what each figure actually depends on:
     |-- per_pathology_fn.png                     (kept once, parallel to mean/ and max/)
     `-- per_pathology_fp.png
 
-- ``--family``     = UQ source, the top partition (``ensemble`` now; ``mc_dropout`` /
-  ``tta`` later live in sibling folders with their own caches).
+- ``--family``     = UQ source, the top partition (**required**; ``ensemble`` now;
+  ``mc_dropout`` / ``tta`` later live in sibling folders with their own caches).
 - ``--measure``    = **member->label** uncertainty: predictive_entropy / mean_entropy /
   mutual_information / std / least_confidence. The decision uses the members' mean prob.
 - ``--aggregator`` = **label->image** grouping criterion for the per-image error_curves
@@ -20,7 +20,7 @@ mirrors what each figure actually depends on:
 - ``--threshold``  = decision cut on the mean probability.
 
     uv run python scripts/plot_dashboard.py --cache data/cache/nih_ensemble \
-        --measure mean_entropy --aggregator max --threshold 0.5
+        --family ensemble --measure mean_entropy --aggregator max --threshold 0.5
     # -> out/analysis/ensemble/mean_entropy/thr0.5/max/error_curves.png
     #    out/analysis/ensemble/mean_entropy/thr0.5/per_pathology_{any,fn,fp}.png
 """
@@ -49,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         "--cache", required=True, help="cache stem (no extension), e.g. data/cache/nih_ensemble"
     )
     p.add_argument(
-        "--family", default="ensemble", help="UQ source folder (ensemble / mc_dropout / tta)"
+        "--family",
+        required=True,
+        help="UQ source folder, top partition (ensemble / mc_dropout / tta)",
     )
     p.add_argument("--measure", default="predictive_entropy", choices=MEASURES)
     p.add_argument("--threshold", type=float, default=0.5)
