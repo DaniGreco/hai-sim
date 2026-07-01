@@ -66,6 +66,11 @@ class PatientGenConfig(_Strict):
     imgpath: str | None = None
     csvpath: str | None = None
     sample_mode: Literal["sequential", "random"] = "sequential"
+    # View filtering (applied for dataset=nih). Default ("PA",) matches xrv's own
+    # default; use ("PA", "AP") to include antero-posterior (portable/ICU) frontals.
+    views: tuple[str, ...] = ("PA",)
+    # Keep one image per patient (xrv default) → statistically independent samples.
+    unique_patients: bool = True
 
 
 class ScenarioConfig(_Strict):

@@ -35,6 +35,10 @@ models = [
     "scikit-image>=0.22",
     "kagglehub>=0.3",
 ]
+# Offline analysis / plotting (inference cache → error-capture curves).
+analysis = [
+    "matplotlib>=3.8",
+]
 
 [project.scripts]
 hai-sim = "hai_sim.cli:main"
@@ -72,5 +76,6 @@ module = [
     "torchxrayvision.*",
     "skimage.*",
     "kagglehub.*",
+    "matplotlib.*",
 ]
 ignore_missing_imports = true

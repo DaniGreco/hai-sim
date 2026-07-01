@@ -145,6 +145,37 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         img = self._transform(img)
         return np.asarray(img, dtype=np.float32)
 
+    def member_probabilities_batch(self, images: Sequence[Image]) -> np.ndarray:
+        """Raw per-member positive-class probabilities for a batch of images.
+
+        Returns an array of shape ``(n_images, n_members, n_labels)``. Entry
+        ``[i, m, k]`` is member ``m``'s ``P(label_k = 1 | image_i)``, or ``NaN``
+        where member ``m`` was not trained on pathology ``k`` (xrv blanks those
+        slots). This is the inference output *before* any UQ reduction: cache it
+        to recover every UQ measure / threshold / aggregation offline without
+        re-running the model. Batching amortizes Python overhead across images.
+        """
+        torch = self._torch
+        if len(images) == 0:
+            return np.empty((0, len(self._models), self.schema.n), dtype=np.float64)
+        # _to_model_input yields (1, 224, 224); stack to (B, 1, 224, 224).
+        batch = np.stack([self._to_model_input(im) for im in images])
+        tensor = torch.from_numpy(batch).to(self.device)
+        n = len(images)
+        # NaN marks "this member does not cover this pathology" → nan-aware UQ.
+        member_probs = np.full((n, len(self._models), self.schema.n), np.nan, dtype=np.float64)
+        with torch.no_grad():
+            for m, model in enumerate(self._models):
+                out = model(tensor)  # xrv DenseNet returns sigmoid probabilities, (B, n_labels)
+                vals = out.detach().cpu().numpy()
+                mask = self._member_masks[m]
+                member_probs[:, m, mask] = vals[:, mask]
+        return member_probs
+
+    def member_probabilities(self, image: Image) -> np.ndarray:
+        """Single-image convenience wrapper. Returns ``(n_members, n_labels)``."""
+        return np.asarray(self.member_probabilities_batch([image])[0])
+
     def diagnose(
         self,
         images: Sequence[Image],
@@ -152,19 +183,7 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         context: PatientContext | None = None,
         ai_hint: ModelOutput | None = None,
     ) -> ModelOutput:
-        torch = self._torch
-        model_input = self._to_model_input(images[0])
-        tensor = torch.from_numpy(model_input)[None, ...].to(self.device)  # (1,1,224,224)
-
-        # NaN marks "this member does not cover this pathology" → nan-aware UQ.
-        member_probs = np.full((len(self._models), self.schema.n), np.nan, dtype=np.float64)
-        with torch.no_grad():
-            for m, model in enumerate(self._models):
-                out = model(tensor)  # xrv DenseNet returns sigmoid probabilities
-                vals = out[0].detach().cpu().numpy()
-                mask = self._member_masks[m]
-                member_probs[m, mask] = vals[mask]
-
+        member_probs = self.member_probabilities(images[0])
         probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
         # A pathology no member covers comes back NaN → emit a benign negative.
         probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
