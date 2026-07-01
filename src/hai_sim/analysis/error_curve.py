@@ -506,7 +506,7 @@ def render_per_pathology(
 
 def render_dashboard(
     cache: InferenceCache,
-    out_dir: str | Path,
+    base_dir: str | Path,
     *,
     measure: str = "predictive_entropy",
     threshold: float = 0.5,
@@ -514,19 +514,22 @@ def render_dashboard(
     title_extra: str = "",
     per_pathology_error_types: tuple[ErrorType, ...] = ("any", "fn", "fp"),
 ) -> None:
-    """Render the parametric figure set for one UQ ``measure`` into ``out_dir``.
+    """Render the figure set for one ``(measure, threshold)`` into ``base_dir``.
 
-    Writes (overwriting each time, so the cache builder / a manual call refreshes
-    them as the cache grows):
+    The output layout mirrors each figure's real dependencies (overwriting each
+    time, so the cache builder or a manual call refreshes them as the cache grows):
 
-    - ``error_curves.png``         — main 2x3 (image/entry x any/fn/fp) with ``measure``
-    - ``per_pathology_<et>.png``   — one panel per pathology, for each ``et`` in
-      ``per_pathology_error_types`` (default any / fn / fp)
+    - ``<aggregator>/error_curves.png`` — the per-image view depends on the
+      label→image choice criterion, so it lives in its own ``mean/`` or ``max/``
+      subdir.
+    - ``per_pathology_<et>.png`` — each label is kept separate (no label
+      aggregation), so it does NOT depend on the aggregator and sits once, parallel
+      to the aggregator subdirs, for each ``et`` in ``per_pathology_error_types``.
     """
-    out_dir = Path(out_dir)
+    base = Path(base_dir)
     render_error_curves(
         cache,
-        out_dir / "error_curves.png",
+        base / aggregator / "error_curves.png",
         measure=measure,
         threshold=threshold,
         aggregator=aggregator,
@@ -535,7 +538,7 @@ def render_dashboard(
     for error_type in per_pathology_error_types:
         render_per_pathology(
             cache,
-            out_dir / f"per_pathology_{error_type}.png",
+            base / f"per_pathology_{error_type}.png",
             measure=measure,
             threshold=threshold,
             error_type=error_type,

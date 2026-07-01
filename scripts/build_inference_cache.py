@@ -89,8 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     # Composition signature: dataset indices are only meaningful for this exact
     # filtering, so a differently-filtered cache must never be resumed into.
     fingerprint = (
-        f"{pg.dataset}|views={','.join(pg.views)}|"
-        f"unique={pg.unique_patients}|ndata={len(dataset)}"
+        f"{pg.dataset}|views={','.join(pg.views)}|unique={pg.unique_patients}|ndata={len(dataset)}"
     )
 
     # Resume: reuse a compatible cache at the same stem unless --fresh was passed.
@@ -128,7 +127,10 @@ def main(argv: list[str] | None = None) -> int:
         from hai_sim.analysis.error_curve import render_dashboard
 
         tag = "final" if final else f"{cache.n_images}/{target_total}"
-        render_dashboard(cache, args.plot_dir, measure=args.measure, title_extra=f"[{tag}]")
+        # Primary snapshot lands in the same layout as plot_dashboard.py: this builder
+        # produces the cross-domain ensemble cache at the default threshold / aggregator.
+        base = Path(args.plot_dir) / "ensemble" / args.measure / "thr0.5"
+        render_dashboard(cache, base, measure=args.measure, title_extra=f"[{tag}]")
 
     def on_checkpoint(cache: InferenceCache) -> None:
         cache.save(out_stem)
@@ -159,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         f"DONE {cache.n_images} images in {elapsed:.1f}s wall  "
         f"({mean_infer:.3f}s/img model inference)\n"
         f"  cache   -> {out_stem}.npz (+ .json manifest)\n"
-        f"  figures -> {args.plot_dir}/ (error_curves*.png, per_pathology_*.png)",
+        f"  figures -> {args.plot_dir}/ensemble/{args.measure}/thr0.5/ "
+        f"(mean/error_curves.png, per_pathology_*.png)",
         flush=True,
     )
     return 0
