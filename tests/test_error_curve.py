@@ -50,9 +50,7 @@ def test_actual_is_monotone_and_ends_at_total() -> None:
     rng = np.random.default_rng(0)
     unc = rng.random(50)
     err = rng.random(50) < 0.3
-    cr = compute_curve(
-        unc, err, error_type="any", mode="entry", measure="std", threshold=0.5
-    )
+    cr = compute_curve(unc, err, error_type="any", mode="entry", measure="std", threshold=0.5)
     assert np.all(np.diff(cr.actual) >= 0)  # non-decreasing
     assert cr.actual[-1] == cr.n_errors
     assert cr.random[-1] == pytest.approx(cr.n_errors)
@@ -60,7 +58,9 @@ def test_actual_is_monotone_and_ends_at_total() -> None:
 
 def test_auroc_ties_average_to_half() -> None:
     # All scores equal → no discrimination → AUROC 0.5.
-    assert _auroc(np.array([0.5, 0.5, 0.5, 0.5]), np.array([1, 1, 0, 0], dtype=bool)) == pytest.approx(0.5)
+    assert _auroc(
+        np.array([0.5, 0.5, 0.5, 0.5]), np.array([1, 1, 0, 0], dtype=bool)
+    ) == pytest.approx(0.5)
 
 
 def test_auroc_degenerate_is_nan() -> None:
@@ -95,7 +95,12 @@ def test_render_produces_png_and_summary(tmp_path: Path) -> None:
     assert out.with_suffix(".json").exists()
     # 2 modes x 3 error types = 6 panels.
     assert set(summary) == {
-        "image/any", "image/fn", "image/fp", "entry/any", "entry/fn", "entry/fp",
+        "image/any",
+        "image/fn",
+        "image/fp",
+        "entry/any",
+        "entry/fn",
+        "entry/fp",
     }
     for panel in summary.values():
         assert "skill" in panel and "auroc" in panel
@@ -122,9 +127,10 @@ def test_render_dashboard_writes_the_set(tmp_path: Path) -> None:
     pytest.importorskip("matplotlib")
     from hai_sim.analysis.error_curve import render_dashboard
 
-    render_dashboard(_synthetic_cache(), tmp_path, measure="predictive_entropy")
+    render_dashboard(_synthetic_cache(), tmp_path, measure="predictive_entropy", aggregator="mean")
+    # error_curves lives under the aggregator subdir; per-pathology is parallel to it.
+    assert (tmp_path / "mean" / "error_curves.png").exists()
     for fname in (
-        "error_curves.png",
         "per_pathology_any.png",
         "per_pathology_fn.png",
         "per_pathology_fp.png",

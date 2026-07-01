@@ -240,7 +240,7 @@ def _draw_figure_header(
     width = max((len(k) for k in params), default=0) + 1
     table = "\n".join(f"{k:<{width}}= {v}" for k, v in params.items())
     fig.text(
-        0.785,
+        0.75,
         0.99,
         table,
         ha="left",
@@ -330,7 +330,7 @@ def render_error_curves(
         params={
             "model_threshold": f"{threshold:g}",
             "uncertainty": measure,
-            "choice_criterion": aggregator,
+            "grouping_criterion": aggregator,
             "N": cache.n_images,
         },
         stats=(
@@ -470,6 +470,13 @@ def render_per_pathology(
     for j in range(n, nrows * ncols):  # hide unused cells
         axes[j // ncols][j % ncols].set_visible(False)
 
+    gt = cache.ground_truth
+    valid = gt >= 0
+    tn = int(((pred == 0) & (gt == 0) & valid).sum())
+    fp = int(((pred == 1) & (gt == 0) & valid).sum())
+    tp = int(((pred == 1) & (gt == 1) & valid).sum())
+    fn = int(((pred == 0) & (gt == 1) & valid).sum())
+    tot = tn + fp + tp + fn or 1  # total annotated entries (guard against 0)
     etitle = {"any": "errors", "fn": "FN", "fp": "FP"}[error_type]
     _draw_figure_header(
         fig,
@@ -480,7 +487,11 @@ def render_per_pathology(
             "error_type": error_type,
             "N": cache.n_images,
         },
-        stats="one label per panel  ·  no label aggregation  ·  each scored on its own entries",
+        stats=(
+            "one label per panel  ·  each scored on its own entries\n"
+            f"TN {tn} ({tn / tot:.1%})  ·  FP {fp} ({fp / tot:.1%})  ·  "
+            f"TP {tp} ({tp / tot:.1%})  ·  FN {fn} ({fn / tot:.1%})   (all labels pooled)"
+        ),
     )
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 1.0 - 1.2 / (3 * nrows)))
     out_path = Path(out_path)
@@ -506,7 +517,7 @@ def render_per_pathology(
 
 def render_dashboard(
     cache: InferenceCache,
-    out_dir: str | Path,
+    base_dir: str | Path,
     *,
     measure: str = "predictive_entropy",
     threshold: float = 0.5,
@@ -514,19 +525,22 @@ def render_dashboard(
     title_extra: str = "",
     per_pathology_error_types: tuple[ErrorType, ...] = ("any", "fn", "fp"),
 ) -> None:
-    """Render the parametric figure set for one UQ ``measure`` into ``out_dir``.
+    """Render the figure set for one ``(measure, threshold)`` into ``base_dir``.
 
-    Writes (overwriting each time, so the cache builder / a manual call refreshes
-    them as the cache grows):
+    The output layout mirrors each figure's real dependencies (overwriting each
+    time, so the cache builder or a manual call refreshes them as the cache grows):
 
-    - ``error_curves.png``         — main 2x3 (image/entry x any/fn/fp) with ``measure``
-    - ``per_pathology_<et>.png``   — one panel per pathology, for each ``et`` in
-      ``per_pathology_error_types`` (default any / fn / fp)
+    - ``<aggregator>/error_curves.png`` — the per-image view depends on the
+      label→image choice criterion, so it lives in its own ``mean/`` or ``max/``
+      subdir.
+    - ``per_pathology_<et>.png`` — each label is kept separate (no label
+      aggregation), so it does NOT depend on the aggregator and sits once, parallel
+      to the aggregator subdirs, for each ``et`` in ``per_pathology_error_types``.
     """
-    out_dir = Path(out_dir)
+    base = Path(base_dir)
     render_error_curves(
         cache,
-        out_dir / "error_curves.png",
+        base / aggregator / "error_curves.png",
         measure=measure,
         threshold=threshold,
         aggregator=aggregator,
@@ -535,7 +549,7 @@ def render_dashboard(
     for error_type in per_pathology_error_types:
         render_per_pathology(
             cache,
-            out_dir / f"per_pathology_{error_type}.png",
+            base / f"per_pathology_{error_type}.png",
             measure=measure,
             threshold=threshold,
             error_type=error_type,
