@@ -176,6 +176,20 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         """Single-image convenience wrapper. Returns ``(n_members, n_labels)``."""
         return np.asarray(self.member_probabilities_batch([image])[0])
 
+    @property
+    def members(self) -> list[Any]:
+        """The loaded ensemble member torch modules, in weight-list order.
+
+        Exposed for explainability tooling (e.g. Grad-CAM) that needs the raw
+        modules; inference itself goes through `member_probabilities_batch`.
+        """
+        return self._models
+
+    @property
+    def member_masks(self) -> list[np.ndarray]:
+        """Per-member boolean coverage over schema labels (True = member trained on it)."""
+        return self._member_masks
+
     def diagnose(
         self,
         images: Sequence[Image],
