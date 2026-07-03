@@ -1,0 +1,34 @@
+# Localization + label validation of a SINGLE NIH DenseNet against ChestX-Det
+# expert ground truth (polygons + labels by 3 radiologists on NIH images).
+# Fast baseline / smoke: one weight set, one forward+backward per finding.
+#
+# Prereq: uv run python scripts/download_chestxdet.py   (test split, ~212 MB)
+# Run (Windows: set PYTHONUTF8=1 first, from the repo root):
+#   uv run python -m hai_sim.cli validate configs/examples/val_chestxdet_nih.yaml
+
+name: val_chestxdet_nih
+seed: 0
+label_schema: xrv
+
+dataset:
+  kind: chestxdet
+  annotation_path: data/chestxdet/ChestX_Det_test.json
+  image_dir: data/chestxdet/test
+  resize: 224
+
+ai:
+  kind: torchxrv
+  weights: densenet121-res224-nih
+  uq: entropy
+  decision_threshold: 0.5
+
+saliency: grad_cam
+
+metrics:
+  pointing_game: true
+  pointing_tolerance: 16   # ~half a 7x7 CAM cell on a 224 image (0 = strict exact pixel)
+  energy_in_mask: true
+  iou_thresholds: [0.5]
+  dice_thresholds: [0.5]
+
+limit: 0   # 0 = all test images

@@ -127,6 +127,101 @@ def _fmt(v: object) -> str:
     return str(v)
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    from hai_sim.config.scenario import load_validation_scenario
+    from hai_sim.factory import build_validation
+
+    scenario_path = Path(args.scenario)
+    if not scenario_path.exists():
+        console.print(f"[red]scenario not found: {scenario_path}[/red]")
+        return 2
+    scenario = load_validation_scenario(scenario_path)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _schema, dataset, validator = build_validation(scenario)
+    n_total = len(dataset)
+    limit = args.limit if args.limit is not None else scenario.limit
+    indices = list(range(n_total))
+    if limit and limit > 0:
+        indices = indices[:limit]
+
+    console.print(
+        f"[bold]validation[/bold]: {scenario.name}  model={validator.actor.name}  "
+        f"dataset={dataset.name} (n={len(indices)}/{n_total})  saliency={scenario.saliency}"
+    )
+    records_path = out_dir / f"{scenario.name}_records.json"
+
+    def progress(done: int, total: int) -> None:
+        step = max(1, total // 20)
+        if done % step == 0 or done == total:
+            console.print(f"  processed {done}/{total}", highlight=False)
+
+    t0 = time.time()
+    report = validator.run(
+        indices=indices,
+        records_path=records_path,
+        checkpoint_every=args.checkpoint_every,
+        progress=progress,
+    )
+    wall = time.time() - t0
+
+    report_path = out_dir / f"{scenario.name}_report.json"
+    report_path.write_text(json.dumps(report.to_dict(), indent=2, default=str), encoding="utf-8")
+    _print_validation(scenario.name, report)
+    console.print(f"[green]report  -> {report_path}[/green]")
+    console.print(f"[green]records -> {records_path}[/green]  ({wall:.1f}s)")
+    return 0
+
+
+def _fmt_agg(agg: object) -> str:
+    mean = getattr(agg, "mean", None)
+    if mean is None:
+        return "-"
+    return f"{mean:.3f} (n={getattr(agg, 'n_valid', 0)})"
+
+
+def _print_validation(name: str, report) -> None:
+    pooled = report.localization_pooled
+    if pooled and any(m.n_total for m in pooled):
+        metric_names = [m.metric for m in pooled]
+        pp = {m.metric: m for m in report.localization_pooled_predicted}
+        t = Table(title=f"Localization pooled - {name}")
+        t.add_column("metric")
+        t.add_column("all GT-present", justify="right")
+        t.add_column("predicted+ only", justify="right")
+        for m in pooled:
+            t.add_row(m.metric, _fmt_agg(m), _fmt_agg(pp.get(m.metric)))
+        console.print(t)
+
+        per = Table(title="Localization per pathology (mean; n instances)")
+        per.add_column("pathology")
+        for mn in metric_names:
+            per.add_column(mn, justify="right")
+        for path, aggs in report.localization_per_label.items():
+            by = {a.metric: a for a in aggs}
+            per.add_row(path, *[_fmt_agg(by.get(mn)) for mn in metric_names])
+        console.print(per)
+    else:
+        console.print("[yellow]no localization scored (saliency: none or no localized findings)[/yellow]")
+
+    lab = Table(title=f"Labels vs expert GT - {name}")
+    lab.add_column("pathology")
+    lab.add_column("n_pos", justify="right")
+    lab.add_column("n_neg", justify="right")
+    lab.add_column("sens", justify="right")
+    lab.add_column("spec", justify="right")
+    for path, c in report.label_confusion.items():
+        if c.n_pos == 0 and c.n_neg == 0:
+            continue
+        lab.add_row(path, str(c.n_pos), str(c.n_neg), _fmt(c.sensitivity), _fmt(c.specificity))
+    console.print(lab)
+    console.print(
+        f"macro sens={_fmt(report.macro_sensitivity)}  "
+        f"macro spec={_fmt(report.macro_specificity)}"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hai-sim", description="Human-AI sim runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -135,6 +230,19 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("scenario", help="path to scenario YAML")
     run_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
     run_p.set_defaults(func=cmd_run)
+
+    val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
+    val_p.add_argument("scenario", help="path to validation scenario YAML")
+    val_p.add_argument(
+        "--out-dir",
+        default="out/analysis/localization",
+        help="output directory (default: out/analysis/localization/)",
+    )
+    val_p.add_argument("--limit", type=int, default=None, help="cap images (overrides config)")
+    val_p.add_argument(
+        "--checkpoint-every", type=int, default=25, help="persist records every N images"
+    )
+    val_p.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
