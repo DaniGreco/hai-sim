@@ -127,17 +127,49 @@ def _fmt(v: object) -> str:
     return str(v)
 
 
+def _validate_from_cache(args: argparse.Namespace, out_dir: Path) -> int:
+    from hai_sim.analysis.localization.cache import LocalizationCache
+    from hai_sim.analysis.localization.evaluate import evaluate_from_cache
+
+    cache = LocalizationCache.load(args.from_cache)
+    report = evaluate_from_cache(
+        cache,
+        threshold=args.threshold,
+        member_aggregation=args.aggregation,
+        split=args.split,
+        model_name="+".join(cache.weights),
+    )
+    name = Path(args.from_cache).stem + (f"_{args.split}" if args.split else "")
+    console.print(
+        f"[bold]validation (from cache)[/bold]: {name}  members={cache.n_members}  "
+        f"images={report.n_images}  thr={args.threshold}  agg={args.aggregation}  "
+        f"split={args.split or 'all'}"
+    )
+    report_path = out_dir / f"{name}_thr{args.threshold:g}_{args.aggregation}_report.json"
+    report_path.write_text(json.dumps(report.to_dict(), indent=2, default=str), encoding="utf-8")
+    _print_validation(name, report)
+    console.print(f"[green]report -> {report_path}[/green]")
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.from_cache:
+        return _validate_from_cache(args, out_dir)
+
     from hai_sim.config.scenario import load_validation_scenario
     from hai_sim.factory import build_validation
 
+    if not args.scenario:
+        console.print("[red]provide a scenario YAML or --from-cache <cache-stem>[/red]")
+        return 2
     scenario_path = Path(args.scenario)
     if not scenario_path.exists():
         console.print(f"[red]scenario not found: {scenario_path}[/red]")
         return 2
     scenario = load_validation_scenario(scenario_path)
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     _schema, dataset, validator = build_validation(scenario)
     n_total = len(dataset)
@@ -232,16 +264,25 @@ def main(argv: list[str] | None = None) -> int:
     run_p.set_defaults(func=cmd_run)
 
     val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
-    val_p.add_argument("scenario", help="path to validation scenario YAML")
+    val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")
+    val_p.add_argument(
+        "--from-cache", help="evaluate offline from a localization cache stem instead"
+    )
     val_p.add_argument(
         "--out-dir",
         default="out/analysis/localization",
         help="output directory (default: out/analysis/localization/)",
     )
-    val_p.add_argument("--limit", type=int, default=None, help="cap images (overrides config)")
+    val_p.add_argument("--limit", type=int, default=None, help="cap images (direct mode)")
     val_p.add_argument(
         "--checkpoint-every", type=int, default=25, help="persist records every N images"
     )
+    # --from-cache options (offline, swappable):
+    val_p.add_argument("--threshold", type=float, default=0.5, help="decision threshold")
+    val_p.add_argument(
+        "--aggregation", choices=["mean", "max"], default="mean", help="member CAM aggregation"
+    )
+    val_p.add_argument("--split", default=None, help="restrict to a split (train/test)")
     val_p.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
