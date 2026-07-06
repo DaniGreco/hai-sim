@@ -130,10 +130,22 @@ def _fmt(v: object) -> str:
 def _validate_from_cache(args: argparse.Namespace, out_dir: Path) -> int:
     from hai_sim.analysis.localization.cache import LocalizationCache
     from hai_sim.analysis.localization.evaluate import evaluate_from_cache
+    from hai_sim.analysis.localization.metrics import Dice, EnergyInMask, IoU, PointingGame
+    from hai_sim.core.protocols import LocalizationMetric
 
     cache = LocalizationCache.load(args.from_cache)
+    # --pointing-tolerance is given in 224px (model-input) units; the cache scores at
+    # mask_resolution, so scale the Chebyshev radius to match the live validator.
+    tol = round(args.pointing_tolerance * cache.mask_resolution / 224)
+    metrics: list[LocalizationMetric] = [
+        PointingGame(tolerance=tol),
+        EnergyInMask(),
+        IoU(0.5),
+        Dice(0.5),
+    ]
     report = evaluate_from_cache(
         cache,
+        metrics=metrics,
         threshold=args.threshold,
         member_aggregation=args.aggregation,
         split=args.split,
@@ -283,6 +295,9 @@ def main(argv: list[str] | None = None) -> int:
         "--aggregation", choices=["mean", "max"], default="mean", help="member CAM aggregation"
     )
     val_p.add_argument("--split", default=None, help="restrict to a split (train/test)")
+    val_p.add_argument(
+        "--pointing-tolerance", type=int, default=16, help="pointing-game radius px (from-cache)"
+    )
     val_p.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)

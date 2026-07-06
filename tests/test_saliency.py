@@ -61,12 +61,15 @@ def test_uncovered_label_returns_zeros(cam):
 def test_accepts_2d_image(cam):
     saliency, model = cam
     covered, _ = _covered_and_uncovered(model)
-    img2d = np.random.default_rng(2).standard_normal((224, 224)).astype(np.float32) * 100.0
+    # a raw 2D grayscale (0..255) is preprocessed by the model's input pipeline
+    img2d = np.random.default_rng(2).integers(0, 256, size=(224, 224)).astype(np.float32)
     hm = saliency.heatmap(img2d, covered)
     assert hm.shape == (224, 224)
 
 
 def test_member_cams_shape_and_heatmap_equivalence(cam):
+    from hai_sim.analysis.localization.cam import bilinear_upsample
+
     saliency, model = cam
     covered, _ = _covered_and_uncovered(model)
     img = np.random.default_rng(3).standard_normal((1, 224, 224)).astype(np.float32) * 100.0
@@ -74,10 +77,9 @@ def test_member_cams_shape_and_heatmap_equivalence(cam):
     m = len(model.members)
     assert mc.shape == (m, 7, 7)  # per-member native Grad-CAM resolution
     # the fused heatmap must equal upsample(nanmean(member_cams)) — the property the
-    # cache relies on to store 7x7 per-member and aggregate offline.
+    # cache relies on to store per-member 7x7 and aggregate offline.
     agg = np.nanmean(mc, axis=0)
-    up = saliency._upsample(agg, (224, 224))
-    assert np.allclose(saliency.heatmap(img, covered), up, atol=1e-5)
+    assert np.allclose(saliency.heatmap(img, covered), bilinear_upsample(agg, 224), atol=1e-5)
 
 
 def test_uncovered_label_member_cams_all_nan(cam):

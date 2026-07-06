@@ -1,8 +1,10 @@
-"""Build the resumable localization cache (probs + per-member Grad-CAM + masks).
+"""Build the resumable localization cache (per-member feature maps + probs + masks).
 
-Runs the model from a validation scenario over ChestX-Det train + test *once* and
-stores only raw model output; validation then runs offline from the cache
-(`hai-sim validate --from-cache`) with any metric / threshold / aggregation / split.
+Forward-only: runs the model from a validation scenario over ChestX-Det train +
+test *once* and stores the raw feature maps + head weights (no backprop). Validation
+then runs offline from the cache (`hai-sim validate --from-cache`) with any metric /
+threshold / aggregation / split, and any label's Grad-CAM is reconstructed offline.
+Feature maps dominate size (~1.4 GB for 3578 images x 4 members at fp16).
 
 Prereq: uv run python scripts/download_chestxdet.py --train   (all 3578 images)
 Run (Windows: PYTHONUTF8=1, from the repo root):
@@ -25,7 +27,6 @@ import numpy as np
 
 from hai_sim.analysis.localization.cache import LocalizationCache, build_localization_cache
 from hai_sim.analysis.localization.chestxdet import ChestXDetDataset
-from hai_sim.analysis.localization.saliency import GradCAMSaliency
 from hai_sim.config.scenario import load_validation_scenario
 from hai_sim.factory import build_ai, build_label_schema
 
@@ -37,36 +38,53 @@ def main() -> int:
     parser.add_argument("--data-dir", default="data/chestxdet", help="ChestX-Det root")
     parser.add_argument("--splits", default="train,test", help="comma list of splits to include")
     parser.add_argument("--mask-resolution", type=int, default=112)
-    parser.add_argument("--checkpoint-every", type=int, default=25)
+    parser.add_argument("--checkpoint-every", type=int, default=100)
     parser.add_argument("--limit", type=int, default=0, help="cap images PER split (0 = all)")
     args = parser.parse_args()
 
     scenario = load_validation_scenario(Path(args.scenario))
     schema = build_label_schema(scenario.label_schema)
     ai = build_ai(scenario.ai, schema, np.random.default_rng(scenario.seed))
-    saliency = GradCAMSaliency(ai)  # type: ignore[arg-type]  # scenario guarantees torchxrv
 
     out = Path(args.out)
-    cache: LocalizationCache | None = LocalizationCache.load(out) if out.with_suffix(".npz").exists() else None
+    splits = [s.strip() for s in args.splits.split(",") if s.strip()]
+    # Fingerprint includes the model weights: resuming into a cache built with a
+    # different model would pair prior feature maps with new head weights.
+    fingerprint = f"chestxdet|{','.join(splits)}|{'+'.join(ai.weight_list)}"
+
+    cache: LocalizationCache | None = (
+        LocalizationCache.load(out) if out.with_suffix(".npz").exists() else None
+    )
+    if cache is not None and cache.dataset_fingerprint != fingerprint:
+        print(
+            f"ERROR: cache at {out} was built with a different model/splits\n"
+            f"  existing: {cache.dataset_fingerprint!r}\n  requested: {fingerprint!r}\n"
+            "Use a fresh --out.",
+            file=sys.stderr,
+        )
+        return 1
     done = (
         {(s, int(i)) for s, i in zip(cache.split, cache.dataset_indices, strict=True)}
         if cache is not None
         else set()
     )
     data_dir = Path(args.data_dir)
-    splits = [s.strip() for s in args.splits.split(",") if s.strip()]
 
-    def _save(c: LocalizationCache) -> None:
-        c.save(out)
-
-    t0 = time.time()
+    # Plan the remaining work across all splits, then size the memmap once.
+    plan: list[tuple[str, ChestXDetDataset, list[int]]] = []
     for split in splits:
         dataset = ChestXDetDataset(
             data_dir / f"ChestX_Det_{split}.json", data_dir / split, schema=schema
         )
         remaining = [i for i in range(len(dataset)) if (split, i) not in done]
-        if args.limit:
-            remaining = remaining[: args.limit]
+        if args.limit:  # cap the TOTAL images per split, so resuming stays consistent
+            done_in_split = sum(1 for s, _ in done if s == split)
+            remaining = remaining[: max(0, args.limit - done_in_split)]
+        plan.append((split, dataset, remaining))
+    total_images = (cache.n_images if cache is not None else 0) + sum(len(r) for _, _, r in plan)
+
+    t0 = time.time()
+    for split, dataset, remaining in plan:
         if not remaining:
             print(f"[{split}] nothing to do ({len(dataset)} images already cached)")
             continue
@@ -79,18 +97,19 @@ def main() -> int:
                 print(f"  [{_split}] {done_n}/{total_n}  ({secs:.0f}s)", flush=True)
 
         cache = build_localization_cache(
-            saliency,
+            ai,
             dataset,
             indices=remaining,
             split_tags=[split] * len(remaining),
+            out_stem=out,
+            total_images=total_images,
             mask_resolution=args.mask_resolution,
             checkpoint_every=args.checkpoint_every,
-            on_checkpoint=_save,
             prior=cache,
-            dataset_fingerprint=f"chestxdet|{','.join(splits)}",
+            dataset_fingerprint=fingerprint,
             progress=_progress,
         )
-        _save(cache)
+        cache.save(out)
 
     if cache is None:
         print("no images cached", file=sys.stderr)

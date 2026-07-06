@@ -190,6 +190,56 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         """Per-member boolean coverage over schema labels (True = member trained on it)."""
         return self._member_masks
 
+    def member_feature_maps_and_probs(self, image: Image) -> tuple[np.ndarray, np.ndarray]:
+        """One forward per member: ``(probs (M, L), feature_maps (M, C, h, w))``.
+
+        ``probs`` is the usual per-member probability vector (``NaN`` for uncovered
+        pathologies); ``feature_maps`` is the spatial output of the DenseNet's last
+        conv block, captured for free during the same forward. Forward only, no
+        autograd: together with `member_classifier_weights` this is the raw material
+        to reconstruct *any* label's Grad-CAM offline (the head is linear, so the
+        Grad-CAM weights are analytic — see `cam_from_features`).
+        """
+        torch = self._torch
+        arr = self._to_model_input(image)  # (1, 224, 224)
+        tensor = torch.from_numpy(arr[None, ...]).to(self.device)  # (1, 1, 224, 224)
+        n = len(self._models)
+        probs = np.full((n, self.schema.n), np.nan, dtype=np.float64)
+        maps: np.ndarray | None = None
+        for m, model in enumerate(self._models):
+            captured: dict[str, Any] = {}
+
+            # Clone in the hook: the xrv head does ``F.relu(features, inplace=True)``
+            # right after, which would otherwise mutate the captured tensor to its
+            # ReLU. We need the *raw* feature map (with negatives) for the CAM.
+            def _hook(_mod: Any, _inp: Any, out: Any, _c: dict[str, Any] = captured) -> None:
+                _c["A"] = out.detach().clone()
+
+            handle = model.features.register_forward_hook(_hook)
+            try:
+                with torch.no_grad():
+                    out = model(tensor)  # (1, L) probabilities
+            finally:
+                handle.remove()
+            feature_map = captured["A"].cpu().numpy()[0].astype(np.float32)  # (C, h, w)
+            if maps is None:
+                maps = np.full((n, *feature_map.shape), np.nan, dtype=np.float32)
+            maps[m] = feature_map
+            vals = out.detach().cpu().numpy()[0]
+            mask = self._member_masks[m]
+            probs[m, mask] = vals[mask]
+        assert maps is not None  # at least one member always runs
+        return probs, maps
+
+    def member_classifier_weights(self) -> np.ndarray:
+        """Per-member final linear-head weights, shape ``(M, L, C)`` (for offline CAMs)."""
+        return np.stack(
+            [
+                np.asarray(m.classifier.weight.detach().cpu().numpy(), dtype=np.float32)
+                for m in self._models
+            ]
+        )
+
     def diagnose(
         self,
         images: Sequence[Image],
