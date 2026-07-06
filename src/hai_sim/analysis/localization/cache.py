@@ -4,23 +4,21 @@ The cache stores the model's **richest reusable artifact** — the per-member sp
 feature maps (the last conv block's output) — plus the linear head weights, the
 per-member probabilities, timing, and the expert references (labels + masks). From
 this, *everything* is derived offline without touching the model: any label's
-Grad-CAM (the head is linear, so the CAM is analytic — see `cam_from_features`),
+Grad-CAM (the head is linear, so the CAM is analytic — see `cam.cam_from_features`),
 logits, probabilities, embeddings, calibration. Storing feature maps also makes the
 build **forward-only** (no per-label backprop).
 
-What is stored (``N`` images, ``M`` members, ``C`` channels, ``h``x``w`` = 7x7
-spatial, ``L`` labels, ``K`` localized instances):
+Storage is split so the big array never gets rewritten:
 
-- image level: ``feature_maps (N, M, C, h, w)`` float16 (the raw artifact),
-  ``member_probs (N, M, L)``, ``ground_truth (N, L)``, ``inference_seconds (N,)``,
-  ``image_ids``, ``split`` (train/test), ``dataset_indices``;
-- head / metadata: ``classifier_weights (M, L, C)``, ``member_covers (M, L)``;
-- expert references: ``inst_image (K,)``, ``inst_label (K,)``, ``inst_mask
-  (K, R, R)`` at ``mask_resolution`` R.
+- ``<stem>.features.npy`` : the ``(N, M, C, h, w)`` float16 feature maps, written
+  **incrementally into a preallocated memory-mapped array** during the build (no
+  in-RAM accumulation, no re-stacking, no per-checkpoint rewrite) and read back
+  ``mmap_mode='r'`` (so an evaluator only pages in the rows it touches);
+- ``<stem>.npz``  : the small arrays (probs, gt, timing, head weights, masks, ids);
+- ``<stem>.json`` : a human-readable manifest.
 
-Writes are atomic (temp + ``os.replace``). Feature maps dominate size (~1.4 GB for
-3578 images x 4 members at fp16), so the arrays are stored **uncompressed** for fast
-checkpoints; use a larger ``checkpoint_every`` for the full build.
+Checkpoints flush the memmap and rewrite only the small ``.npz`` (~tens of MB), so
+a 3578-image build writes the 1.4 GB feature file once, not dozens of times.
 """
 
 from __future__ import annotations
@@ -40,14 +38,17 @@ if TYPE_CHECKING:
     from hai_sim.core.protocols import LocalizationDataset
 
 
+def _features_path(stem: Path) -> Path:
+    return stem.with_name(stem.name + ".features.npy")
+
+
 @dataclass
 class LocalizationCache:
-    """A frozen-in-time snapshot of forward-only ensemble output over an image set."""
+    """A forward-only snapshot of ensemble feature maps + probs over an image set."""
 
-    # --- image level -------------------------------------------------------
     feature_maps: np.ndarray
-    """``(N, M, C, h, w)`` float16. Per-member last-conv feature maps from the real
-    forward (fix_resolution applied) — consistent with ``member_probs``."""
+    """``(N, M, C, h, w)`` float16 (may be a ``np.memmap``). Per-member last-conv
+    feature maps from the real forward — the raw material for any label's Grad-CAM."""
 
     member_probs: np.ndarray
     """``(N, M, L)`` float32. Per-member ``P(label=1)``; ``NaN`` for uncovered."""
@@ -56,20 +57,18 @@ class LocalizationCache:
     """``(N, L)`` int8 in ``{1, 0, -1}`` (expert image-level labels)."""
 
     inference_seconds: np.ndarray
-    """``(N,)`` float64. Per-image forward time (single image), for service_time."""
+    """``(N,)`` float64. Per-image forward time."""
 
     image_ids: tuple[str, ...]
     split: tuple[str, ...]
     dataset_indices: np.ndarray
 
-    # --- head / metadata for offline derivation ----------------------------
     classifier_weights: np.ndarray
     """``(M, L, C)`` float32. Per-member linear-head weights → offline Grad-CAM/logits."""
 
     member_covers: np.ndarray
     """``(M, L)`` bool. Whether member ``m`` was trained on pathology ``l``."""
 
-    # --- expert references (localized findings) ----------------------------
     inst_image: np.ndarray
     inst_label: np.ndarray
     inst_mask: np.ndarray
@@ -83,7 +82,9 @@ class LocalizationCache:
 
     @property
     def n_images(self) -> int:
-        return int(self.feature_maps.shape[0])
+        # Metadata count, not feature_maps.shape[0]: the memmap may be preallocated
+        # to the full planned size while only the processed rows are valid.
+        return int(self.member_probs.shape[0])
 
     @property
     def n_members(self) -> int:
@@ -97,18 +98,36 @@ class LocalizationCache:
     def n_instances(self) -> int:
         return int(self.inst_image.shape[0])
 
-    def save(self, stem: str | Path) -> None:
-        """Persist to ``<stem>.npz`` + ``<stem>.json`` atomically (uncompressed)."""
+    def _manifest(self) -> dict[str, Any]:
+        return {
+            "n_images": self.n_images,
+            "n_members": self.n_members,
+            "n_labels": self.n_labels,
+            "n_instances": self.n_instances,
+            "weights": list(self.weights),
+            "pathologies": list(self.pathologies),
+            "dataset": self.dataset,
+            "mask_resolution": self.mask_resolution,
+            "dataset_fingerprint": self.dataset_fingerprint,
+            "feature_shape": list(self.feature_maps.shape[1:]),
+            "split_counts": {
+                s: int(np.sum(np.asarray(self.split) == s)) for s in sorted(set(self.split))
+            },
+            "inference_seconds_per_image": {
+                "mean": float(np.mean(self.inference_seconds)) if self.n_images else 0.0,
+                "total": float(np.sum(self.inference_seconds)),
+            },
+        }
+
+    def save_metadata(self, stem: str | Path) -> None:
+        """Persist the small arrays + manifest (not the feature maps) atomically."""
         stem = Path(stem)
         npz_path = stem.with_suffix(".npz")
-        json_path = stem.with_suffix(".json")
         npz_path.parent.mkdir(parents=True, exist_ok=True)
-
         tmp_npz = npz_path.with_name(npz_path.name + ".tmp")
         with open(tmp_npz, "wb") as fh:
             np.savez(
                 fh,
-                feature_maps=self.feature_maps,
                 member_probs=self.member_probs,
                 ground_truth=self.ground_truth,
                 inference_seconds=self.inference_seconds,
@@ -122,40 +141,48 @@ class LocalizationCache:
                 inst_mask=self.inst_mask,
             )
         os.replace(tmp_npz, npz_path)
+        tmp_json = stem.with_suffix(".json.tmp")
+        tmp_json.write_text(json.dumps(self._manifest(), indent=2), encoding="utf-8")
+        os.replace(tmp_json, stem.with_suffix(".json"))
 
-        manifest: dict[str, Any] = {
-            "n_images": self.n_images,
-            "n_members": self.n_members,
-            "n_labels": self.n_labels,
-            "n_instances": self.n_instances,
-            "weights": list(self.weights),
-            "pathologies": list(self.pathologies),
-            "dataset": self.dataset,
-            "mask_resolution": self.mask_resolution,
-            "dataset_fingerprint": self.dataset_fingerprint,
-            "feature_shape": list(self.feature_maps.shape[1:]) if self.n_images else [],
-            "split_counts": {
-                s: int(np.sum(np.asarray(self.split) == s)) for s in sorted(set(self.split))
-            },
-            "inference_seconds_per_image": {
-                "mean": float(np.mean(self.inference_seconds)) if self.n_images else 0.0,
-                "total": float(np.sum(self.inference_seconds)),
-            },
-        }
-        tmp_json = json_path.with_name(json_path.name + ".tmp")
-        tmp_json.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        os.replace(tmp_json, json_path)
+    def save(self, stem: str | Path) -> None:
+        """Persist feature maps (``.features.npy``) + metadata + manifest atomically.
+
+        If ``feature_maps`` is already the memmap backing ``<stem>.features.npy`` it
+        is just flushed; otherwise (an in-memory cache) it is written out.
+        """
+        stem = Path(stem)
+        feat = _features_path(stem)
+        fm = self.feature_maps
+        backing = getattr(fm, "filename", None)
+        same_file = backing is not None and Path(backing).resolve() == feat.resolve()
+        if isinstance(fm, np.memmap) and same_file:
+            fm.flush()  # already the file we would write; just flush (and it's open)
+        else:
+            feat.parent.mkdir(parents=True, exist_ok=True)
+            tmp = feat.with_name(feat.name + ".tmp")
+            with open(tmp, "wb") as fh:  # file handle → np.save won't append ".npy"
+                np.save(fh, np.asarray(fm))
+            os.replace(tmp, feat)
+        self.save_metadata(stem)
 
     @classmethod
-    def load(cls, stem: str | Path) -> LocalizationCache:
+    def load(cls, stem: str | Path, mmap: bool = True) -> LocalizationCache:
         stem = Path(stem)
+        feat = _features_path(stem)
+        if not feat.exists():
+            raise FileNotFoundError(
+                f"no feature file at {feat} — this cache is missing its feature maps "
+                "(a pre-feature-map cache?); rebuild it with build_localization_cache"
+            )
+        feature_maps = np.load(feat, mmap_mode="r" if mmap else None)
         with np.load(stem.with_suffix(".npz")) as data:
             arrays = {k: np.asarray(data[k]) for k in data.files if k not in ("image_ids", "split")}
             image_ids = tuple(str(x) for x in data["image_ids"])
             split = tuple(str(x) for x in data["split"])
         manifest = json.loads(stem.with_suffix(".json").read_text(encoding="utf-8"))
         return cls(
-            feature_maps=arrays["feature_maps"],
+            feature_maps=feature_maps,
             member_probs=arrays["member_probs"],
             ground_truth=arrays["ground_truth"],
             inference_seconds=arrays["inference_seconds"],
@@ -194,31 +221,44 @@ def build_localization_cache(
     *,
     indices: Sequence[int],
     split_tags: Sequence[str],
+    out_stem: str | Path,
+    total_images: int,
     mask_resolution: int = 112,
     dataset_name: str = "chestxdet",
     checkpoint_every: int = 0,
-    on_checkpoint: Callable[[LocalizationCache], None] | None = None,
     prior: LocalizationCache | None = None,
     dataset_fingerprint: str = "",
     progress: Callable[[int, int], None] | None = None,
 ) -> LocalizationCache:
-    """Forward-only pass: capture per-member feature maps + probs + timing + masks.
+    """Forward-only pass writing feature maps straight into a preallocated memmap.
 
     ``model`` must expose ``member_feature_maps_and_probs``, ``member_classifier_weights``,
-    ``member_masks`` and ``weight_list`` (a `TorchXRayVisionAI`). No backprop happens:
-    Grad-CAMs are reconstructed offline from the stored feature maps + head weights.
+    ``member_masks`` and ``weight_list``. ``total_images`` is the full planned image
+    count (this call's images plus any already in ``prior``); the ``.features.npy``
+    memmap is sized to it once and rows are written in place — no backprop, no
+    per-checkpoint rewrite of the big array.
     """
+    stem = Path(out_stem)
+    feat = _features_path(stem)
     schema = dataset.schema
     n_labels = schema.n
     n_members = len(model.weight_list)
     if len(split_tags) != len(indices):
         raise ValueError("split_tags must align 1:1 with indices")
-    base_images = prior.n_images if prior is not None else 0
+    base = prior.n_images if prior is not None else 0
 
     classifier_weights = np.asarray(model.member_classifier_weights(), dtype=np.float32)
     member_covers = np.stack([np.asarray(m, dtype=bool) for m in model.member_masks])
 
-    img_maps: list[np.ndarray] = []
+    feat_mmap: Any = None  # np.memmap (has .flush); Any keeps mypy off the subclass
+    if feat.exists():
+        feat_mmap = np.load(feat, mmap_mode="r+")
+        if int(feat_mmap.shape[0]) != total_images:
+            raise ValueError(
+                f"feature cache at {feat} is sized for {feat_mmap.shape[0]} images but this "
+                f"run plans {total_images}; resume with the same scope or use a fresh --out"
+            )
+
     img_probs: list[np.ndarray] = []
     img_gt: list[np.ndarray] = []
     img_secs: list[float] = []
@@ -229,13 +269,8 @@ def build_localization_cache(
     inst_label: list[int] = []
     inst_mask: list[np.ndarray] = []
 
-    def _snapshot() -> LocalizationCache:
-        feat_shape = img_maps[0].shape if img_maps else (n_members, 1024, 7, 7)
-        fm = (
-            np.stack(img_maps).astype(np.float16)
-            if img_maps
-            else np.empty((0, *feat_shape), np.float16)
-        )
+    def _make_cache() -> LocalizationCache:
+        assert feat_mmap is not None
         mp = (
             np.stack(img_probs).astype(np.float32)
             if img_probs
@@ -253,9 +288,7 @@ def build_localization_cache(
         di = np.asarray(img_dsidx, dtype=np.int64)
         ids = tuple(img_ids)
         spl = tuple(img_split)
-
         if prior is not None:
-            fm = np.concatenate([prior.feature_maps, fm], axis=0)
             mp = np.concatenate([prior.member_probs, mp], axis=0)
             gt = np.concatenate([prior.ground_truth, gt], axis=0)
             secs = np.concatenate([prior.inference_seconds, secs], axis=0)
@@ -265,9 +298,8 @@ def build_localization_cache(
             im = np.concatenate([prior.inst_mask, im], axis=0)
             ii = np.concatenate([prior.inst_image, ii], axis=0)
             il = np.concatenate([prior.inst_label, il], axis=0)
-
         return LocalizationCache(
-            feature_maps=fm,
+            feature_maps=feat_mmap,
             member_probs=mp,
             ground_truth=gt,
             inference_seconds=secs,
@@ -288,29 +320,36 @@ def build_localization_cache(
 
     processed = 0
     last_ckpt = 0
-    for idx, split in zip(indices, split_tags, strict=True):
+    for local, (idx, split) in enumerate(zip(indices, split_tags, strict=True)):
         ex = dataset[int(idx)]
         t0 = perf_counter()
         probs, maps = model.member_feature_maps_and_probs(ex.image)  # (M,L), (M,C,h,w)
         img_secs.append(perf_counter() - t0)
-        img_maps.append(np.asarray(maps, dtype=np.float16))
+        if feat_mmap is None:
+            feat.parent.mkdir(parents=True, exist_ok=True)
+            feat_mmap = np.lib.format.open_memmap(
+                feat, mode="w+", dtype=np.float16, shape=(total_images, *maps.shape)
+            )
+        feat_mmap[base + local] = np.asarray(maps, dtype=np.float16)
         img_probs.append(np.asarray(probs, dtype=np.float32))
         img_gt.append(np.asarray(ex.labels, dtype=np.int8))
         img_ids.append(ex.image_id)
         img_split.append(split)
         img_dsidx.append(int(idx))
-        row = base_images + len(img_maps) - 1
         for label_index, mask in enumerate(ex.masks):
             if mask is None:
                 continue
-            inst_image.append(row)
+            inst_image.append(base + local)
             inst_label.append(label_index)
             inst_mask.append(_downsample_mask(mask, mask_resolution))
         processed += 1
         if progress is not None:
-            progress(base_images + processed, base_images + len(indices))
-        if checkpoint_every and on_checkpoint and processed - last_ckpt >= checkpoint_every:
-            on_checkpoint(_snapshot())
+            progress(base + processed, total_images)
+        if checkpoint_every and processed - last_ckpt >= checkpoint_every:
+            feat_mmap.flush()
+            _make_cache().save_metadata(stem)
             last_ckpt = processed
 
-    return _snapshot()
+    if feat_mmap is not None:
+        feat_mmap.flush()
+    return _make_cache()

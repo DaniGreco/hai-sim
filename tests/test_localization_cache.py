@@ -99,17 +99,19 @@ class _StubDataset:
         return self._ex[i]
 
 
-def test_builder_stores_feature_maps_and_references():
+def test_builder_stores_feature_maps_and_references(tmp_path):
     cache = build_localization_cache(
         _StubModel(),
         _StubDataset(),
         indices=[0, 1, 2],
         split_tags=["train", "train", "test"],
+        out_stem=tmp_path / "cache",
+        total_images=3,
         mask_resolution=8,
     )
     assert cache.n_images == 3
     assert cache.n_members == 2
-    assert cache.feature_maps.shape == (3, 2, 4, 3, 3)
+    assert cache.feature_maps.shape == (3, 2, 4, 3, 3)  # memmap sized to total_images
     assert cache.feature_maps.dtype == np.float16
     assert cache.member_probs.shape == (3, 2, SCHEMA.n)
     assert cache.classifier_weights.shape == (2, SCHEMA.n, 4)
@@ -123,14 +125,28 @@ def test_builder_stores_feature_maps_and_references():
     assert cache.split == ("train", "train", "test")
 
 
-def test_builder_resume_continues_row_indexing():
+def test_builder_resume_continues_row_indexing(tmp_path):
     ds = _StubDataset()
+    stem = tmp_path / "cache"
     first = build_localization_cache(
-        _StubModel(), ds, indices=[0, 1], split_tags=["train", "train"], mask_resolution=8
+        _StubModel(),
+        ds,
+        indices=[0, 1],
+        split_tags=["train", "train"],
+        out_stem=stem,
+        total_images=3,  # full planned total, so the memmap fits the later resume
+        mask_resolution=8,
     )
     assert first.n_images == 2
     combined = build_localization_cache(
-        _StubModel(), ds, indices=[2], split_tags=["test"], mask_resolution=8, prior=first
+        _StubModel(),
+        ds,
+        indices=[2],
+        split_tags=["test"],
+        out_stem=stem,
+        total_images=3,
+        mask_resolution=8,
+        prior=first,
     )
     assert combined.n_images == 3
     assert combined.feature_maps.shape == (3, 2, 4, 3, 3)
