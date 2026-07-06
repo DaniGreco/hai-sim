@@ -27,11 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from hai_sim.analysis.localization.metrics import default_metrics
-from hai_sim.analysis.localization.report import (
-    ComponentValidationReport,
-    LabelConfusion,
-    aggregate_scores,
-)
+from hai_sim.analysis.localization.report import ComponentValidationReport, assemble_report
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -127,52 +123,12 @@ class LocalizationValidator:
         }
 
     def _build_report(self, records: list[dict[str, Any]]) -> ComponentValidationReport:
-        schema = self.dataset.schema
-        labels = schema.labels
-        n = schema.n
-        metric_names = [m.name for m in self.metrics]
-
-        confusion = {lab: LabelConfusion() for lab in labels}
-        per_label: dict[int, dict[str, list[float]]] = {
-            i: {name: [] for name in metric_names} for i in range(n)
-        }
-        pooled: dict[str, list[float]] = {name: [] for name in metric_names}
-        pooled_pred: dict[str, list[float]] = {name: [] for name in metric_names}
-
-        for r in records:
-            gt = r["gt"]
-            pred = r["pred"]
-            for i in range(n):
-                confusion[labels[i]].update(int(gt[i]), int(pred[i]))
-            for entry in r["loc"]:
-                i = int(entry["label"])
-                predicted = bool(entry["predicted"])
-                for name in metric_names:
-                    raw = entry["scores"].get(name)
-                    val = float("nan") if raw is None else float(raw)
-                    per_label[i][name].append(val)
-                    pooled[name].append(val)
-                    if predicted:
-                        pooled_pred[name].append(val)
-
-        localization_per_label = {}
-        for i in range(n):
-            if any(per_label[i][name] for name in metric_names):
-                localization_per_label[labels[i]] = [
-                    aggregate_scores(name, per_label[i][name]) for name in metric_names
-                ]
-
-        return ComponentValidationReport(
+        return assemble_report(
+            records,
+            self.dataset.schema.labels,
+            [m.name for m in self.metrics],
             model=getattr(self.actor, "name", type(self.actor).__name__),
             dataset=getattr(self.dataset, "name", type(self.dataset).__name__),
             saliency=getattr(self.saliency, "name", None) if self.saliency is not None else None,
             decision_threshold=getattr(self.actor, "decision_threshold", None),
-            schema_labels=labels,
-            n_images=len(records),
-            label_confusion=confusion,
-            localization_per_label=localization_per_label,
-            localization_pooled=[aggregate_scores(name, pooled[name]) for name in metric_names],
-            localization_pooled_predicted=[
-                aggregate_scores(name, pooled_pred[name]) for name in metric_names
-            ],
         )

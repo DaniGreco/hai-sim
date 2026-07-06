@@ -14,6 +14,7 @@ the right place?" — decomposed per pathology, in the spirit of `metrics.kpi`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -138,3 +139,67 @@ class ComponentValidationReport:
                 },
             },
         }
+
+
+def assemble_report(
+    records: list[dict[str, Any]],
+    schema_labels: tuple[str, ...],
+    metric_names: list[str],
+    *,
+    model: str,
+    dataset: str,
+    saliency: str | None,
+    decision_threshold: float | None,
+) -> ComponentValidationReport:
+    """Aggregate per-image records into a `ComponentValidationReport`.
+
+    A record is ``{"gt": [L ints], "pred": [L ints], "loc": [{"label", "predicted",
+    "scores": {metric: value|None|NaN}}]}``. Shared by the live validator and the
+    offline cache evaluator so both produce byte-identical reports from the same
+    intermediate shape.
+    """
+    n = len(schema_labels)
+    confusion = {lab: LabelConfusion() for lab in schema_labels}
+    per_label: dict[int, dict[str, list[float]]] = {
+        i: {name: [] for name in metric_names} for i in range(n)
+    }
+    pooled: dict[str, list[float]] = {name: [] for name in metric_names}
+    pooled_pred: dict[str, list[float]] = {name: [] for name in metric_names}
+
+    for r in records:
+        gt = r["gt"]
+        pred = r["pred"]
+        for i in range(n):
+            confusion[schema_labels[i]].update(int(gt[i]), int(pred[i]))
+        for entry in r["loc"]:
+            i = int(entry["label"])
+            predicted = bool(entry["predicted"])
+            for name in metric_names:
+                raw = entry["scores"].get(name)
+                val = float("nan") if raw is None else float(raw)
+                per_label[i][name].append(val)
+                pooled[name].append(val)
+                if predicted:
+                    pooled_pred[name].append(val)
+
+    localization_per_label = {}
+    for i in range(n):
+        if any(per_label[i][name] for name in metric_names):
+            localization_per_label[schema_labels[i]] = [
+                aggregate_scores(name, per_label[i][name]) for name in metric_names
+            ]
+
+    return ComponentValidationReport(
+        model=model,
+        dataset=dataset,
+        saliency=saliency,
+        decision_threshold=decision_threshold,
+        schema_labels=tuple(schema_labels),
+        n_images=len(records),
+        label_confusion=confusion,
+        localization_per_label=localization_per_label,
+        localization_pooled=[aggregate_scores(name, pooled[name]) for name in metric_names],
+        localization_pooled_predicted=[
+            aggregate_scores(name, pooled_pred[name]) for name in metric_names
+        ],
+    )
