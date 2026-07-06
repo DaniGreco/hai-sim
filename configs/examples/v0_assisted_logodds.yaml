@@ -1,0 +1,33 @@
+# AI-assisted doctor: a FixedAccuracyDoctor forms its own (noisy) opinion, then a
+# log-odds fusion policy integrates the AI hint (down-weighted by AI uncertainty).
+# The run's `team` KPI block reports complementarity + RAIR/RSR vs solo reading.
+name: v0_assisted_logodds
+seed: 7
+label_schema: default_v0
+
+patient_generator:
+  kind: poisson
+  arrival_rate: 1.0
+  n_patients: 300
+  prevalence: 0.3
+
+ai:
+  kind: random_mock
+  service_time: 0.05
+
+doctor:
+  kind: assisted
+  base: fixed_accuracy
+  sensitivity: 0.75
+  specificity: 0.80
+  integration_policy: log_odds_fusion
+  policy_beta: 1.0        # exp(-beta * AI_uncertainty) weight on the AI's log-odds
+  policy_weight_doctor: 1.0
+  policy_prior: 0.5
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean
+
+n_ai_workers: 1
+n_doctor_workers: 1

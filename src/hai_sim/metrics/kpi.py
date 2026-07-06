@@ -83,6 +83,46 @@ class ActorKPIs:
 
 
 @dataclass(frozen=True)
+class TeamKPIs:
+    """Human-AI team metrics: is the aided doctor better than either alone, and does
+    it rely on the AI *appropriately*? All computed from the per-(patient, label) 2x2
+    of (doctor-solo correct?) x (AI correct?), on labeled entries only. Because the
+    simulator knows both counterfactuals for every case, the reliance ratios — which
+    normally need a two-stage user study — are computed directly. Ratios follow
+    Schemmer et al. (2023, IUI)."""
+
+    complementarity_gap_f1: float
+    """team macro-F1 - max(AI macro-F1, doctor-solo macro-F1). > 0 ⇒ the team beats the
+    better of its two members ("the whole exceeds its parts")."""
+
+    complementarity_gap_accuracy: float
+    """Same, on micro accuracy. Reported alongside F1; prefer F1 under class imbalance."""
+
+    rair: float | None
+    """Relative AI Reliance: of entries where doctor-solo was WRONG but the AI was RIGHT
+    (AI-reliance opportunities), the fraction the team got right (switched to the AI).
+    None if there were no such opportunities."""
+
+    rsr: float | None
+    """Relative Self-Reliance: of entries where doctor-solo was RIGHT but the AI was WRONG
+    (self-reliance opportunities), the fraction the team got right (kept its own answer).
+    None if there were no such opportunities."""
+
+    over_reliance: float | None
+    """1 - RSR: fraction of self-reliance opportunities lost by following wrong AI — the
+    'agency loss' the reliance literature warns explanations inflate."""
+
+    under_reliance: float | None
+    """1 - RAIR: fraction of AI-reliance opportunities missed by ignoring correct AI."""
+
+    n_ai_reliance_opportunities: int
+    """# labeled entries where doctor-solo wrong and AI right (RAIR denominator)."""
+
+    n_self_reliance_opportunities: int
+    """# labeled entries where doctor-solo right and AI wrong (RSR denominator)."""
+
+
+@dataclass(frozen=True)
 class RunKPIs:
     """System-level KPIs for one simulation run + nested per-actor KPIs."""
 
@@ -131,20 +171,34 @@ class RunKPIs:
     `doctor.use_ai_hint = false`; otherwise the doctor saw the AI suggestion)."""
 
     hybrid: ActorKPIs
-    """Metrics for the joint Human-AI verdict. v0: identical to doctor (placeholder).
-    Later: implement a fusion policy (e.g. defer-on-low-confidence, weighted vote)
-    and this will diverge from `doctor`. This is the KPI block that ultimately tells
-    us whether the AI-in-the-loop is worth deploying."""
+    """Metrics for the joint Human-AI verdict = the doctor stage's actual output. When
+    the doctor is an `AssistedDoctor`, this is the *aided* (team) call and diverges from
+    `doctor` (the unaided solo call); otherwise the two coincide. This is the KPI block
+    that tells us whether the AI-in-the-loop is worth deploying."""
+
+    team: TeamKPIs
+    """Complementarity + appropriate-reliance of the team vs its two members (see
+    `TeamKPIs`). Non-trivial only when the doctor is AI-assisted; otherwise the gaps are
+    ~0 and there are no reliance opportunities."""
 
 
 def _labels_for(record: PatientRecord, actor: Actor) -> tuple[int, ...]:
-    """Pick which predicted label vector to score for the given actor."""
+    """Pick which predicted label vector to score for the given actor.
+
+    - ``ai``: the AI's solo call.
+    - ``doctor``: the *unaided* (solo) doctor call — the counterfactual an
+      `AssistedDoctor` stashes in ``doctor_solo_labels``; falls back to
+      ``doc_labels`` when the doctor was not AI-assisted (then the two are identical).
+    - ``hybrid``: the doctor stage's actual output = the *aided* (team) call when
+      assisted, otherwise the solo call.
+    """
     if actor == "ai":
         return record.ai_labels
     if actor == "doctor":
+        if record.doctor_solo_labels is not None:
+            return record.doctor_solo_labels
         return record.doc_labels
     if actor == "hybrid":
-        # v0 placeholder: hybrid == doctor's call. Later: fusion of AI + doctor.
         return record.doc_labels
     raise ValueError(actor)
 
@@ -270,6 +324,50 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
     )
 
 
+def _team_kpis(
+    records: Sequence[PatientRecord],
+    ai: ActorKPIs,
+    doctor: ActorKPIs,
+    hybrid: ActorKPIs,
+) -> TeamKPIs:
+    """Complementarity + appropriate reliance from the solo / AI / team label vectors.
+
+    Walks every labeled (patient, label) entry and bins it by the (doctor-solo correct?
+    x AI correct?) 2x2. The two off-diagonal cells are the reliance opportunities:
+    doctor-wrong/AI-right (should adopt the AI) and doctor-right/AI-wrong (should keep
+    own). RAIR/RSR measure how often the team did the right thing in each.
+    """
+    n_air = n_sr = rair_num = rsr_num = 0
+    for r in records:
+        ai_pred = _labels_for(r, "ai")
+        doc_pred = _labels_for(r, "doctor")
+        team_pred = _labels_for(r, "hybrid")
+        for a, d, t, g in zip(ai_pred, doc_pred, team_pred, r.ground_truth, strict=True):
+            if g not in (0, 1):
+                continue  # unannotated entry — skip (matches _per_label_counts)
+            ai_ok = a == g
+            doc_ok = d == g
+            team_ok = t == g
+            if doc_ok and not ai_ok:  # self-reliance opportunity: keep own correct answer
+                n_sr += 1
+                rsr_num += int(team_ok)
+            elif ai_ok and not doc_ok:  # AI-reliance opportunity: adopt correct AI answer
+                n_air += 1
+                rair_num += int(team_ok)
+    rair = rair_num / n_air if n_air else None
+    rsr = rsr_num / n_sr if n_sr else None
+    return TeamKPIs(
+        complementarity_gap_f1=hybrid.f1_macro - max(ai.f1_macro, doctor.f1_macro),
+        complementarity_gap_accuracy=hybrid.accuracy - max(ai.accuracy, doctor.accuracy),
+        rair=rair,
+        rsr=rsr,
+        over_reliance=(1.0 - rsr) if rsr is not None else None,
+        under_reliance=(1.0 - rair) if rair is not None else None,
+        n_ai_reliance_opportunities=n_air,
+        n_self_reliance_opportunities=n_sr,
+    )
+
+
 def compute_kpis(records: Sequence[PatientRecord]) -> RunKPIs:
     """Reduce a list of per-patient records to a single `RunKPIs` summary."""
     if not records:
@@ -285,6 +383,7 @@ def compute_kpis(records: Sequence[PatientRecord]) -> RunKPIs:
             ai=ActorKPIs(0.0, 0.0, 0.0, 0.0, 0, 0, None, None, None),
             doctor=ActorKPIs(0.0, 0.0, 0.0, 0.0, 0, 0, None, None, None),
             hybrid=ActorKPIs(0.0, 0.0, 0.0, 0.0, 0, 0, None, None, None),
+            team=TeamKPIs(0.0, 0.0, None, None, None, None, 0, 0),
         )
 
     n = len(records)
@@ -301,6 +400,9 @@ def compute_kpis(records: Sequence[PatientRecord]) -> RunKPIs:
     waits_doctor = [r.ts_doctor_start - r.ts_model_end for r in records]
     sys_times = [r.ts_doctor_end - r.ts_arrival for r in records]
 
+    ai_k = _actor_kpis(records, "ai")
+    doctor_k = _actor_kpis(records, "doctor")
+    hybrid_k = _actor_kpis(records, "hybrid")
     return RunKPIs(
         n_patients=n,
         sim_duration=last_t,
@@ -308,7 +410,8 @@ def compute_kpis(records: Sequence[PatientRecord]) -> RunKPIs:
         mean_wait_to_model=sum(waits_model) / n,
         mean_wait_to_doctor=sum(waits_doctor) / n,
         mean_time_in_system=sum(sys_times) / n,
-        ai=_actor_kpis(records, "ai"),
-        doctor=_actor_kpis(records, "doctor"),
-        hybrid=_actor_kpis(records, "hybrid"),
+        ai=ai_k,
+        doctor=doctor_k,
+        hybrid=hybrid_k,
+        team=_team_kpis(records, ai_k, doctor_k, hybrid_k),
     )

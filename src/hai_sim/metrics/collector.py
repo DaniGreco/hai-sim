@@ -27,6 +27,11 @@ class PatientRecord:
     doc_confidence: tuple[float, ...]
     doc_uncertainty: tuple[float, ...]
     priority_key: float
+    # Unaided-doctor counterfactual: set by an AssistedDoctor via
+    # ``extra["doctor_solo_labels"]``; None when the doctor was not AI-assisted (then
+    # doc_labels already IS the solo verdict). Lets the KPI layer separate the aided
+    # (team = doc_labels) call from the solo call for complementarity/reliance.
+    doctor_solo_labels: tuple[int, ...] | None = None
 
 
 @dataclass
@@ -61,6 +66,7 @@ class MetricsCollector:
                 doc_confidence=doc_out.diagnosis.confidence,
                 doc_uncertainty=doc_out.uncertainty,
                 priority_key=priority_key,
+                doctor_solo_labels=doc_out.extra.get("doctor_solo_labels"),
             )
         )
 

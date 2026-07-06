@@ -76,6 +76,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             "ai": asdict(kpis.ai),
             "doctor": asdict(kpis.doctor),
             "hybrid": asdict(kpis.hybrid),
+            "team": asdict(kpis.team),
         },
     }
     json_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
@@ -116,6 +117,13 @@ def _print_kpi_table(name: str, kpis) -> None:
         f"wait_model={kpis.mean_wait_to_model:.2f}  "
         f"wait_doctor={kpis.mean_wait_to_doctor:.2f}  "
         f"time_in_sys={kpis.mean_time_in_system:.2f}"
+    )
+    t = kpis.team
+    console.print(
+        f"[bold]team[/bold]: complementarity gap_f1={t.complementarity_gap_f1:+.4f}  "
+        f"RAIR={_fmt(t.rair)} (n={t.n_ai_reliance_opportunities})  "
+        f"RSR={_fmt(t.rsr)} (n={t.n_self_reliance_opportunities})  "
+        f"over={_fmt(t.over_reliance)}  under={_fmt(t.under_reliance)}"
     )
 
 
