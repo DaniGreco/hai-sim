@@ -209,8 +209,11 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         for m, model in enumerate(self._models):
             captured: dict[str, Any] = {}
 
+            # Clone in the hook: the xrv head does ``F.relu(features, inplace=True)``
+            # right after, which would otherwise mutate the captured tensor to its
+            # ReLU. We need the *raw* feature map (with negatives) for the CAM.
             def _hook(_mod: Any, _inp: Any, out: Any, _c: dict[str, Any] = captured) -> None:
-                _c["A"] = out
+                _c["A"] = out.detach().clone()
 
             handle = model.features.register_forward_hook(_hook)
             try:
@@ -218,7 +221,7 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
                     out = model(tensor)  # (1, L) probabilities
             finally:
                 handle.remove()
-            feature_map = captured["A"].detach().cpu().numpy()[0].astype(np.float32)  # (C, h, w)
+            feature_map = captured["A"].cpu().numpy()[0].astype(np.float32)  # (C, h, w)
             if maps is None:
                 maps = np.full((n, *feature_map.shape), np.nan, dtype=np.float32)
             maps[m] = feature_map
