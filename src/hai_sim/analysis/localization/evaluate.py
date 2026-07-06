@@ -92,19 +92,24 @@ def evaluate_from_cache(
 
     split_arr = np.asarray(cache.split)
     selected = np.ones(cache.n_images, dtype=bool) if split is None else (split_arr == split)
-    aggregate = np.nanmax if member_aggregation == "max" else np.nanmean
+    aggregate = np.max if member_aggregation == "max" else np.mean
 
     loc_by_image: dict[int, list[dict[str, Any]]] = {}
     for k in range(cache.n_instances):
         image_row = int(cache.inst_image[k])
         if not selected[image_row]:
             continue
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            cam_small = aggregate(cache.inst_cam[k], axis=0)  # (h7, w7) over members
-        cam = _bilinear_upsample(np.nan_to_num(cam_small, nan=0.0), resolution)
-        mask = np.asarray(cache.inst_mask[k], dtype=bool)
         label = int(cache.inst_label[k])
+        # Reconstruct each covering member's Grad-CAM offline from its feature map
+        # and head weights (analytic, no autograd), then aggregate over members.
+        member_cams = [
+            cam_from_features(cache.feature_maps[image_row, m], cache.classifier_weights[m, label])
+            for m in range(cache.n_members)
+            if bool(cache.member_covers[m, label])
+        ]
+        cam_small = aggregate(member_cams, axis=0) if member_cams else np.zeros((7, 7), np.float32)
+        cam = _bilinear_upsample(cam_small, resolution)
+        mask = np.asarray(cache.inst_mask[k], dtype=bool)
         scores = {m.name: float(m.score(cam, mask)) for m in metric_list}
         loc_by_image.setdefault(image_row, []).append(
             {"label": label, "predicted": int(predicted[image_row, label]), "scores": scores}

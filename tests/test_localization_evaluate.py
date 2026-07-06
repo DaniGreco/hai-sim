@@ -13,12 +13,6 @@ from hai_sim.core.types import LabelSchema
 SCHEMA = LabelSchema.default_v0()  # L0..L4
 
 
-def _peak_cam():
-    c = np.zeros((1, 7, 7), dtype=np.float32)  # (M=1, 7, 7)
-    c[0, 0, 0] = 1.0  # single hot cell top-left
-    return c
-
-
 def _pixel_mask(rc, res=8):
     m = np.zeros((res, res), dtype=bool)
     m[rc] = True
@@ -26,7 +20,12 @@ def _pixel_mask(rc, res=8):
 
 
 def _cache() -> LocalizationCache:
-    # Mirrors the live-validator stub so the two paths are comparable.
+    # One member, one feature channel, hot at cell (0,0): cam_from_features then
+    # peaks top-left, so the derived CAM is controllable end to end.
+    feature_maps = np.zeros((2, 1, 1, 7, 7), dtype=np.float16)
+    feature_maps[:, :, :, 0, 0] = 1.0
+    classifier_weights = np.ones((1, SCHEMA.n, 1), dtype=np.float32)  # positive -> CAM ~ ReLU(A)
+    member_covers = np.ones((1, SCHEMA.n), dtype=bool)
     # img0 probs -> predicted (1,1,0,0,0); img1 -> (0,1,0,0,1) at threshold 0.5
     member_probs = np.array(
         [[[0.9, 0.9, 0.1, 0.1, 0.1]], [[0.1, 0.9, 0.1, 0.1, 0.9]]], dtype=np.float32
@@ -34,19 +33,19 @@ def _cache() -> LocalizationCache:
     ground_truth = np.array([[1, 0, -1, 1, 0], [0, 1, 1, -1, 0]], dtype=np.int8)
     # 3 localized instances: (img0,L0) peak on mask=hit; (img0,L3) mask far=miss;
     # (img1,L1) mask far=miss.
-    inst_cam = np.stack([_peak_cam(), _peak_cam(), _peak_cam()]).astype(np.float32)
-    inst_mask = np.stack(
-        [_pixel_mask((0, 0)), _pixel_mask((7, 7)), _pixel_mask((7, 7))]
-    )
+    inst_mask = np.stack([_pixel_mask((0, 0)), _pixel_mask((7, 7)), _pixel_mask((7, 7))])
     return LocalizationCache(
+        feature_maps=feature_maps,
         member_probs=member_probs,
         ground_truth=ground_truth,
+        inference_seconds=np.zeros(2),
         image_ids=("a", "b"),
         split=("train", "test"),
         dataset_indices=np.array([0, 1], dtype=np.int64),
+        classifier_weights=classifier_weights,
+        member_covers=member_covers,
         inst_image=np.array([0, 0, 1], dtype=np.int64),
         inst_label=np.array([0, 3, 1], dtype=np.int64),
-        inst_cam=inst_cam,
         inst_mask=inst_mask,
         weights=("w",),
         pathologies=SCHEMA.labels,

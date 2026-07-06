@@ -1,8 +1,10 @@
-"""Build the resumable localization cache (probs + per-member Grad-CAM + masks).
+"""Build the resumable localization cache (per-member feature maps + probs + masks).
 
-Runs the model from a validation scenario over ChestX-Det train + test *once* and
-stores only raw model output; validation then runs offline from the cache
-(`hai-sim validate --from-cache`) with any metric / threshold / aggregation / split.
+Forward-only: runs the model from a validation scenario over ChestX-Det train +
+test *once* and stores the raw feature maps + head weights (no backprop). Validation
+then runs offline from the cache (`hai-sim validate --from-cache`) with any metric /
+threshold / aggregation / split, and any label's Grad-CAM is reconstructed offline.
+Feature maps dominate size (~1.4 GB for 3578 images x 4 members at fp16).
 
 Prereq: uv run python scripts/download_chestxdet.py --train   (all 3578 images)
 Run (Windows: PYTHONUTF8=1, from the repo root):
@@ -25,7 +27,6 @@ import numpy as np
 
 from hai_sim.analysis.localization.cache import LocalizationCache, build_localization_cache
 from hai_sim.analysis.localization.chestxdet import ChestXDetDataset
-from hai_sim.analysis.localization.saliency import GradCAMSaliency
 from hai_sim.config.scenario import load_validation_scenario
 from hai_sim.factory import build_ai, build_label_schema
 
@@ -37,14 +38,13 @@ def main() -> int:
     parser.add_argument("--data-dir", default="data/chestxdet", help="ChestX-Det root")
     parser.add_argument("--splits", default="train,test", help="comma list of splits to include")
     parser.add_argument("--mask-resolution", type=int, default=112)
-    parser.add_argument("--checkpoint-every", type=int, default=25)
+    parser.add_argument("--checkpoint-every", type=int, default=100)
     parser.add_argument("--limit", type=int, default=0, help="cap images PER split (0 = all)")
     args = parser.parse_args()
 
     scenario = load_validation_scenario(Path(args.scenario))
     schema = build_label_schema(scenario.label_schema)
     ai = build_ai(scenario.ai, schema, np.random.default_rng(scenario.seed))
-    saliency = GradCAMSaliency(ai)  # type: ignore[arg-type]  # scenario guarantees torchxrv
 
     out = Path(args.out)
     cache: LocalizationCache | None = LocalizationCache.load(out) if out.with_suffix(".npz").exists() else None
@@ -79,7 +79,7 @@ def main() -> int:
                 print(f"  [{_split}] {done_n}/{total_n}  ({secs:.0f}s)", flush=True)
 
         cache = build_localization_cache(
-            saliency,
+            ai,
             dataset,
             indices=remaining,
             split_tags=[split] * len(remaining),
