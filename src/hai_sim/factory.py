@@ -16,6 +16,7 @@ from hai_sim.config.scenario import (
     PatientGenConfig,
     ScenarioConfig,
     SortConfig,
+    ValidationScenarioConfig,
 )
 from hai_sim.core.protocols import DiagnosticActor, SortStrategy
 from hai_sim.core.types import LabelSchema, Patient
@@ -209,3 +210,47 @@ def build_from_scenario(scenario: ScenarioConfig):
     doctor = build_doctor(scenario.doctor, schema, rngs["doctor"])
     sort = build_sort(scenario.sort, rngs["sort"])
     return schema, generator, ai, doctor, sort, scenario.n_ai_workers, scenario.n_doctor_workers
+
+
+def build_validation(scenario: ValidationScenarioConfig):
+    """Build the localization validator from a `ValidationScenarioConfig`.
+
+    Returns ``(schema, dataset, validator)``. Reuses `build_ai`, so the model
+    validated here is constructed identically to the one a simulation would run.
+    """
+    from hai_sim.analysis.localization.chestxdet import ChestXDetDataset
+    from hai_sim.analysis.localization.metrics import Dice, EnergyInMask, IoU, PointingGame
+    from hai_sim.analysis.localization.saliency import GradCAMSaliency
+    from hai_sim.analysis.localization.validator import LocalizationValidator
+
+    rngs = build_rngs(scenario.seed)
+    schema = build_label_schema(scenario.label_schema)
+    ai = build_ai(scenario.ai, schema, rngs["ai"])
+
+    d = scenario.dataset
+    if d.kind != "chestxdet":
+        raise ValueError(f"unknown validation dataset kind: {d.kind}")
+    dataset = ChestXDetDataset(d.annotation_path, d.image_dir, schema=schema, resize=d.resize)
+
+    saliency = None
+    if scenario.saliency == "grad_cam":
+        from hai_sim.models.torchxrv import TorchXRayVisionAI
+
+        if not isinstance(ai, TorchXRayVisionAI):
+            raise ValueError(
+                "saliency: grad_cam needs ai.kind=torchxrv (a model with conv features); "
+                "use saliency: none for label-only validation"
+            )
+        saliency = GradCAMSaliency(ai)
+
+    m = scenario.metrics
+    metrics: list[Any] = []
+    if m.pointing_game:
+        metrics.append(PointingGame(tolerance=m.pointing_tolerance))
+    if m.energy_in_mask:
+        metrics.append(EnergyInMask())
+    metrics.extend(IoU(t) for t in m.iou_thresholds)
+    metrics.extend(Dice(t) for t in m.dice_thresholds)
+
+    validator = LocalizationValidator(ai, dataset, saliency, metrics or None)
+    return schema, dataset, validator

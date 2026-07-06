@@ -10,7 +10,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from hai_sim.core.types import Image, ModelOutput, Patient, PatientContext
+from hai_sim.core.types import (
+    Image,
+    LabelSchema,
+    LocalizationExample,
+    ModelOutput,
+    Patient,
+    PatientContext,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -73,3 +80,59 @@ class UQMethod(Protocol):
     def estimate(
         self, member_probs: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]: ...
+
+
+# --- Validation plane -------------------------------------------------------
+# The three contracts below make *offline component validation* (heatmap /
+# label fidelity against expert ground truth) as swappable as the simulation
+# modules above. They are the "lightweight spine": a model, a saliency method, a
+# ground-truth dataset, and a metric compose into a validation run the same way
+# an actor, a sort strategy and a queue compose into a simulation run.
+
+
+@runtime_checkable
+class SaliencyProvider(Protocol):
+    """Optional model capability: a per-label spatial saliency map.
+
+    Implemented *alongside* `DiagnosticActor` by models that can explain *where*
+    they looked (e.g. Grad-CAM on a CNN). ``heatmap`` returns a ``(H, W)`` float
+    array in the model's own input geometry, larger = more attributed to
+    ``label_index`` (a position into the model's `LabelSchema`). A model that does
+    not implement this stays label-validatable but not localization-validatable.
+    """
+
+    name: str
+
+    def heatmap(self, image: Image, label_index: int) -> np.ndarray: ...
+
+
+@runtime_checkable
+class LocalizationDataset(Protocol):
+    """A ground-truth source for spatial + label validation.
+
+    Yields `LocalizationExample`s whose image-level labels and per-label masks are
+    aligned to ``schema`` and co-registered with the model input geometry. Swap
+    the concrete dataset (ChestX-Det, VinDr-CXR, CheXlocalize) without touching
+    the validator.
+    """
+
+    name: str
+    schema: LabelSchema
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> LocalizationExample: ...
+
+
+@runtime_checkable
+class LocalizationMetric(Protocol):
+    """Scores how well a heatmap agrees with an expert mask (both in the same
+    geometry): pointing-game hit-rate, IoU, Dice, energy-in-mask, ...
+
+    Returns a scalar; higher = better agreement (``0..1`` for the built-ins). The
+    metric owns any thresholding of the raw heatmap it needs.
+    """
+
+    name: str
+
+    def score(self, heatmap: np.ndarray, gt_mask: np.ndarray) -> float: ...
