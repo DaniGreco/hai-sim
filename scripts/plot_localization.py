@@ -58,6 +58,8 @@ def main() -> int:
     )
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--pointing-tolerance", type=int, default=16, help="224px units")
+    parser.add_argument("--iou-threshold", type=float, default=0.5, help="heatmap binarization cut")
+    parser.add_argument("--dice-threshold", type=float, default=0.5)
     parser.add_argument("--aggregation", choices=["mean", "max"], default="mean")
     parser.add_argument("--split", default=None)
     parser.add_argument("--min-instances", type=int, default=15)
@@ -67,7 +69,9 @@ def main() -> int:
 
     cache = LocalizationCache.load(args.cache)
     tol = round(args.pointing_tolerance * cache.mask_resolution / 224)
-    metrics = [PointingGame(tolerance=tol), EnergyInMask(), IoU(0.5), Dice(0.5)]
+    iou = IoU(args.iou_threshold)
+    dice = Dice(args.dice_threshold)
+    metrics = [PointingGame(tolerance=tol), EnergyInMask(), iou, dice]
     predicted, records = per_instance_localization(
         cache, metrics=metrics, threshold=args.threshold,
         member_aggregation=args.aggregation, split=args.split,
@@ -114,7 +118,7 @@ def main() -> int:
         rows.append({
             "pathology": name, "n": len(recs),
             "hit_rate": _mean_metric(recs, pg), "energy_in_mask": _mean_metric(recs, "energy_in_mask"),
-            "iou": _mean_metric(recs, "iou@0.5"), "dice": _mean_metric(recs, "dice@0.5"),
+            "iou": _mean_metric(recs, iou.name), "dice": _mean_metric(recs, dice.name),
             "mean_uncertainty": float(np.nanmean(u)),
             "spearman_unc_energy": _spearman(u, e),
         })
@@ -126,7 +130,7 @@ def main() -> int:
     hgt = 0.26
     ax.barh(y + hgt, [d["hit_rate"] for d in rows], hgt, label=pg, color="#2b7bba")
     ax.barh(y, [d["energy_in_mask"] for d in rows], hgt, label="energy_in_mask", color="#f18f01")
-    ax.barh(y - hgt, [d["iou"] for d in rows], hgt, label="iou@0.5", color="#8aab3c")
+    ax.barh(y - hgt, [d["iou"] for d in rows], hgt, label=iou.name, color="#8aab3c")
     ax.set_yticks(y)
     ax.set_yticklabels([f"{d['pathology']} (n={d['n']})" for d in rows])
     ax.invert_yaxis()
