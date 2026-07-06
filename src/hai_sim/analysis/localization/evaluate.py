@@ -9,18 +9,23 @@ re-derives every uncertainty measure from cached probabilities.
 - **labels**: the ensemble prediction is the nan-mean of the per-member
   probabilities thresholded at ``threshold``; confusion is scored vs the expert
   ``ground_truth`` (``-1`` entries skipped).
-- **localization**: each instance's per-member 7x7 Grad-CAMs are aggregated
-  (``mean``/``max``), bilinearly upsampled to the mask resolution, and scored by
-  each metric against the co-registered expert mask.
+- **localization**: each instance's per-member Grad-CAM is reconstructed from the
+  cached feature maps + head weights (`cam.cam_from_features`), aggregated
+  (``mean``/``max``), upsampled to the mask resolution, and scored by each metric.
+  Instances whose label no ensemble member covers are skipped entirely (every
+  metric, not just the overlap ones), so the pointing-game denominator never
+  silently includes findings the model cannot localize.
 """
 
 from __future__ import annotations
 
 import warnings
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from hai_sim.analysis.localization.cam import bilinear_upsample, cam_from_features
 from hai_sim.analysis.localization.metrics import default_metrics
 from hai_sim.analysis.localization.report import ComponentValidationReport, assemble_report
 
@@ -29,45 +34,6 @@ if TYPE_CHECKING:
 
     from hai_sim.analysis.localization.cache import LocalizationCache
     from hai_sim.core.protocols import LocalizationMetric
-
-
-def cam_from_features(feature_map: np.ndarray, weight_row: np.ndarray) -> np.ndarray:
-    """Reconstruct one label's Grad-CAM from a stored feature map + head weights.
-
-    For the xrv DenseNet head (``relu -> global-avg-pool -> linear``) the Grad-CAM
-    channel weights are analytic: ``alpha_c ∝ W[label, c] * (fraction of channel c
-    that is positive)``. So ``CAM = ReLU(sum_c alpha_c * A_c)`` needs no autograd —
-    it matches the backprop Grad-CAM bit for bit after min-max normalization. This
-    is what lets the cache store raw feature maps and derive *any* label's map
-    offline. ``feature_map`` is ``(C, h, w)``, ``weight_row`` is ``(C,)``.
-    """
-    A = np.asarray(feature_map, dtype=np.float32)
-    pos_frac = (A > 0).mean(axis=(1, 2))  # (C,)
-    alpha = np.asarray(weight_row, dtype=np.float32) * pos_frac  # (C,)
-    cam = np.maximum(np.tensordot(alpha, A, axes=([0], [0])), 0.0)  # (h, w)
-    lo = float(cam.min())
-    hi = float(cam.max())
-    if hi <= lo:
-        return np.zeros_like(cam)
-    normed: np.ndarray = (cam - lo) / (hi - lo)
-    return normed
-
-
-def _bilinear_upsample(src: np.ndarray, size: int) -> np.ndarray:
-    """Upsample a small 2D array to ``(size, size)``, torch-free (align_corners=False)."""
-    h, w = src.shape
-    ys = np.clip((np.arange(size) + 0.5) * h / size - 0.5, 0.0, h - 1)
-    xs = np.clip((np.arange(size) + 0.5) * w / size - 0.5, 0.0, w - 1)
-    y0 = np.floor(ys).astype(int)
-    x0 = np.floor(xs).astype(int)
-    y1 = np.minimum(y0 + 1, h - 1)
-    x1 = np.minimum(x0 + 1, w - 1)
-    wy = (ys - y0)[:, None]
-    wx = (xs - x0)[None, :]
-    top = src[np.ix_(y0, x0)] * (1 - wx) + src[np.ix_(y0, x1)] * wx
-    bot = src[np.ix_(y1, x0)] * (1 - wx) + src[np.ix_(y1, x1)] * wx
-    out: np.ndarray = top * (1 - wy) + bot * wy
-    return out
 
 
 def evaluate_from_cache(
@@ -94,26 +60,38 @@ def evaluate_from_cache(
     selected = np.ones(cache.n_images, dtype=bool) if split is None else (split_arr == split)
     aggregate = np.max if member_aggregation == "max" else np.mean
 
-    loc_by_image: dict[int, list[dict[str, Any]]] = {}
+    # Group instances by image so each image's per-member feature map + positivity
+    # fraction (both label-independent) are cast/computed once, not per finding.
+    instances_by_image: dict[int, list[int]] = defaultdict(list)
     for k in range(cache.n_instances):
-        image_row = int(cache.inst_image[k])
+        instances_by_image[int(cache.inst_image[k])].append(k)
+
+    loc_by_image: dict[int, list[dict[str, Any]]] = {}
+    for image_row, instance_ks in instances_by_image.items():
         if not selected[image_row]:
             continue
-        label = int(cache.inst_label[k])
-        # Reconstruct each covering member's Grad-CAM offline from its feature map
-        # and head weights (analytic, no autograd), then aggregate over members.
-        member_cams = [
-            cam_from_features(cache.feature_maps[image_row, m], cache.classifier_weights[m, label])
-            for m in range(cache.n_members)
-            if bool(cache.member_covers[m, label])
-        ]
-        cam_small = aggregate(member_cams, axis=0) if member_cams else np.zeros((7, 7), np.float32)
-        cam = _bilinear_upsample(cam_small, resolution)
-        mask = np.asarray(cache.inst_mask[k], dtype=bool)
-        scores = {m.name: float(m.score(cam, mask)) for m in metric_list}
-        loc_by_image.setdefault(image_row, []).append(
-            {"label": label, "predicted": int(predicted[image_row, label]), "scores": scores}
-        )
+        member_a: list[np.ndarray] = []
+        member_pos: list[np.ndarray] = []
+        for m in range(cache.n_members):
+            a = np.asarray(cache.feature_maps[image_row, m], dtype=np.float32)
+            member_a.append(a)
+            member_pos.append((a > 0).mean(axis=(1, 2)))
+
+        for k in instance_ks:
+            label = int(cache.inst_label[k])
+            member_cams = [
+                cam_from_features(member_a[m], cache.classifier_weights[m, label], member_pos[m])
+                for m in range(cache.n_members)
+                if bool(cache.member_covers[m, label])
+            ]
+            if not member_cams:
+                continue  # no member covers this label -> not localizable, skip entirely
+            cam = bilinear_upsample(aggregate(member_cams, axis=0), resolution)
+            mask = np.asarray(cache.inst_mask[k], dtype=bool)
+            scores = {mtr.name: float(mtr.score(cam, mask)) for mtr in metric_list}
+            loc_by_image.setdefault(image_row, []).append(
+                {"label": label, "predicted": int(predicted[image_row, label]), "scores": scores}
+            )
 
     records: list[dict[str, Any]] = []
     for image_row in range(cache.n_images):

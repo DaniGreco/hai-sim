@@ -131,10 +131,14 @@ def _validate_from_cache(args: argparse.Namespace, out_dir: Path) -> int:
     from hai_sim.analysis.localization.cache import LocalizationCache
     from hai_sim.analysis.localization.evaluate import evaluate_from_cache
     from hai_sim.analysis.localization.metrics import Dice, EnergyInMask, IoU, PointingGame
+    from hai_sim.core.protocols import LocalizationMetric
 
     cache = LocalizationCache.load(args.from_cache)
-    metrics = [
-        PointingGame(tolerance=args.pointing_tolerance),
+    # --pointing-tolerance is given in 224px (model-input) units; the cache scores at
+    # mask_resolution, so scale the Chebyshev radius to match the live validator.
+    tol = round(args.pointing_tolerance * cache.mask_resolution / 224)
+    metrics: list[LocalizationMetric] = [
+        PointingGame(tolerance=tol),
         EnergyInMask(),
         IoU(0.5),
         Dice(0.5),
