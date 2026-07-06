@@ -31,6 +31,28 @@ if TYPE_CHECKING:
     from hai_sim.core.protocols import LocalizationMetric
 
 
+def cam_from_features(feature_map: np.ndarray, weight_row: np.ndarray) -> np.ndarray:
+    """Reconstruct one label's Grad-CAM from a stored feature map + head weights.
+
+    For the xrv DenseNet head (``relu -> global-avg-pool -> linear``) the Grad-CAM
+    channel weights are analytic: ``alpha_c ∝ W[label, c] * (fraction of channel c
+    that is positive)``. So ``CAM = ReLU(sum_c alpha_c * A_c)`` needs no autograd —
+    it matches the backprop Grad-CAM bit for bit after min-max normalization. This
+    is what lets the cache store raw feature maps and derive *any* label's map
+    offline. ``feature_map`` is ``(C, h, w)``, ``weight_row`` is ``(C,)``.
+    """
+    A = np.asarray(feature_map, dtype=np.float32)
+    pos_frac = (A > 0).mean(axis=(1, 2))  # (C,)
+    alpha = np.asarray(weight_row, dtype=np.float32) * pos_frac  # (C,)
+    cam = np.maximum(np.tensordot(alpha, A, axes=([0], [0])), 0.0)  # (h, w)
+    lo = float(cam.min())
+    hi = float(cam.max())
+    if hi <= lo:
+        return np.zeros_like(cam)
+    normed: np.ndarray = (cam - lo) / (hi - lo)
+    return normed
+
+
 def _bilinear_upsample(src: np.ndarray, size: int) -> np.ndarray:
     """Upsample a small 2D array to ``(size, size)``, torch-free (align_corners=False)."""
     h, w = src.shape
