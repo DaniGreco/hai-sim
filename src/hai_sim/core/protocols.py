@@ -99,6 +99,12 @@ class SaliencyProvider(Protocol):
     array in the model's own input geometry, larger = more attributed to
     ``label_index`` (a position into the model's `LabelSchema`). A model that does
     not implement this stays label-validatable but not localization-validatable.
+
+    Convention: return an **all-NaN** map to signal ``label_index`` is *not
+    localizable* by this model (e.g. no ensemble member was trained on it). The
+    validator skips such instances, keeping non-localizable findings out of every
+    metric's denominator — as opposed to an all-zero map, which is a real (if
+    degenerate) saliency and is scored like any other.
     """
 
     name: str

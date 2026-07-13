@@ -112,7 +112,7 @@ def test_builder_stores_feature_maps_and_references(tmp_path):
     assert cache.n_images == 3
     assert cache.n_members == 2
     assert cache.feature_maps.shape == (3, 2, 4, 3, 3)  # memmap sized to total_images
-    assert cache.feature_maps.dtype == np.float16
+    assert cache.feature_maps.dtype == np.float32  # float32 to match the live forward
     assert cache.member_probs.shape == (3, 2, SCHEMA.n)
     assert cache.classifier_weights.shape == (2, SCHEMA.n, 4)
     assert cache.member_covers.shape == (2, SCHEMA.n)

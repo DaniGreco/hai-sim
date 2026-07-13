@@ -155,8 +155,10 @@ def assemble_report(
 
     A record is ``{"gt": [L ints], "pred": [L ints], "loc": [{"label", "predicted",
     "scores": {metric: value|None|NaN}}]}``. Shared by the live validator and the
-    offline cache evaluator so both produce byte-identical reports from the same
-    intermediate shape.
+    offline cache evaluator: this reduction is deterministic, so *identical* record
+    lists yield identical reports. With the default cache (model-input resolution,
+    float32) the two producers emit identical records; they diverge only for a cache
+    built at a reduced ``mask_resolution`` (see `cam`).
     """
     n = len(schema_labels)
     confusion = {lab: LabelConfusion() for lab in schema_labels}

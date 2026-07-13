@@ -14,7 +14,15 @@ re-derives every uncertainty measure from cached probabilities.
   (``mean``/``max``), upsampled to the mask resolution, and scored by each metric.
   Instances whose label no ensemble member covers are skipped entirely (every
   metric, not just the overlap ones), so the pointing-game denominator never
-  silently includes findings the model cannot localize.
+  silently includes findings the model cannot localize — matching what the live
+  `LocalizationValidator` now does (it skips the all-NaN saliency map of a
+  non-localizable label).
+
+Fidelity note: by default this path matches the live validator exactly — it scores at
+``cache.mask_resolution`` (default 224) from float32 feature maps, the same geometry and
+precision the live validator uses (224, float32), with the same closed-form CAM math.
+The two diverge only if a cache is deliberately built at a reduced ``mask_resolution``
+(or an older float16 cache is reused), scoring the CAM at that lower fidelity.
 """
 
 from __future__ import annotations

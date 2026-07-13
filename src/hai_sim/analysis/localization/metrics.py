@@ -63,7 +63,15 @@ class PointingGame:
         if not gt.any():
             return float("nan")
         h = np.asarray(heatmap, dtype=float)
-        r, c = (int(v) for v in np.unravel_index(int(np.argmax(h)), h.shape))
+        # A flat / all-zero / all-NaN heatmap has no distinguishable peak: np.argmax
+        # would fall back to the top-left pixel, scoring a spurious hit (if the mask
+        # happens to cover that corner) or miss. Undefined, exactly like the overlap
+        # metrics on a no-contrast map -> NaN (see module docstring). This also keeps
+        # the pointing-game denominator aligned with the offline evaluator, which drops
+        # a label no model member can localize instead of counting it as a miss.
+        if not np.isfinite(h).any() or float(np.nanmax(h)) <= float(np.nanmin(h)):
+            return float("nan")
+        r, c = (int(v) for v in np.unravel_index(int(np.nanargmax(h)), h.shape))
         if self.tolerance == 0:
             return 1.0 if bool(gt[r, c]) else 0.0
         t = self.tolerance

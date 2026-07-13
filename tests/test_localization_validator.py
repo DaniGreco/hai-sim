@@ -140,6 +140,32 @@ def test_label_only_without_saliency():
     assert report.label_confusion["L0"].sensitivity == 1.0
 
 
+class StubSaliencyNaNForL3:
+    """Single hot pixel at (0, 0), except label 3 is 'not localizable' (all-NaN)."""
+
+    name = "stub_cam_nan"
+
+    def heatmap(self, image, label_index: int) -> np.ndarray:
+        if label_index == 3:
+            return np.full((4, 4), np.nan, dtype=np.float32)
+        h = np.zeros((4, 4), dtype=np.float32)
+        h[0, 0] = 1.0
+        return h
+
+
+def test_non_localizable_label_is_skipped_like_the_cache():
+    # L3 (a real mask on img a) reports an all-NaN saliency -> the validator must SKIP
+    # the instance, exactly as evaluate_from_cache skips a label no member covers, so a
+    # non-localizable finding is not counted as a pointing-game miss. Only L0 (hit) and
+    # L1 (miss) stay in the pooled denominator.
+    report = LocalizationValidator(StubActor(), StubDataset(), StubSaliencyNaNForL3()).run()
+    pooled = {m.metric: m for m in report.localization_pooled}
+    assert pooled["pointing_game"].n_total == 2  # L3 dropped, not scored 0.0
+    assert pooled["pointing_game"].n_valid == 2
+    assert math.isclose(pooled["pointing_game"].mean, 0.5)  # L0 hit, L1 miss
+    assert "L3" not in report.localization_per_label
+
+
 def test_resume_skips_done_indices(tmp_path):
     records = tmp_path / "rec.json"
     actor = StubActor()

@@ -1,9 +1,13 @@
 """Shared Grad-CAM math — the single implementation used by both the live
 validator (`GradCAMSaliency`) and the offline cache evaluator (`evaluate_from_cache`).
 
-Keeping this in one place is deliberate: the two paths must produce numerically
-identical heatmaps, and having one function (rather than an autograd copy and an
-analytic copy) removes the risk of silent divergence.
+Keeping this in one place is deliberate: one function (rather than an autograd copy
+and an analytic copy) removes the risk of the two paths' saliency *reconstruction*
+silently drifting apart. By default both paths also *score* at the same geometry and
+precision — the live path at the model input (224) in float32, the cache at its
+``mask_resolution`` (default 224) from float32 feature maps — so their metrics coincide.
+They diverge only if a cache is deliberately built at a reduced ``mask_resolution`` (or
+an older float16 cache is reused), which scores this CAM at a lower fidelity.
 
 - `cam_from_features` reconstructs one label's Grad-CAM from a stored feature map
   and the linear head's weight row. For the xrv DenseNet head

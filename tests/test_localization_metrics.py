@@ -81,13 +81,27 @@ def test_empty_mask_returns_nan():
         assert math.isnan(m.score(heat, gt))
 
 
-def test_flat_heatmap_is_nan_for_threshold_metrics():
+def test_flat_heatmap_is_nan_for_contrast_metrics():
     gt = _mask(8, 8, (1, 1, 4, 4))
-    heat = np.full((8, 8), 0.3)  # no contrast -> normalization undefined
+    heat = np.full((8, 8), 0.3)  # no contrast -> no peak / normalization undefined
     assert math.isnan(IoU(0.5).score(heat, gt))
     assert math.isnan(Dice(0.5).score(heat, gt))
-    # energy-in-mask is still defined (area fraction), pointing-game picks a pixel
+    # pointing-game needs a distinguishable peak; a flat map has none -> NaN, NOT a
+    # corner-pixel hit/miss (the whole point of the no-contrast guard).
+    assert math.isnan(PointingGame().score(heat, gt))
+    assert math.isnan(PointingGame(tolerance=2).score(heat, gt))
+    # energy-in-mask is still defined for a flat positive map (= mask area fraction)
     assert not math.isnan(EnergyInMask().score(heat, gt))
+
+
+def test_zero_and_nan_heatmaps_are_nan_for_pointing_game():
+    # A no-coverage / degenerate CAM arrives as an all-zero or all-NaN map. Its argmax
+    # is the top-left pixel; if the mask happens to cover that corner the OLD behavior
+    # scored a spurious 1.0. Both must now be NaN so they drop out of the denominator.
+    gt = _mask(6, 6, (0, 0, 2, 2))  # mask covers the (0, 0) corner argmax would pick
+    assert math.isnan(PointingGame().score(np.zeros((6, 6)), gt))
+    assert math.isnan(PointingGame().score(np.full((6, 6), np.nan), gt))
+    assert math.isnan(PointingGame(tolerance=3).score(np.zeros((6, 6)), gt))
 
 
 def test_partial_overlap_iou_and_dice():

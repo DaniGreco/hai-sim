@@ -47,7 +47,7 @@ def test_heatmap_shape_and_range(cam):
     assert hm.std() > 0.0
 
 
-def test_uncovered_label_returns_zeros(cam):
+def test_uncovered_label_returns_nan(cam):
     saliency, model = cam
     _, uncovered = _covered_and_uncovered(model)
     if uncovered < 0:
@@ -55,7 +55,9 @@ def test_uncovered_label_returns_zeros(cam):
     img = np.random.default_rng(1).standard_normal((1, 224, 224)).astype(np.float32) * 100.0
     hm = saliency.heatmap(img, uncovered)
     assert hm.shape == (224, 224)
-    assert np.count_nonzero(hm) == 0
+    # not localizable -> all-NaN signal so the validator skips it (not a zero map,
+    # which PointingGame would otherwise score as a spurious corner hit/miss)
+    assert np.isnan(hm).all()
 
 
 def test_accepts_2d_image(cam):
