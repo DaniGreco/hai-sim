@@ -26,6 +26,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from hai_sim.analysis.localization.metrics import default_metrics
 from hai_sim.analysis.localization.report import ComponentValidationReport, assemble_report
 
@@ -108,6 +110,12 @@ class LocalizationValidator:
                 if mask is None:
                     continue
                 heatmap = self.saliency.heatmap(ex.image, i)
+                if not np.isfinite(np.asarray(heatmap, dtype=float)).any():
+                    # Saliency signals "not localizable" (no model coverage for this
+                    # label) with an all-NaN map -> skip the instance, exactly as
+                    # `evaluate_from_cache` skips a label no member covers, so the live
+                    # and cached paths keep one shared denominator per metric.
+                    continue
                 scores: dict[str, float | None] = {}
                 for metric in self.metrics:
                     val = float(metric.score(heatmap, mask))

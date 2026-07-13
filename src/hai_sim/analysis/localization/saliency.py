@@ -6,16 +6,21 @@ pathology. This is the "where" companion to the classifier's "what", and the
 input the localization validator compares against expert masks.
 
 The heatmap is reconstructed **analytically** from the model's real-forward
-feature maps and its linear head weights via `cam.cam_from_features` — the exact
-same math the offline cache evaluator uses, so the live and cached paths cannot
-diverge. (The xrv head is ``relu -> global-avg-pool -> linear``, which makes the
-Grad-CAM weights closed-form; `test_cam_math` proves this equals backprop Grad-CAM
-bit for bit.)
+feature maps and its linear head weights via `cam.cam_from_features` — the same
+closed-form CAM math the offline cache evaluator uses, so neither path can drift
+from the other's saliency reconstruction. (The xrv head is
+``relu -> global-avg-pool -> linear``, which makes the Grad-CAM weights closed-form;
+`test_cam_math` proves this equals backprop Grad-CAM bit for bit.) By default both
+paths also score at the same geometry/precision — this live path at the model input
+(224, float32) and `evaluate_from_cache` at the cache's ``mask_resolution`` (default
+224) from float32 feature maps — so their metrics coincide; they differ only for a
+cache deliberately built at a lower ``mask_resolution`` (see `evaluate`).
 
 Ensemble aggregation: a cross-domain member not trained on the target pathology
 carries no signal for it, so we reconstruct a CAM only for the covering members,
 min-max normalize each, and average. If no member covers the label the map is all
-zeros (the label is not localizable by this model).
+NaN (the label is not localizable by this model) and the validator skips the
+instance, keeping it out of every metric's denominator.
 """
 
 from __future__ import annotations
@@ -69,6 +74,11 @@ class GradCAMSaliency:
             raise ValueError(f"expected a square model input, got {h}x{w}")
         cams = self.member_cams(image, label_index)  # (M, native, native)
         if bool(np.isnan(cams).all()):
-            return np.zeros((h, w), dtype=np.float32)
+            # No member covers this label -> not localizable. Signal it with an
+            # all-NaN map (not zeros): the validator then *skips* the instance, exactly
+            # as `evaluate_from_cache` `continue`s on a label no member covers, so both
+            # paths share one pointing-game denominator instead of scoring a spurious
+            # zero map at pixel (0, 0).
+            return np.full((h, w), np.nan, dtype=np.float32)
         agg = np.nanmean(cams, axis=0)  # (native, native)
         return bilinear_upsample(agg, h).astype(np.float32)

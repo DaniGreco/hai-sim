@@ -4,7 +4,8 @@ Forward-only: runs the model from a validation scenario over ChestX-Det train +
 test *once* and stores the raw feature maps + head weights (no backprop). Validation
 then runs offline from the cache (`hai-sim validate --from-cache`) with any metric /
 threshold / aggregation / split, and any label's Grad-CAM is reconstructed offline.
-Feature maps dominate size (~1.4 GB for 3578 images x 4 members at fp16).
+Feature maps dominate size (~2.8 GB for 3578 images x 4 members at fp32, kept at
+fp32 so the offline Grad-CAM matches the live forward's precision exactly).
 
 Prereq: uv run python scripts/download_chestxdet.py --train   (all 3578 images)
 Run (Windows: PYTHONUTF8=1, from the repo root):
@@ -37,7 +38,13 @@ def main() -> int:
     parser.add_argument("--out", required=True, help="cache stem (writes <out>.npz + <out>.json)")
     parser.add_argument("--data-dir", default="data/chestxdet", help="ChestX-Det root")
     parser.add_argument("--splits", default="train,test", help="comma list of splits to include")
-    parser.add_argument("--mask-resolution", type=int, default=112)
+    parser.add_argument(
+        "--mask-resolution",
+        type=int,
+        default=224,
+        help="mask scoring resolution; keep == model input (224) to align with the "
+        "live validator and avoid a second, lossy mask downsample",
+    )
     parser.add_argument("--checkpoint-every", type=int, default=100)
     parser.add_argument("--limit", type=int, default=0, help="cap images PER split (0 = all)")
     args = parser.parse_args()
@@ -48,9 +55,15 @@ def main() -> int:
 
     out = Path(args.out)
     splits = [s.strip() for s in args.splits.split(",") if s.strip()]
-    # Fingerprint includes the model weights: resuming into a cache built with a
-    # different model would pair prior feature maps with new head weights.
-    fingerprint = f"chestxdet|{','.join(splits)}|{'+'.join(ai.weight_list)}"
+    # Fingerprint guards resume. It includes the model weights (resuming into a cache
+    # built with a different model would pair prior feature maps with new head weights)
+    # AND the mask resolution (a 224 build must not silently extend a 112 cache — the
+    # stored masks would be a different geometry). Splits are sorted so the fingerprint
+    # is independent of the order they were passed on the command line.
+    fingerprint = (
+        f"chestxdet|{','.join(sorted(splits))}|{'+'.join(ai.weight_list)}"
+        f"|mask{args.mask_resolution}"
+    )
 
     cache: LocalizationCache | None = (
         LocalizationCache.load(out) if out.with_suffix(".npz").exists() else None

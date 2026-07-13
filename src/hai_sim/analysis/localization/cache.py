@@ -10,15 +10,17 @@ build **forward-only** (no per-label backprop).
 
 Storage is split so the big array never gets rewritten:
 
-- ``<stem>.features.npy`` : the ``(N, M, C, h, w)`` float16 feature maps, written
+- ``<stem>.features.npy`` : the ``(N, M, C, h, w)`` float32 feature maps, written
   **incrementally into a preallocated memory-mapped array** during the build (no
   in-RAM accumulation, no re-stacking, no per-checkpoint rewrite) and read back
-  ``mmap_mode='r'`` (so an evaluator only pages in the rows it touches);
+  ``mmap_mode='r'`` (so an evaluator only pages in the rows it touches). Kept at
+  float32 (not float16) so the offline Grad-CAM matches the live forward's
+  precision bit-for-bit — the cache is meant to reproduce the live path exactly;
 - ``<stem>.npz``  : the small arrays (probs, gt, timing, head weights, masks, ids);
 - ``<stem>.json`` : a human-readable manifest.
 
 Checkpoints flush the memmap and rewrite only the small ``.npz`` (~tens of MB), so
-a 3578-image build writes the 1.4 GB feature file once, not dozens of times.
+a 3578-image build writes the ~2.8 GB feature file once, not dozens of times.
 """
 
 from __future__ import annotations
@@ -47,8 +49,9 @@ class LocalizationCache:
     """A forward-only snapshot of ensemble feature maps + probs over an image set."""
 
     feature_maps: np.ndarray
-    """``(N, M, C, h, w)`` float16 (may be a ``np.memmap``). Per-member last-conv
-    feature maps from the real forward — the raw material for any label's Grad-CAM."""
+    """``(N, M, C, h, w)`` float32 (may be a ``np.memmap``). Per-member last-conv
+    feature maps from the real forward — the raw material for any label's Grad-CAM.
+    float32 (not float16) so the offline CAM matches the live forward's precision."""
 
     member_probs: np.ndarray
     """``(N, M, L)`` float32. Per-member ``P(label=1)``; ``NaN`` for uncovered."""
@@ -203,7 +206,16 @@ class LocalizationCache:
 
 
 def _downsample_mask(mask: np.ndarray, resolution: int) -> np.ndarray:
-    """Resize a boolean mask to ``(resolution, resolution)`` (bilinear + 0.5 cut)."""
+    """Store the co-registered mask at ``resolution``.
+
+    The dataset already delivers the mask at the model-input geometry (one native
+    -> model resize + 0.5 cut, shared with the live path). When ``resolution``
+    equals that geometry — the default, aligned to the live validator — this is a
+    lossless passthrough, so there is exactly ONE resample of the mask. Passing a
+    *smaller* ``resolution`` here would add a SECOND resize + 0.5 cut, which can
+    erase a small finding entirely (biasing the metrics toward large ones); keep
+    ``mask_resolution`` at the model input to avoid it.
+    """
     mask = np.asarray(mask, dtype=bool)
     if mask.shape == (resolution, resolution):
         return mask
@@ -223,7 +235,7 @@ def build_localization_cache(
     split_tags: Sequence[str],
     out_stem: str | Path,
     total_images: int,
-    mask_resolution: int = 112,
+    mask_resolution: int = 224,
     dataset_name: str = "chestxdet",
     checkpoint_every: int = 0,
     prior: LocalizationCache | None = None,
@@ -328,9 +340,9 @@ def build_localization_cache(
         if feat_mmap is None:
             feat.parent.mkdir(parents=True, exist_ok=True)
             feat_mmap = np.lib.format.open_memmap(
-                feat, mode="w+", dtype=np.float16, shape=(total_images, *maps.shape)
+                feat, mode="w+", dtype=np.float32, shape=(total_images, *maps.shape)
             )
-        feat_mmap[base + local] = np.asarray(maps, dtype=np.float16)
+        feat_mmap[base + local] = np.asarray(maps, dtype=np.float32)
         img_probs.append(np.asarray(probs, dtype=np.float32))
         img_gt.append(np.asarray(ex.labels, dtype=np.int8))
         img_ids.append(ex.image_id)
