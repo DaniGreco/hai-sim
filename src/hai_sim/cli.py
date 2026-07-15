@@ -17,6 +17,7 @@ from hai_sim.config.scenario import load_scenario
 from hai_sim.factory import build_from_scenario
 from hai_sim.metrics.kpi import compute_report
 from hai_sim.sim.engine import SimulationEngine
+from hai_sim.study import StudyResult, load_study, run_study, write_tidy_csv, write_tidy_json
 
 console = Console()
 
@@ -80,6 +81,58 @@ def cmd_run(args: argparse.Namespace) -> int:
     console.print(f"[green]records -> {csv_path}[/green]")
     console.print(f"[green]summary -> {json_path}[/green]")
     return 0
+
+
+def cmd_study(args: argparse.Namespace) -> int:
+    study_path = Path(args.study)
+    if not study_path.exists():
+        console.print(f"[red]study not found: {study_path}[/red]")
+        return 2
+    study = load_study(study_path)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    from hai_sim.study import expand_runs
+
+    n_runs = len(expand_runs(study))
+    console.print(
+        f"[bold]study[/bold]: {study.name}  design={study.design}  "
+        f"factors={list(study.factors)}  reps={len(study.replications)}  runs={n_runs}"
+    )
+
+    def progress(done: int, total: int) -> None:
+        step = max(1, total // 20)
+        if done % step == 0 or done == total:
+            console.print(f"  run {done}/{total}", highlight=False)
+
+    t0 = time.time()
+    result = run_study(study, progress)
+    wall = time.time() - t0
+
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    csv_path = out_dir / f"study_{study.name}_{stamp}.csv"
+    json_path = out_dir / f"study_{study.name}_{stamp}.json"
+    write_tidy_csv(result, csv_path)
+    write_tidy_json(result, json_path)
+
+    _print_study_preview(result)
+    console.print(f"[green]tidy csv  -> {csv_path}[/green]")
+    console.print(
+        f"[green]tidy json -> {json_path}[/green]  ({wall:.1f}s, {len(result.rows)} runs)"
+    )
+    return 0
+
+
+def _print_study_preview(result: StudyResult) -> None:
+    table = Table(title=f"study {result.study.name} — {len(result.rows)} runs (preview)")
+    header = [*result.factor_names, "seed", *result.report_paths]
+    for c in header:
+        table.add_column(c, justify="right")
+    for row in result.rows[:12]:
+        table.add_row(*[_fmt(row.get(c)) for c in header])
+    console.print(table)
+    if len(result.rows) > 12:
+        console.print(f"  … {len(result.rows) - 12} more rows in the CSV/JSON")
 
 
 def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
@@ -322,6 +375,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("scenario", help="path to scenario YAML")
     run_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
     run_p.set_defaults(func=cmd_run)
+
+    study_p = sub.add_parser("study", help="run a parameter study (factor grid → tidy KPI table)")
+    study_p.add_argument("study", help="path to study YAML")
+    study_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
+    study_p.set_defaults(func=cmd_study)
 
     val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
     val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")
