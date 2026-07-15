@@ -24,6 +24,7 @@ from hai_sim.core.types import LabelSchema, Patient
 from hai_sim.doctors.assisted import AssistedDoctor, LinearPoolPolicy, LogOddsFusionPolicy
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
+from hai_sim.labels import ProjectedActor, build_projection, project_generator
 from hai_sim.models.mock import RandomMockAI
 from hai_sim.severity.models import (
     ActivationSeverity,
@@ -219,6 +220,12 @@ def build_patient_generator(
     schema: LabelSchema,
     rng: np.random.Generator,
 ) -> Iterable[tuple[float, Patient]]:
+    if cfg.gt_source != "native":
+        raise NotImplementedError(
+            f"gt_source={cfg.gt_source!r} is not wired yet; only 'native' (the dataset's "
+            "own labels) is available. Alternative ground-truth sources (NIH adjudicated "
+            "consensus, per-reader reads) land with the real-data / persona-calibration work."
+        )
     if cfg.kind == "poisson":
         return PoissonPatientGenerator(
             schema=schema,
@@ -257,21 +264,44 @@ def build_rngs(seed: int) -> dict[str, np.random.Generator]:
 
 
 def build_from_scenario(scenario: ScenarioConfig):
-    """Returns (schema, generator, ai, doctor, sort, severity, n_ai_workers, n_doctor_workers)."""
+    """Returns (schema, generator, ai, doctor, sort, severity, n_ai_workers, n_doctor_workers).
+
+    ``schema`` is the ACTIVE schema the run scores on: the base schema, or its
+    projection when a ``label_view`` is set. The AI is built in its native (base)
+    space and wrapped so its output — like the projected ground truth — lands in
+    the active space; the doctor, sort and severity are built on the active schema.
+    """
     rngs = build_rngs(scenario.seed)
-    schema = build_label_schema(scenario.label_schema)
-    generator = build_patient_generator(scenario.patient_generator, schema, rngs["patient"])
-    ai = build_ai(
+    base_schema = build_label_schema(scenario.label_schema)
+    view = scenario.label_view
+    projection = build_projection(
+        base_schema,
+        mode=view.mode if view else "full",
+        targets=view.targets if view else None,
+        combine=view.combine if view else "noisy_or",
+    )
+    active_schema = projection.active
+
+    base_generator = build_patient_generator(
+        scenario.patient_generator, base_schema, rngs["patient"]
+    )
+    base_ai = build_ai(
         scenario.ai,
-        schema,
+        base_schema,
         rngs["ai"],
         emit_embedding=_severity_needs_embedding(scenario.severity),
     )
-    doctor = build_doctor(scenario.doctor, schema, rngs["doctor"])
+    generator: Iterable[tuple[float, Patient]] = base_generator
+    ai: DiagnosticActor = base_ai
+    if not projection.is_identity:
+        generator = project_generator(base_generator, projection)
+        ai = ProjectedActor(base_ai, projection)
+
+    doctor = build_doctor(scenario.doctor, active_schema, rngs["doctor"])
     sort = build_sort(scenario.sort, rngs["sort"])
-    severity = build_severity(scenario.severity, schema)
+    severity = build_severity(scenario.severity, active_schema)
     return (
-        schema,
+        active_schema,
         generator,
         ai,
         doctor,

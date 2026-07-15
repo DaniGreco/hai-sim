@@ -84,6 +84,20 @@ class SeverityConfig(_Strict):
     embedding_reduce: Literal["l2_norm", "mean"] = "l2_norm"
 
 
+class LabelViewConfig(_Strict):
+    """Projects the model's native labels to the active study label set.
+
+    ``full`` (default) = no projection (multi-label over the whole schema).
+    ``subset`` = keep only ``targets`` (one target → a single-label study).
+    ``binary_abnormal`` = collapse ``targets`` (or all labels) to a single
+    "Abnormal" label (any finding), combining probabilities via ``combine``.
+    """
+
+    mode: Literal["full", "subset", "binary_abnormal"] = "full"
+    targets: tuple[str, ...] | None = None
+    combine: Literal["noisy_or", "max"] = "noisy_or"
+
+
 class PatientGenConfig(_Strict):
     kind: Literal["poisson", "xrv_dataset"] = "poisson"
     arrival_rate: float = Field(gt=0)
@@ -93,6 +107,10 @@ class PatientGenConfig(_Strict):
     image_shape: tuple[int, ...] = (1, 1)
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
+    # Ground truth is owned by the dataset: selecting a dataset selects its GT.
+    # 'native' = the dataset's own labels. Alternative sources (e.g. NIH adjudicated
+    # consensus, per-reader reads) are a dataset sub-knob wired with the real-data work.
+    gt_source: str = "native"
     imgpath: str | None = None
     csvpath: str | None = None
     sample_mode: Literal["sequential", "random"] = "sequential"
@@ -107,6 +125,7 @@ class ScenarioConfig(_Strict):
     name: str = "unnamed"
     seed: int = 0
     label_schema: Literal["default_v0", "chexpert", "xrv"] = "default_v0"
+    label_view: LabelViewConfig | None = None
     patient_generator: PatientGenConfig
     ai: AIModelConfig
     doctor: DoctorConfig
