@@ -15,15 +15,17 @@ ai:
   kind: random_mock
   service_time: 0.05
 
-doctor:
-  kind: assisted
-  base: fixed_accuracy
-  sensitivity: 0.75
-  specificity: 0.80
-  integration_policy: log_odds_fusion
-  policy_beta: 1.0        # exp(-beta * AI_uncertainty) weight on the AI's log-odds
-  policy_weight_doctor: 1.0
-  policy_prior: 0.5
+persona:                   # fixed-accuracy reader assisted via log-odds fusion
+  capability:
+    kind: fixed_accuracy
+    sensitivity: 0.75
+    specificity: 0.80
+  sees_ai: true
+  trust:
+    kind: log_odds_fusion
+    beta: 1.0              # exp(-beta * AI_uncertainty) weight on the AI's log-odds
+    weight_doctor: 1.0
+    prior: 0.5
 
 sort:
   kind: uncertainty_desc

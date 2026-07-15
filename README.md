@@ -183,8 +183,10 @@ seed: 42                          # int; controls all stochastic streams
 label_schema: default_v0          # "default_v0" (5 fake labels) | "chexpert" (14)
 patient_generator: { ... }        # see below
 ai: { ... }
-doctor: { ... }
+persona: senior_trusting          # a library name, OR an inline capability/visibility/trust block
 sort: { ... }
+severity: { ... }                 # optional — a per-patient severity model (src/hai_sim/severity)
+kpis: [system, actors, team, joint_table]  # optional — which KPI bundles to compute (default = all)
 n_ai_workers: 1                   # int ≥ 1; concurrent AI inference workers
 n_doctor_workers: 1               # int ≥ 1; concurrent doctors
 ```
@@ -219,24 +221,29 @@ per label and thresholds confidence at 0.5 to produce the binary label. Decision
 quality is therefore close to uniform random by design — this is a wiring test,
 not a clinical baseline.
 
-### `doctor`
+### `persona` — the doctor model (capability × visibility × trust)
+
+The doctor is a **persona**: a base reader's *capability*, whether it *sees* the AI
+(*visibility*), and *how it trusts* the AI (a swappable integration policy). Give a
+**library name** or an inline block.
 
 ```yaml
-doctor:
-  kind: random_mock               # only "random_mock" in v0
-  service_time_mu: 2.5            # float; lognormal μ (log-space)
-  service_time_sigma: 0.4         # float > 0; lognormal σ (log-space)
-                                  #   median = exp(μ), mean = exp(μ + σ²/2)
-                                  #   defaults → median ≈ 12.2 sim-time, mean ≈ 13.2
-  alpha_conf: 5.0                 # Beta α for confidence (default mean ≈ 0.71)
-  beta_conf: 2.0
-  alpha_unc: 2.0                  # Beta for uncertainty (default mean ≈ 0.29)
-  beta_unc: 5.0
+persona: senior_trusting          # 6 built-ins: solo_senior, solo_junior,
+                                  #   {senior,junior}_{trusting,skeptical}
+```
 
-  # Hybrid mode — see "Hybrid mode" section below
-  use_ai_hint: false              # bool; if true, the AI's ModelOutput is passed to diagnose()
-  assisted_policy: noop           # "noop" | "follow_when_certain"
-  ai_hint_uncertainty_threshold: 0.3   # float in [0,1]; only used by "follow_when_certain"
+```yaml
+persona:                          # inline equivalent of a preset
+  capability:                     # the reader's own, AI-unaided ability
+    kind: fixed_accuracy          # "fixed_accuracy" | "random_mock"
+    sensitivity: 0.95             # scalar (all labels) or per-label list
+    specificity: 0.95
+    source: fixed                 # "fixed" | "reader" (calibrate on real reads — gated on dataset)
+  sees_ai: true                   # visibility: does the reader consult the AI?
+  trust:                          # used only when sees_ai — a swappable IntegrationPolicy
+    kind: linear_pool             # "linear_pool" | "confidence_gated" | "log_odds_fusion"
+    weight_ai: 0.45               # Weight of Advice (linear_pool/confidence_gated); lit mean ≈0.39
+    confidence_threshold: 0.7     # confidence_gated only: heed the AI above this AI confidence
 ```
 
 ### `sort`
@@ -266,46 +273,26 @@ perturb the others**. Same seed + same scenario file = byte-identical CSV/JSON.
 
 ---
 
-## Hybrid mode (Human-AI assisted)
+## Personas & trust
 
-By default the doctor sees only the images. To make the doctor consult the AI's
-output, set:
+A **persona** is the doctor model: **capability × visibility × trust**. With
+`sees_ai: false` (the `solo_*` personas) the reader works alone — the medico-solo
+baseline. With `sees_ai: true`, a swappable **`IntegrationPolicy`** fuses the reader's
+own opinion with the AI's:
 
-```yaml
-doctor:
-  use_ai_hint: true               # enables passing ai_hint=ModelOutput into doctor.diagnose
-  assisted_policy: follow_when_certain
-  ai_hint_uncertainty_threshold: 0.3
-```
+- **`linear_pool`** — weighted average of the two probabilities; `weight_ai` is the
+  **Weight of Advice** (0 = ignore the AI, 1 = fully adopt it). The advice-taking
+  literature's pooled mean is ≈0.39 (egocentric discounting).
+- **`confidence_gated`** — the same, but the reader heeds the AI **only where the AI is
+  confident** (`max(p, 1−p) ≥ confidence_threshold`); below it the AI is ignored.
+  Grounded in "uptake rises with advisor confidence" (Sniezek & Van Swol 2001).
+- **`log_odds_fusion`** — the normative, uncertainty-weighted Bayesian pool (the
+  optimal-fusion ceiling); agreeing opinions reinforce.
 
-### What each policy does
-
-- **`noop`** *(default)* — the AI's `ModelOutput` is recorded in the doctor's
-  output `extra` dict (`ai_hint_seen=True`) but the doctor's prediction is
-  unchanged. Useful for verifying the wiring without altering KPIs.
-- **`follow_when_certain`** — per-label deferral. On each label `i`, if the
-  AI's `uncertainty[i] < ai_hint_uncertainty_threshold`, the doctor copies the
-  AI's label for that label; otherwise the doctor uses its own sampled call.
-  The list of labels where the AI was followed lands in `extra["ai_hint_followed_labels"]`.
-
-This is intentionally a **minimal** policy: enough to make `use_ai_hint=true`
-move the KPI needle, not enough to be clinically realistic. Richer fusion
-strategies (full deferral, weighted vote, defer-on-doctor-uncertainty, etc.)
-will arrive as standalone components when the experiment campaign requires them.
-
-### Example: comparing baseline vs hybrid
-
-`configs/examples/v0_smoke_uncertainty.yaml` and `configs/examples/v0_smoke_hybrid.yaml`
-share the same seed, sort, and arrival pattern; the only differences are
-`use_ai_hint` and `assisted_policy`. Run both and compare the `doctor` KPI block
-to see exactly how much consulting the AI moves the needle (with a random-mock
-AI, usually downward — that's expected because the mock is bad).
-
-### Note on the `hybrid` KPI block in v0
-
-When `use_ai_hint=true`, the doctor's recorded `doc_labels` *already* reflect
-the assisted decision. The `hybrid` KPI block continues to mirror the `doctor`
-block in v0 — they will diverge once a `FusionPolicy` component is introduced
-that combines AI and doctor outputs *after* both have been recorded
-independently. Until then, the cleanest comparison is:
-`use_ai_hint=false` doctor block  vs  `use_ai_hint=true` doctor block.
+The **library** is the 2×3 grid *{senior, junior} × {solo, trusting, skeptical}*:
+capability senior 0.95/0.95 vs junior 0.85/0.88, and trust WOA senior < junior at each
+attitude (experts discount advice more). It is the natural sweep for the "how do personas
+change team outcome and appropriate reliance?" study — read it off the `team` KPI block
+(complementarity gap, RAIR/RSR) and the `joint_table`. `configs/examples/v0_smoke_hybrid.yaml`
+vs `v0_smoke_uncertainty.yaml` share seed/sort/arrivals and differ only in the persona
+(sees-AI vs solo). See `LITERATURE_doctor_ai_integration.md` for the model + policy design.

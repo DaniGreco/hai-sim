@@ -132,7 +132,7 @@ def _scenario_dict(label_view: dict | None = None, gt_source: str | None = None)
         "label_schema": "default_v0",
         "patient_generator": pg,
         "ai": {"kind": "random_mock"},
-        "doctor": {"kind": "random_mock"},
+        "persona": {"capability": {"kind": "random_mock"}},
         "sort": {"kind": "random"},
     }
     if label_view is not None:
@@ -176,6 +176,7 @@ def test_build_from_scenario_binary_abnormal_run():
 
 
 def test_gt_source_non_native_raises():
+    # poisson (synthetic) only provides native GT → capability rejection
     sc = ScenarioConfig.model_validate(_scenario_dict(gt_source="adjudicated"))
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         build_from_scenario(sc)

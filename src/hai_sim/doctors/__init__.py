@@ -1,5 +1,6 @@
 from hai_sim.doctors.assisted import (
     AssistedDoctor,
+    ConfidenceGatedPoolPolicy,
     LinearPoolPolicy,
     LogOddsFusionPolicy,
     ai_probability,
@@ -10,6 +11,7 @@ from hai_sim.doctors.simple import FixedAccuracyDoctor
 
 __all__ = [
     "AssistedDoctor",
+    "ConfidenceGatedPoolPolicy",
     "FixedAccuracyDoctor",
     "LinearPoolPolicy",
     "LogOddsFusionPolicy",

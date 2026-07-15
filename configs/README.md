@@ -15,8 +15,11 @@ seed: 42                   # int  — drives every stochastic stream; fix it acr
 label_schema: xrv          # "default_v0" (5 fake) | "chexpert" (14) | "xrv" (18, real model)
 patient_generator: { ... }
 ai: { ... }
-doctor: { ... }
+persona: senior_trusting   # a persona library name, OR an inline capability/visibility/trust block
 sort: { ... }
+severity: { ... }          # optional — a per-patient severity model (produced & logged)
+label_view: { ... }        # optional — project labels (subset / binary-abnormal)
+kpis: [system, actors, team, joint_table]  # optional — which KPI bundles to compute (default = all)
 n_ai_workers: 1            # int >= 1 — concurrent AI inference workers
 n_doctor_workers: 1        # int >= 1 — concurrent doctors
 ```
@@ -27,9 +30,9 @@ n_doctor_workers: 1        # int >= 1 — concurrent doctors
 
 | Experimental question | Block / field to vary | Keep fixed |
 |---|---|---|
-| **Q-Model**: does the AI help? | `ai.kind` (mock vs torchxrv), `doctor.use_ai_hint` | seed, doctor, patients |
-| **Q-Order**: does triage order matter? | `sort.kind`, `sort.aggregator` | seed, ai, doctor, patients |
-| **Q-Doctor**: how does the reader model change outcomes? | `doctor.*` (sensitivity/specificity, kind) | seed, ai, patients |
+| **Q-Model**: does the AI help? | `persona.sees_ai` (solo vs assisted) | seed, persona, patients |
+| **Q-Order**: does triage order matter? | `sort.kind`, `sort.aggregator` | seed, ai, persona, patients |
+| **Q-Doctor / RQ3**: how do personas change team outcome & reliance? | `persona` (library name, or capability×visibility×trust) | seed, ai, patients |
 | **UQ comparison (Q3)** | `ai.uq`, `ai.ensemble_measure`, `ai.weights` | seed, everything else |
 | **Operating point** | `ai.decision_threshold` | seed, everything else |
 | **Load / saturation** | `patient_generator.arrival_rate`, `n_doctor_workers`, `service_time*` | seed, ai, doctor quality |
@@ -53,9 +56,10 @@ n_doctor_workers: 1        # int >= 1 — concurrent doctors
 
 ```yaml
 patient_generator:
-  kind: poisson | xrv_dataset      # default poisson
+  kind: poisson | mock_dataset | xrv_dataset   # default poisson
   arrival_rate: 0.5                # REQUIRED, float > 0
   n_patients: 200                  # REQUIRED, int > 0
+  gt_source: native                # ground truth is owned by the dataset (default 'native')
 ```
 
 | param | type / default | what it controls | what to expect when you raise it |
@@ -70,6 +74,15 @@ patient_generator:
 | `prevalence` | `0.2` (scalar) or per-label list | P(label = 1) in synthetic ground truth. Higher → more positives → recall easier to read, accuracy less inflated |
 | `image_shape` | `[1, 1]` | placeholder array shape (mocks ignore pixels) |
 
+**`kind: mock_dataset`** (synthetic images through the full `Dataset` contract — like
+`poisson` but a capability-aware dataset pool; exercises the dataset-agnostic path, no torch):
+
+| param | default | effect |
+|---|---|---|
+| `prevalence` | `0.2` (scalar) or per-label list | P(label = 1) in the synthetic pool |
+| `n_examples` | `100` | size of the dataset pool; `n_patients` are drawn from it (with `sample_mode`) |
+| `image_shape` | `[1, 1]` | placeholder array shape |
+
 **`kind: xrv_dataset`** (real CXR images — the realistic patient generator):
 
 | param | default | effect |
@@ -78,6 +91,7 @@ patient_generator:
 | `imgpath` | `null` (**required**) | folder of images, e.g. `data/nih_sample/images` (repo-relative; run from repo root) |
 | `csvpath` | `null` | labels csv. Required for `chexpert`; for `nih` the sample's `Patient Age` is auto-cleaned |
 | `sample_mode` | `sequential` \| `random` | `random` draws with replacement (good when `n_patients` > dataset size); `sequential` wraps around in order |
+| `gt_source` | `native` | which ground-truth source the dataset provides; only sources the dataset *advertises* are accepted (**capability-gated**). Alternatives (NIH adjudicated consensus, per-reader) land with the real-data work |
 
 ---
 
@@ -117,38 +131,51 @@ bottleneck (rare unless many patients / few workers).
 
 ---
 
-## `doctor` — the digital twin (the reader)
+## `persona` — the doctor model (capability × visibility × trust)
+
+The doctor **is** a persona. Give a **library name** or an inline block.
 
 ```yaml
-doctor:
-  kind: random_mock | fixed_accuracy   # default random_mock
-  service_time_mu: 2.5                  # lognormal mu (log-space)
-  service_time_sigma: 0.4               # lognormal sigma (log-space)
+persona: senior_trusting            # library: solo_senior, solo_junior,
+                                    #   {senior,junior}_{trusting,skeptical}
 ```
 
-`service_time_*` set the **reading time** distribution: median ≈ `exp(mu)`, mean
-≈ `exp(mu + sigma^2/2)`. The doctor is usually the system bottleneck, so raising
-`mu` lengthens queues and makes the sort order matter more.
+```yaml
+persona:                            # inline
+  capability:                       # the reader's own, AI-unaided ability
+    kind: fixed_accuracy            # "fixed_accuracy" | "random_mock"
+    sensitivity: 0.95               # scalar in [0,1] or per-label list
+    specificity: 0.95
+    service_time_mu: 2.5            # lognormal mu — reading time; median ≈ exp(mu)
+    service_time_sigma: 0.4
+    source: fixed                   # "fixed" | "reader" (calibrate on real reads — gated on dataset)
+  sees_ai: true                     # visibility: does the reader consult the AI?
+  trust:                            # used only when sees_ai — a swappable IntegrationPolicy
+    kind: linear_pool               # "linear_pool" | "confidence_gated" | "log_odds_fusion"
+    weight_ai: 0.45
+```
 
-**`kind: fixed_accuracy`** — the trivial controllable reader (recommended baseline):
+**capability** (`fixed_accuracy`): `sensitivity` ↓ → more FN (missed disease);
+`specificity` ↓ → more FP (over-call); both scalar or per-label. `random_mock` is the
+random wiring reader. `service_time_*` set the reading-time lognormal (the doctor is
+usually the bottleneck → raising `mu` lengthens queues, makes sort order matter more).
+`source: reader` calibrates capability on a real radiologist's reads — **gated** on the
+dataset advertising per-reader reads (raises until wired).
 
-| param | default | values | what it controls — what to expect |
-|---|---|---|---|
-| `sensitivity` | `0.9` | scalar in [0,1] **or** a per-label list | P(reports positive \| truly positive). **Lower → more FN** (missed disease). Set per-label to make some pathologies harder |
-| `specificity` | `0.9` | scalar in [0,1] **or** per-label list | P(reports negative \| truly negative). **Lower → more FP** (over-call) |
+**visibility** (`sees_ai`): `false` = solo reader (medico-solo baseline); `true` = consults the AI.
 
-> The engine injects ground truth into the doctor's context as a *simulation
-> device*; `fixed_accuracy` flips the truth at these rates. It ignores `ai_hint`.
+**trust** (the swappable integration policy, `sees_ai: true` only):
 
-**`kind: random_mock`** — random reader, optionally AI-assisted (for Q-Model wiring):
-
-| param | default | effect |
+| `trust.kind` | key params | behaviour |
 |---|---|---|
-| `alpha_conf`, `beta_conf` | `5.0`, `2.0` | Beta for confidence (mean ≈ 0.71, decisive) |
-| `alpha_unc`, `beta_unc` | `2.0`, `5.0` | Beta for uncertainty |
-| `use_ai_hint` | `false` | if true, the AI's `ModelOutput` is passed to the doctor |
-| `assisted_policy` | `noop` \| `follow_when_certain` | `follow_when_certain` copies the AI's label per pathology when AI uncertainty < threshold |
-| `ai_hint_uncertainty_threshold` | `0.3` (in [0,1]) | below this AI uncertainty the doctor defers to the AI |
+| `linear_pool` | `weight_ai` (Weight of Advice, [0,1]) | weighted average `(1-w)·doctor + w·AI`. Lit mean WOA ≈0.39 |
+| `confidence_gated` | `weight_ai`, `confidence_threshold` | apply WOA only where AI confidence `max(p,1-p)` ≥ threshold; else ignore the AI |
+| `log_odds_fusion` | `beta`, `weight_doctor`, `prior` | normative Bayesian pool; agreeing opinions reinforce; AI down-weighted by its uncertainty (`exp(-beta·H)`) |
+
+> The library grid *{senior, junior} × {solo, trusting, skeptical}* is the RQ3 sweep:
+> capability senior 0.95/0.95 vs junior 0.85/0.88; trust WOA senior < junior at each
+> attitude (experts discount advice more). Read the effect off the `team` KPI block and
+> the `joint_table`. See `LITERATURE_doctor_ai_integration.md`.
 
 ---
 
@@ -172,6 +199,52 @@ sort:
 
 ---
 
+## `severity` (optional) — a per-patient severity signal
+
+A swappable module that computes a per-patient severity, **logged in telemetry whether or
+not anything uses it** (triage/cost consumers are opt-in). Omit the block → no severity.
+
+```yaml
+severity:
+  kind: activation            # "constant" | "activation" | "image_quality" | "embedding"
+  source: ai_probs            # activation source: ai_probs | ai_binary | ai_uncertainty | gt
+  criticality: [ ... ]        # optional per-label clinical weights (length n_labels)
+  aggregator: max             # max | sum | mean → scalar   (or mode: vector → per-label)
+  mode: scalar
+```
+
+`activation` = `aggregate_l(criticality_l × activation_l)`: criticality is a pre-assigned
+per-label weight, activation a per-image signal. `image_quality` = blur/intensity proxy;
+`embedding` = a reduction of the model's feature vector (auto-enables the AI's embedding).
+
+---
+
+## `label_view` (optional) — single- vs multi-label studies
+
+Projects the model's native labels onto the **active** study schema (AI, doctor, GT and the
+KPIs all follow it). Omit → full multi-label.
+
+```yaml
+label_view:
+  mode: binary_abnormal       # "full" | "subset" | "binary_abnormal"
+  targets: [Pneumothorax]     # subset: which labels (one target = a single-label study)
+  combine: noisy_or           # binary_abnormal: noisy_or | max (how AI probs collapse to "Abnormal")
+```
+
+---
+
+## `kpis` (optional) — which KPI bundles to compute
+
+```yaml
+kpis: [system, actors, team, joint_table]   # default = all four
+```
+
+Swappable bundles: `system` (throughput/waits), `actors` (per-actor AI/doctor/hybrid
+F1/sens/spec/FN/FP), `team` (complementarity gap, RAIR/RSR), `joint_table` (the AI×Doctor×GT
+contingency: 2 confusion matrices + 8 GT-signed cells).
+
+---
+
 ## `n_ai_workers` / `n_doctor_workers` (top level)
 
 | param | default | effect |
@@ -187,6 +260,8 @@ sort:
 - `patient_generator.kind: xrv_dataset` **requires** `imgpath` (and `csvpath` for `chexpert`).
 - `sort.aggregator: weighted` **requires** `sort.weights` of length `n_labels`.
 - `ai.uq: ensemble` is only meaningful with **multiple** `ai.weights`.
+- `persona.capability.source: reader`, and any non-`native` `gt_source`, raise unless the dataset advertises that capability.
+- An unknown `persona` library name, a `kpis` bundle outside {system, actors, team, joint_table}, or `severity.criticality` of the wrong length, raise.
 - Unknown keys, out-of-range thresholds (`[0,1]`), or `arrival_rate <= 0` raise.
 
 ---
@@ -214,16 +289,17 @@ ai: {kind: torchxrv, weights: densenet121-res224-all, uq: entropy}
 ai: {kind: torchxrv, weights: [..nih, ..chex, ..mimic_ch, ..pc, ..rsna], uq: ensemble, ensemble_measure: mutual_information}
 ```
 
-**Q-Doctor (junior vs senior reader)**:
+**Q-Doctor / RQ3 (persona grid)** — vary only the persona:
 ```yaml
-doctor: {kind: fixed_accuracy, sensitivity: 0.75, specificity: 0.85}   # junior
-doctor: {kind: fixed_accuracy, sensitivity: 0.92, specificity: 0.95}   # senior
+persona: solo_senior          # senior, no AI (the medico-solo baseline)
+persona: senior_trusting      # senior + AI, higher Weight of Advice
+persona: senior_skeptical     # senior + AI, egocentric discounting
 ```
 
-**Q-Model (with vs without AI assist)** — random_mock doctor:
+**Q-Model (with vs without AI)** — same capability, flip visibility:
 ```yaml
-doctor: {kind: random_mock, use_ai_hint: false}
-doctor: {kind: random_mock, use_ai_hint: true, assisted_policy: follow_when_certain}
+persona: {capability: {kind: fixed_accuracy, sensitivity: 0.85, specificity: 0.9}, sees_ai: false}
+persona: {capability: {kind: fixed_accuracy, sensitivity: 0.85, specificity: 0.9}, sees_ai: true, trust: {kind: linear_pool, weight_ai: 0.4}}
 ```
 
 ---

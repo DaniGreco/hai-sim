@@ -6,15 +6,16 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
 
 from hai_sim.config.scenario import load_scenario
 from hai_sim.factory import build_from_scenario
-from hai_sim.metrics.kpi import compute_kpis
+from hai_sim.metrics.kpi import compute_report
 from hai_sim.sim.engine import SimulationEngine
 
 console = Console()
@@ -57,7 +58,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     result = engine.run()
     wall = time.time() - t0
 
-    kpis = compute_kpis(result.collector.records)
+    report = compute_report(result.collector.records, scenario.kpis)
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
     csv_path = out_dir / f"records_{scenario.name}_{stamp}.csv"
@@ -71,65 +72,99 @@ def cmd_run(args: argparse.Namespace) -> int:
         "sort": sort_strategy.name,
         "wall_clock_s": wall,
         "metadata": result.metadata,
-        "kpis": {
-            "n_patients": kpis.n_patients,
-            "sim_duration": kpis.sim_duration,
-            "throughput": kpis.throughput,
-            "mean_wait_to_model": kpis.mean_wait_to_model,
-            "mean_wait_to_doctor": kpis.mean_wait_to_doctor,
-            "mean_time_in_system": kpis.mean_time_in_system,
-            "ai": asdict(kpis.ai),
-            "doctor": asdict(kpis.doctor),
-            "hybrid": asdict(kpis.hybrid),
-            "team": asdict(kpis.team),
-        },
+        "kpis": _serialize_report(report),
     }
     json_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
 
-    _print_kpi_table(scenario.name, kpis)
+    _print_kpi_table(scenario.name, report)
     console.print(f"[green]records -> {csv_path}[/green]")
     console.print(f"[green]summary -> {json_path}[/green]")
     return 0
 
 
-def _print_kpi_table(name: str, kpis) -> None:
-    table = Table(title=f"KPI - {name}")
-    table.add_column("metric")
-    table.add_column("ai", justify="right")
-    table.add_column("doctor", justify="right")
-    table.add_column("hybrid", justify="right")
-    for row, getter in [
-        ("F1 macro", lambda a: a.f1_macro),
-        ("precision macro", lambda a: a.precision_macro),
-        ("recall macro", lambda a: a.recall_macro),
-        ("accuracy", lambda a: a.accuracy),
-        ("n_FN", lambda a: a.n_fn),
-        ("n_FP", lambda a: a.n_fp),
-        ("TTFE", lambda a: a.ttfe),
-        ("MTTF", lambda a: a.mttf),
-        ("mean t-to-FN", lambda a: a.mttfn),
-    ]:
-        table.add_row(
-            row,
-            _fmt(getter(kpis.ai)),
-            _fmt(getter(kpis.doctor)),
-            _fmt(getter(kpis.hybrid)),
+def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
+    actors = report.get("actors")
+    if actors:
+        table = Table(title=f"KPI - {name}")
+        table.add_column("metric")
+        table.add_column("ai", justify="right")
+        table.add_column("doctor", justify="right")
+        table.add_column("hybrid", justify="right")
+        for row, getter in [
+            ("F1 macro", lambda a: a.f1_macro),
+            ("precision macro", lambda a: a.precision_macro),
+            ("recall macro", lambda a: a.recall_macro),
+            ("accuracy", lambda a: a.accuracy),
+            ("n_FN", lambda a: a.n_fn),
+            ("n_FP", lambda a: a.n_fp),
+            ("TTFE", lambda a: a.ttfe),
+            ("MTTF", lambda a: a.mttf),
+            ("mean t-to-FN", lambda a: a.mttfn),
+        ]:
+            table.add_row(
+                row,
+                _fmt(getter(actors["ai"])),
+                _fmt(getter(actors["doctor"])),
+                _fmt(getter(actors["hybrid"])),
+            )
+        console.print(table)
+    sysm = report.get("system")
+    if sysm:
+        console.print(
+            f"n_patients={int(sysm['n_patients'])}  sim_t={sysm['sim_duration']:.2f}  "
+            f"throughput={sysm['throughput']:.3f}  "
+            f"wait_model={sysm['mean_wait_to_model']:.2f}  "
+            f"wait_doctor={sysm['mean_wait_to_doctor']:.2f}  "
+            f"time_in_sys={sysm['mean_time_in_system']:.2f}"
         )
-    console.print(table)
+    team = report.get("team")
+    if team:
+        console.print(
+            f"[bold]team[/bold]: complementarity gap_f1={team.complementarity_gap_f1:+.4f}  "
+            f"RAIR={_fmt(team.rair)} (n={team.n_ai_reliance_opportunities})  "
+            f"RSR={_fmt(team.rsr)} (n={team.n_self_reliance_opportunities})  "
+            f"over={_fmt(team.over_reliance)}  under={_fmt(team.under_reliance)}"
+        )
+    jt = report.get("joint_table")
+    if jt:
+        _print_joint_table(name, jt)
+
+
+def _print_joint_table(name: str, jt: Any) -> None:
+    ai_c, doc_c = jt.ai_confusion, jt.doctor_confusion
     console.print(
-        f"n_patients={kpis.n_patients}  sim_t={kpis.sim_duration:.2f}  "
-        f"throughput={kpis.throughput:.3f}  "
-        f"wait_model={kpis.mean_wait_to_model:.2f}  "
-        f"wait_doctor={kpis.mean_wait_to_doctor:.2f}  "
-        f"time_in_sys={kpis.mean_time_in_system:.2f}"
+        f"[bold]AI x Doctor x GT[/bold] (n={jt.n_entries})  "
+        f"AI[tp={ai_c['tp']} fp={ai_c['fp']} fn={ai_c['fn']} tn={ai_c['tn']}]  "
+        f"Doctor[tp={doc_c['tp']} fp={doc_c['fp']} fn={doc_c['fn']} tn={doc_c['tn']}]"
     )
-    t = kpis.team
-    console.print(
-        f"[bold]team[/bold]: complementarity gap_f1={t.complementarity_gap_f1:+.4f}  "
-        f"RAIR={_fmt(t.rair)} (n={t.n_ai_reliance_opportunities})  "
-        f"RSR={_fmt(t.rsr)} (n={t.n_self_reliance_opportunities})  "
-        f"over={_fmt(t.over_reliance)}  under={_fmt(t.under_reliance)}"
-    )
+    t = Table(title=f"joint (AI, Doctor) by GT sign - {name}")
+    t.add_column("GT")
+    t.add_column("AI+ Doc+", justify="right")
+    t.add_column("AI+ Doc-", justify="right")
+    t.add_column("AI- Doc+", justify="right")
+    t.add_column("AI- Doc-", justify="right")
+    for g in (1, 0):
+        t.add_row(
+            f"GT={g}",
+            str(jt.joint[f"gt{g}_ai1_doc1"]),
+            str(jt.joint[f"gt{g}_ai1_doc0"]),
+            str(jt.joint[f"gt{g}_ai0_doc1"]),
+            str(jt.joint[f"gt{g}_ai0_doc0"]),
+        )
+    console.print(t)
+
+
+def _serialize_report(report: dict[str, Any]) -> dict[str, Any]:
+    """Convert bundle results to JSON-serializable structures (dataclasses → dicts)."""
+    out: dict[str, Any] = {}
+    for key, result in report.items():
+        if key == "actors" and isinstance(result, dict):
+            out[key] = {k: asdict(v) for k, v in result.items()}
+        elif is_dataclass(result) and not isinstance(result, type):
+            out[key] = asdict(result)
+        else:
+            out[key] = result
+    return out
 
 
 def _fmt(v: object) -> str:

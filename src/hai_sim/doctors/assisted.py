@@ -138,6 +138,50 @@ class LinearPoolPolicy:
         return _team_output(p_team, doctor_out, self.name, w)
 
 
+class ConfidenceGatedPoolPolicy:
+    """Confidence-gated Weight of Advice: listen to the AI only when it is confident.
+
+    Per label, the AI's confidence in its own call is ``max(p_M, 1-p_M)``. Where that
+    is at least ``confidence_threshold`` the reader blends toward the AI with
+    ``weight_ai`` (a linear pool); below it the AI is ignored (weight 0) and the reader
+    keeps its own opinion. Grounded in advice-taking: uptake rises with the advisor's
+    displayed confidence (Sniezek & Van Swol 2001). A swappable `IntegrationPolicy`
+    like the others — same seam, richer trust behaviour.
+    """
+
+    def __init__(
+        self,
+        weight_ai: float = 0.4,
+        confidence_threshold: float = 0.7,
+        name: str = "confidence_gated",
+    ) -> None:
+        if not 0.0 <= weight_ai <= 1.0:
+            raise ValueError(f"weight_ai must be in [0, 1], got {weight_ai}")
+        if not 0.0 <= confidence_threshold <= 1.0:
+            raise ValueError(
+                f"confidence_threshold must be in [0, 1], got {confidence_threshold}"
+            )
+        self.weight_ai = float(weight_ai)
+        self.confidence_threshold = float(confidence_threshold)
+        self.name = name
+
+    def combine(
+        self,
+        doctor_out: ModelOutput,
+        ai_hint: ModelOutput,
+        context: PatientContext | None = None,
+    ) -> ModelOutput:
+        p_d = doctor_belief(doctor_out)
+        p_m = ai_probability(ai_hint)
+        uncovered = ~np.isfinite(p_m)
+        ai_confidence = np.maximum(p_m, 1.0 - p_m)  # confidence in the AI's own call
+        gated_in = np.isfinite(p_m) & (ai_confidence >= self.confidence_threshold)
+        w = np.where(gated_in, self.weight_ai, 0.0)
+        p_m = np.where(uncovered, 0.0, p_m)
+        p_team = (1.0 - w) * p_d + w * p_m
+        return _team_output(p_team, doctor_out, self.name, w)
+
+
 class LogOddsFusionPolicy:
     """M2 default: uncertainty-weighted log-odds (naïve-Bayes / SDT) fusion.
 

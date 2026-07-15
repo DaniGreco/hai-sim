@@ -31,12 +31,12 @@ ai:
   decision_threshold: 0.5
   service_time: 0.25
 
-doctor:
-  kind: fixed_accuracy
-  sensitivity: 0.85
-  specificity: 0.90
-  service_time_mu: 2.5
-  service_time_sigma: 0.4
+persona:                   # fixed-accuracy solo reader
+  capability:
+    kind: fixed_accuracy
+    sensitivity: 0.85
+    specificity: 0.90
+  sees_ai: false
 
 sort:
   kind: uncertainty_desc

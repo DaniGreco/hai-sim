@@ -31,29 +31,59 @@ class AIModelConfig(_Strict):
     device: str = "cpu"
 
 
-class DoctorConfig(_Strict):
-    kind: Literal["random_mock", "fixed_accuracy", "assisted"] = "random_mock"
+class CapabilityConfig(_Strict):
+    """A persona's capability = the reader's own, AI-unaided diagnostic ability."""
+
+    kind: Literal["fixed_accuracy", "random_mock"] = "fixed_accuracy"
     service_time_mu: float = 2.5
     service_time_sigma: float = 0.4
+    # fixed_accuracy params (scalar applied to all labels, or per-label vector)
+    sensitivity: float | tuple[float, ...] = 0.9
+    specificity: float | tuple[float, ...] = 0.9
     # random_mock params
     alpha_conf: float = 5.0
     beta_conf: float = 2.0
     alpha_unc: float = 2.0
     beta_unc: float = 5.0
-    use_ai_hint: bool = False
-    assisted_policy: Literal["noop", "follow_when_certain"] = "noop"
-    ai_hint_uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
-    # fixed_accuracy params (scalar applied to all labels, or per-label vector)
-    sensitivity: float | tuple[float, ...] = 0.9
-    specificity: float | tuple[float, ...] = 0.9
-    # assisted params (kind="assisted"): a `base` doctor forms the unaided opinion
-    # (reusing the fields above), an `integration_policy` fuses it with the AI hint.
-    base: Literal["fixed_accuracy", "random_mock"] = "fixed_accuracy"
-    integration_policy: Literal["linear_pool", "log_odds_fusion"] = "log_odds_fusion"
-    policy_weight_ai: float = Field(default=0.4, ge=0.0, le=1.0)  # linear_pool
-    policy_beta: float = Field(default=1.0, ge=0.0)  # log_odds_fusion: uncertainty sharpness
-    policy_weight_doctor: float = Field(default=1.0, ge=0.0)  # log_odds_fusion
-    policy_prior: float = Field(default=0.5, gt=0.0, lt=1.0)  # log_odds_fusion: per-label prior
+    # Calibration source. 'fixed' = the sens/spec above. 'reader' = calibrate on a real
+    # radiologist's per-finding reads — gated on the dataset advertising per-reader reads;
+    # wired with the real-data work (raises for now).
+    source: Literal["fixed", "reader"] = "fixed"
+    reader_id: str | None = None
+
+
+class TrustConfig(_Strict):
+    """A persona's trust = a swappable AI-integration policy (used only when sees_ai).
+
+    `linear_pool` (default) mixes probabilities with a fixed Weight of Advice
+    (`weight_ai`, the advice-taking literature's mean is ~0.39). `confidence_gated`
+    applies that weight only where the AI is confident enough (`confidence_threshold`).
+    `log_odds_fusion` is the normative, uncertainty-weighted Bayesian pool.
+    """
+
+    kind: Literal["linear_pool", "confidence_gated", "log_odds_fusion"] = "linear_pool"
+    # linear_pool / confidence_gated: Weight of Advice
+    weight_ai: float = Field(default=0.39, ge=0.0, le=1.0)
+    # confidence_gated: min AI confidence (max(p, 1-p)) to listen to the AI
+    confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    # log_odds_fusion
+    beta: float = Field(default=1.0, ge=0.0)  # AI down-weight sharpness on uncertainty
+    weight_doctor: float = Field(default=1.0, ge=0.0)
+    prior: float = Field(default=0.5, gt=0.0, lt=1.0)
+
+
+class PersonaConfig(_Strict):
+    """A doctor persona = capability x visibility x trust — the doctor model itself.
+
+    ``sees_ai`` is visibility; ``trust`` (an integration policy) is used only when the
+    persona sees the AI. In a scenario, ``persona`` may instead be a library name
+    (e.g. ``senior_trusting``) that expands to one of these.
+    """
+
+    name: str | None = None
+    capability: CapabilityConfig = Field(default_factory=CapabilityConfig)
+    sees_ai: bool = False
+    trust: TrustConfig | None = None
 
 
 class SortConfig(_Strict):
@@ -99,12 +129,14 @@ class LabelViewConfig(_Strict):
 
 
 class PatientGenConfig(_Strict):
-    kind: Literal["poisson", "xrv_dataset"] = "poisson"
+    kind: Literal["poisson", "mock_dataset", "xrv_dataset"] = "poisson"
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
-    # poisson params
+    # poisson / mock_dataset params (synthetic)
     prevalence: float | tuple[float, ...] = 0.2
     image_shape: tuple[int, ...] = (1, 1)
+    # mock_dataset params: size of the synthetic Dataset pool (n_patients are drawn from it)
+    n_examples: int = Field(default=100, gt=0)
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
     # Ground truth is owned by the dataset: selecting a dataset selects its GT.
@@ -128,9 +160,12 @@ class ScenarioConfig(_Strict):
     label_view: LabelViewConfig | None = None
     patient_generator: PatientGenConfig
     ai: AIModelConfig
-    doctor: DoctorConfig
+    persona: str | PersonaConfig
     sort: SortConfig
     severity: SeverityConfig | None = None
+    # Which swappable KPI bundles to compute for this run's end-to-end test.
+    # None → the default set (system, actors, team, joint_table).
+    kpis: tuple[str, ...] | None = None
     n_ai_workers: int = 1
     n_doctor_workers: int = 1
 
