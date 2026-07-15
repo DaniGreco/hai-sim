@@ -106,6 +106,29 @@ class UQMethod(Protocol):
     ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]: ...
 
 
+@runtime_checkable
+class SeverityModel(Protocol):
+    """Computes a per-patient severity signal, decoupled from its consumers.
+
+    Runs after AI inference; the engine records the result in telemetry whether
+    or not anything downstream (triage, KPI conditioning, cost) uses it — the
+    signal is *produced*, its consumption is a separate concern. Returns a scalar
+    (image-level severity) or a per-label ``np.ndarray`` in vector mode.
+    Implementations may read the image (quality), the AI output (probabilities /
+    uncertainty / embedding) and the ground truth (an oracle severity).
+    """
+
+    name: str
+
+    def score(
+        self,
+        *,
+        patient: Patient,
+        ai_output: ModelOutput | None,
+        context: PatientContext,
+    ) -> float | np.ndarray: ...
+
+
 # --- Validation plane -------------------------------------------------------
 # The three contracts below make *offline component validation* (heatmap /
 # label fidelity against expert ground truth) as swappable as the simulation

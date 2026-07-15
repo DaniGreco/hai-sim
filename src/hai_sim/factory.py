@@ -15,15 +15,22 @@ from hai_sim.config.scenario import (
     DoctorConfig,
     PatientGenConfig,
     ScenarioConfig,
+    SeverityConfig,
     SortConfig,
     ValidationScenarioConfig,
 )
-from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SortStrategy
+from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SeverityModel, SortStrategy
 from hai_sim.core.types import LabelSchema, Patient
 from hai_sim.doctors.assisted import AssistedDoctor, LinearPoolPolicy, LogOddsFusionPolicy
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.models.mock import RandomMockAI
+from hai_sim.severity.models import (
+    ActivationSeverity,
+    ConstantSeverity,
+    EmbeddingSeverity,
+    ImageQualitySeverity,
+)
 from hai_sim.sim.patient_generator import PoissonPatientGenerator
 from hai_sim.sort.random import RandomSort
 from hai_sim.sort.uncertainty import UncertaintyDescSort
@@ -39,7 +46,12 @@ def build_label_schema(name: str) -> LabelSchema:
     raise ValueError(f"unknown label_schema: {name}")
 
 
-def build_ai(cfg: AIModelConfig, schema: LabelSchema, rng: np.random.Generator) -> DiagnosticActor:
+def build_ai(
+    cfg: AIModelConfig,
+    schema: LabelSchema,
+    rng: np.random.Generator,
+    emit_embedding: bool = False,
+) -> DiagnosticActor:
     if cfg.kind == "random_mock":
         return RandomMockAI(
             schema=schema,
@@ -62,6 +74,7 @@ def build_ai(cfg: AIModelConfig, schema: LabelSchema, rng: np.random.Generator) 
             decision_threshold=cfg.decision_threshold,
             service_time=cfg.service_time,
             device=cfg.device,
+            emit_embedding=emit_embedding,
         )
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
 
@@ -111,6 +124,35 @@ def build_sort(cfg: SortConfig, rng: np.random.Generator) -> SortStrategy:
     if cfg.kind == "uncertainty_desc":
         return UncertaintyDescSort(aggregator=cfg.aggregator, weights=cfg.weights)
     raise ValueError(f"unknown sort.kind: {cfg.kind}")
+
+
+def _severity_needs_embedding(cfg: SeverityConfig | None) -> bool:
+    """Only the embedding-based severity source reads the model's feature vector."""
+    return cfg is not None and cfg.kind == "embedding"
+
+
+def build_severity(cfg: SeverityConfig | None, schema: LabelSchema) -> SeverityModel | None:
+    if cfg is None:
+        return None
+    if cfg.kind == "constant":
+        return ConstantSeverity(value=cfg.value)
+    if cfg.kind == "activation":
+        if cfg.criticality is not None and len(cfg.criticality) != schema.n:
+            raise ValueError(
+                f"severity.criticality has {len(cfg.criticality)} weights, "
+                f"expected {schema.n} (one per label)"
+            )
+        return ActivationSeverity(
+            source=cfg.source,
+            criticality=cfg.criticality,
+            aggregator=cfg.aggregator,
+            mode=cfg.mode,
+        )
+    if cfg.kind == "image_quality":
+        return ImageQualitySeverity(metric=cfg.quality_metric)
+    if cfg.kind == "embedding":
+        return EmbeddingSeverity(reduce=cfg.embedding_reduce)
+    raise ValueError(f"unknown severity.kind: {cfg.kind}")
 
 
 def _nih_numeric_age_csv(csvpath: str) -> str:
@@ -215,14 +257,29 @@ def build_rngs(seed: int) -> dict[str, np.random.Generator]:
 
 
 def build_from_scenario(scenario: ScenarioConfig):
-    """Returns (schema, generator, ai, doctor, sort, n_ai_workers, n_doctor_workers)."""
+    """Returns (schema, generator, ai, doctor, sort, severity, n_ai_workers, n_doctor_workers)."""
     rngs = build_rngs(scenario.seed)
     schema = build_label_schema(scenario.label_schema)
     generator = build_patient_generator(scenario.patient_generator, schema, rngs["patient"])
-    ai = build_ai(scenario.ai, schema, rngs["ai"])
+    ai = build_ai(
+        scenario.ai,
+        schema,
+        rngs["ai"],
+        emit_embedding=_severity_needs_embedding(scenario.severity),
+    )
     doctor = build_doctor(scenario.doctor, schema, rngs["doctor"])
     sort = build_sort(scenario.sort, rngs["sort"])
-    return schema, generator, ai, doctor, sort, scenario.n_ai_workers, scenario.n_doctor_workers
+    severity = build_severity(scenario.severity, schema)
+    return (
+        schema,
+        generator,
+        ai,
+        doctor,
+        sort,
+        severity,
+        scenario.n_ai_workers,
+        scenario.n_doctor_workers,
+    )
 
 
 def build_validation(scenario: ValidationScenarioConfig):

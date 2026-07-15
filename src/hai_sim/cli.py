@@ -29,7 +29,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    schema, generator, ai, doctor, sort_strategy, n_ai, n_doc = build_from_scenario(scenario)
+    schema, generator, ai, doctor, sort_strategy, severity_model, n_ai, n_doc = (
+        build_from_scenario(scenario)
+    )
 
     console.print(
         f"[bold]scenario[/bold]: {scenario.name}  "
@@ -39,6 +41,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"[bold]ai[/bold]={ai.name}  [bold]doctor[/bold]={doctor.name}  "
         f"[bold]sort[/bold]={sort_strategy.name}"
     )
+    if severity_model is not None:
+        console.print(f"[bold]severity[/bold]={severity_model.name}")
 
     t0 = time.time()
     engine = SimulationEngine(
@@ -46,6 +50,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         ai=ai,
         doctor=doctor,
         sort_strategy=sort_strategy,
+        severity_model=severity_model,
         n_ai_workers=n_ai,
         n_doctor_workers=n_doc,
     )

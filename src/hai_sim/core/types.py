@@ -121,11 +121,18 @@ class ModelOutput:
     ``extra`` is for implementation-specific debug info (token logprobs from
     an LLM, ensemble disagreement matrix, etc.). Stable consumers should not
     rely on it.
+
+    ``embedding`` is the model's penultimate feature vector (the input to the
+    final linear head), or ``None`` for actors that don't expose one. It is the
+    natural substrate for feature-space severity and feature-space uncertainty
+    (Mahalanobis / DDU / kNN), which read the geometry of the representation
+    rather than the output probabilities.
     """
 
     diagnosis: Diagnosis
     uncertainty: tuple[float, ...]
     extra: dict[str, Any] = field(default_factory=dict)
+    embedding: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if len(self.uncertainty) != len(self.diagnosis.labels):

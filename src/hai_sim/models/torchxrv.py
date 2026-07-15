@@ -39,6 +39,23 @@ DEFAULT_ENSEMBLE_WEIGHTS = (
 )
 
 
+def pool_embedding_from_feature_maps(feature_maps: np.ndarray) -> np.ndarray:
+    """Penultimate embedding from per-member conv feature maps.
+
+    ``feature_maps`` has shape ``(M, C, h, w)`` (raw, pre-ReLU, as captured by
+    `member_feature_maps_and_probs`). The xrv head is ``ReLU → global-avg-pool →
+    linear``, so the vector fed to the classifier is ``avgpool(relu(features))``.
+    We pool each member to ``(C,)`` and average across members, yielding a single
+    ``(C,)`` image embedding — the natural input for feature-space severity / UQ,
+    and cheap to derive here (pure numpy, no torch).
+    """
+    if feature_maps.ndim != 4:
+        raise ValueError(f"expected (M, C, h, w) feature maps, got shape {feature_maps.shape}")
+    relu = np.maximum(feature_maps, 0.0)  # (M, C, h, w)
+    per_member = relu.reshape(relu.shape[0], relu.shape[1], -1).mean(axis=2)  # (M, C)
+    return per_member.mean(axis=0).astype(np.float32)  # (C,)
+
+
 class TorchXRayVisionAI(BaseDiagnosticActor):
     """Inference-only TorchXRayVision DenseNet121 actor with pluggable UQ."""
 
@@ -50,6 +67,7 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         decision_threshold: float = 0.5,
         service_time: float = 0.05,
         device: str = "cpu",
+        emit_embedding: bool = False,
         name: str | None = None,
     ) -> None:
         weight_list = [weights] if isinstance(weights, str) else list(weights)
@@ -68,6 +86,11 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         self.uq: UQMethod = uq if uq is not None else EntropyUQ()
         self.decision_threshold = decision_threshold
         self.device = device
+        # When True, diagnose() also captures the penultimate embedding and
+        # attaches it to ModelOutput.embedding (a single forward-with-hook per
+        # member). Off by default so plain runs don't pay the capture overhead;
+        # the factory flips it on when a feature-space consumer is configured.
+        self.emit_embedding = emit_embedding
 
         self._torch: Any = None
         self._transform: Any = None
@@ -247,7 +270,14 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         context: PatientContext | None = None,
         ai_hint: ModelOutput | None = None,
     ) -> ModelOutput:
-        member_probs = self.member_probabilities(images[0])
+        embedding: np.ndarray | None = None
+        if self.emit_embedding:
+            # One forward-with-hook per member returns probs AND raw feature maps;
+            # reuse it so we never pay a second forward just for the embedding.
+            member_probs, feature_maps = self.member_feature_maps_and_probs(images[0])
+            embedding = pool_embedding_from_feature_maps(feature_maps)
+        else:
+            member_probs = self.member_probabilities(images[0])
         probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
         # A pathology no member covers comes back NaN → emit a benign negative.
         probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
@@ -262,4 +292,5 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
             ),
             uncertainty=tuple(float(x) for x in uncertainty),
             extra=extra,
+            embedding=embedding,
         )

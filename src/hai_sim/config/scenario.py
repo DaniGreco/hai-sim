@@ -62,6 +62,28 @@ class SortConfig(_Strict):
     weights: tuple[float, ...] | None = None
 
 
+class SeverityConfig(_Strict):
+    """Optional per-patient severity model. Omit the block → no severity computed.
+
+    `activation` is the workhorse: ``severity = agg(criticality * activation)``,
+    where `criticality` is a pre-assigned per-label clinical weight (length =
+    n_labels) and `activation` comes from the AI output or the ground truth.
+    """
+
+    kind: Literal["constant", "activation", "image_quality", "embedding"] = "constant"
+    # constant
+    value: float = 0.0
+    # activation
+    source: Literal["ai_probs", "ai_binary", "ai_uncertainty", "gt"] = "ai_probs"
+    criticality: tuple[float, ...] | None = None
+    aggregator: Literal["mean", "max", "sum"] = "max"
+    mode: Literal["scalar", "vector"] = "scalar"
+    # image_quality
+    quality_metric: Literal["laplacian_var", "intensity_std"] = "laplacian_var"
+    # embedding
+    embedding_reduce: Literal["l2_norm", "mean"] = "l2_norm"
+
+
 class PatientGenConfig(_Strict):
     kind: Literal["poisson", "xrv_dataset"] = "poisson"
     arrival_rate: float = Field(gt=0)
@@ -89,6 +111,7 @@ class ScenarioConfig(_Strict):
     ai: AIModelConfig
     doctor: DoctorConfig
     sort: SortConfig
+    severity: SeverityConfig | None = None
     n_ai_workers: int = 1
     n_doctor_workers: int = 1
 
