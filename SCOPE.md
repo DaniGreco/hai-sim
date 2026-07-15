@@ -147,7 +147,9 @@ Caveat: to *use* the NIH re-read labels we need the matching full-res NIH images
 
 ## 6. ⭐ Assets already built (beyond the summary)
 - AI→doctor **integration policies** (LinearPool, LogOddsFusion) + **TeamKPIs**
-  (complementarity gap, RAIR/RSR appropriate reliance) — backbone for persona/trust work.
+  (complementarity gap, RAIR/RSR appropriate reliance) — backbone for persona/trust
+  work. **Merged to `develop` 2026-07-15** (`AssistedDoctor` + `IntegrationPolicy`
+  spine, 111 tests green).
 - **UQ decomposition** (predictive/mean entropy, mutual information, std),
   epistemic/aleatoric split, cross-domain Deep Ensemble.
 - **RQ1 apparatus** (error-capture curves, skill, AUROC, per-pathology).
