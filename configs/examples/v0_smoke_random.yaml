@@ -17,15 +17,10 @@ ai:
   alpha_unc: 2.0
   beta_unc: 5.0
 
-doctor:
-  kind: random_mock
-  service_time_mu: 2.5
-  service_time_sigma: 0.4
-  alpha_conf: 5.0
-  beta_conf: 2.0
-  alpha_unc: 2.0
-  beta_unc: 5.0
-  use_ai_hint: false
+persona:                   # solo random-mock reader (does not see the AI)
+  capability:
+    kind: random_mock
+  sees_ai: false
 
 sort:
   kind: random

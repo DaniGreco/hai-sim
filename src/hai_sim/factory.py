@@ -12,22 +12,30 @@ import numpy as np
 
 from hai_sim.config.scenario import (
     AIModelConfig,
-    DoctorConfig,
+    CapabilityConfig,
     PatientGenConfig,
+    PersonaConfig,
     ScenarioConfig,
     SeverityConfig,
     SortConfig,
+    TrustConfig,
     ValidationScenarioConfig,
 )
 from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SeverityModel, SortStrategy
 from hai_sim.core.types import LabelSchema, Patient
 from hai_sim.data.mock import MockDataset
 from hai_sim.data.xrv import XRVDataset
-from hai_sim.doctors.assisted import AssistedDoctor, LinearPoolPolicy, LogOddsFusionPolicy
+from hai_sim.doctors.assisted import (
+    AssistedDoctor,
+    ConfidenceGatedPoolPolicy,
+    LinearPoolPolicy,
+    LogOddsFusionPolicy,
+)
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.labels import ProjectedActor, build_projection, project_generator
 from hai_sim.models.mock import RandomMockAI
+from hai_sim.personas import resolve_persona
 from hai_sim.severity.models import (
     ActivationSeverity,
     ConstantSeverity,
@@ -83,20 +91,15 @@ def build_ai(
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
 
 
-def build_doctor(cfg: DoctorConfig, schema: LabelSchema, rng: np.random.Generator) -> DiagnosticActor:
-    if cfg.kind == "random_mock":
-        return RandomMockDoctor(
-            schema=schema,
-            rng=rng,
-            service_time_mu=cfg.service_time_mu,
-            service_time_sigma=cfg.service_time_sigma,
-            alpha_conf=cfg.alpha_conf,
-            beta_conf=cfg.beta_conf,
-            alpha_unc=cfg.alpha_unc,
-            beta_unc=cfg.beta_unc,
-            use_ai_hint=cfg.use_ai_hint,
-            assisted_policy=cfg.assisted_policy,
-            ai_hint_uncertainty_threshold=cfg.ai_hint_uncertainty_threshold,
+def build_capability(
+    cfg: CapabilityConfig, schema: LabelSchema, rng: np.random.Generator
+) -> DiagnosticActor:
+    """Build the persona's base reader (its own, AI-unaided diagnostic ability)."""
+    if cfg.source == "reader":
+        raise ValueError(
+            "capability source 'reader' (calibration on a real radiologist's per-finding "
+            "reads) needs a dataset advertising per-reader reads; not wired yet — use "
+            "source: fixed for now."
         )
     if cfg.kind == "fixed_accuracy":
         return FixedAccuracyDoctor(
@@ -107,19 +110,51 @@ def build_doctor(cfg: DoctorConfig, schema: LabelSchema, rng: np.random.Generato
             service_time_mu=cfg.service_time_mu,
             service_time_sigma=cfg.service_time_sigma,
         )
-    if cfg.kind == "assisted":
-        base = build_doctor(cfg.model_copy(update={"kind": cfg.base}), schema, rng)
-        policy: IntegrationPolicy
-        if cfg.integration_policy == "linear_pool":
-            policy = LinearPoolPolicy(weight_ai=cfg.policy_weight_ai)
-        else:
-            policy = LogOddsFusionPolicy(
-                beta=cfg.policy_beta,
-                weight_doctor=cfg.policy_weight_doctor,
-                prior=cfg.policy_prior,
-            )
-        return AssistedDoctor(base=base, policy=policy)
-    raise ValueError(f"unknown doctor.kind: {cfg.kind}")
+    if cfg.kind == "random_mock":
+        return RandomMockDoctor(
+            schema=schema,
+            rng=rng,
+            service_time_mu=cfg.service_time_mu,
+            service_time_sigma=cfg.service_time_sigma,
+            alpha_conf=cfg.alpha_conf,
+            beta_conf=cfg.beta_conf,
+            alpha_unc=cfg.alpha_unc,
+            beta_unc=cfg.beta_unc,
+        )
+    raise ValueError(f"unknown capability.kind: {cfg.kind}")
+
+
+def build_trust_policy(cfg: TrustConfig) -> IntegrationPolicy:
+    """Build the swappable AI-integration policy that models the persona's trust."""
+    if cfg.kind == "linear_pool":
+        return LinearPoolPolicy(weight_ai=cfg.weight_ai)
+    if cfg.kind == "confidence_gated":
+        return ConfidenceGatedPoolPolicy(
+            weight_ai=cfg.weight_ai, confidence_threshold=cfg.confidence_threshold
+        )
+    if cfg.kind == "log_odds_fusion":
+        return LogOddsFusionPolicy(
+            beta=cfg.beta, weight_doctor=cfg.weight_doctor, prior=cfg.prior
+        )
+    raise ValueError(f"unknown trust.kind: {cfg.kind}")
+
+
+def build_persona(
+    persona: str | PersonaConfig, schema: LabelSchema, rng: np.random.Generator
+) -> DiagnosticActor:
+    """Assemble a doctor persona = capability x visibility x trust into an actor.
+
+    A solo persona (``sees_ai=False``) is just its base reader; an assisted persona
+    wraps that base in an `AssistedDoctor` with the trust policy. ``persona`` may be a
+    library name or an inline `PersonaConfig`.
+    """
+    cfg = resolve_persona(persona)
+    base = build_capability(cfg.capability, schema, rng)
+    if not cfg.sees_ai:
+        return base
+    trust = cfg.trust if cfg.trust is not None else TrustConfig()
+    policy = build_trust_policy(trust)
+    return AssistedDoctor(base=base, policy=policy, name=f"Persona[{cfg.name or 'inline'}]")
 
 
 def build_sort(cfg: SortConfig, rng: np.random.Generator) -> SortStrategy:
@@ -313,7 +348,7 @@ def build_from_scenario(scenario: ScenarioConfig):
         generator = project_generator(base_generator, projection)
         ai = ProjectedActor(base_ai, projection)
 
-    doctor = build_doctor(scenario.doctor, active_schema, rngs["doctor"])
+    doctor = build_persona(scenario.persona, active_schema, rngs["doctor"])
     sort = build_sort(scenario.sort, rngs["sort"])
     severity = build_severity(scenario.severity, active_schema)
     return (

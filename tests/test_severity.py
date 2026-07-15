@@ -171,7 +171,7 @@ def _scenario_dict(severity: dict | None = None) -> dict:
             "prevalence": 0.2,
         },
         "ai": {"kind": "random_mock"},
-        "doctor": {"kind": "random_mock"},
+        "persona": {"capability": {"kind": "random_mock"}},
         "sort": {"kind": "random"},
     }
     if severity is not None:

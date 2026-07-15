@@ -132,7 +132,7 @@ def _scenario_dict(label_view: dict | None = None, gt_source: str | None = None)
         "label_schema": "default_v0",
         "patient_generator": pg,
         "ai": {"kind": "random_mock"},
-        "doctor": {"kind": "random_mock"},
+        "persona": {"capability": {"kind": "random_mock"}},
         "sort": {"kind": "random"},
     }
     if label_view is not None:

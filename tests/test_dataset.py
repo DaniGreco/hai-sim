@@ -121,7 +121,7 @@ def test_build_from_scenario_mock_dataset_runs():
                 "prevalence": 0.3,
             },
             "ai": {"kind": "random_mock"},
-            "doctor": {"kind": "random_mock"},
+            "persona": {"capability": {"kind": "random_mock"}},
             "sort": {"kind": "random"},
         }
     )

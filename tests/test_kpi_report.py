@@ -106,7 +106,7 @@ def test_scenario_kpis_field_selects_bundles():
             "kpis": ["system", "team"],
             "patient_generator": {"kind": "poisson", "arrival_rate": 0.5, "n_patients": 3},
             "ai": {"kind": "random_mock"},
-            "doctor": {"kind": "random_mock"},
+            "persona": {"capability": {"kind": "random_mock"}},
             "sort": {"kind": "random"},
         }
     )
