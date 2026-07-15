@@ -99,12 +99,14 @@ class LabelViewConfig(_Strict):
 
 
 class PatientGenConfig(_Strict):
-    kind: Literal["poisson", "xrv_dataset"] = "poisson"
+    kind: Literal["poisson", "mock_dataset", "xrv_dataset"] = "poisson"
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
-    # poisson params
+    # poisson / mock_dataset params (synthetic)
     prevalence: float | tuple[float, ...] = 0.2
     image_shape: tuple[int, ...] = (1, 1)
+    # mock_dataset params: size of the synthetic Dataset pool (n_patients are drawn from it)
+    n_examples: int = Field(default=100, gt=0)
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
     # Ground truth is owned by the dataset: selecting a dataset selects its GT.

@@ -1,39 +1,96 @@
-"""Patient generator backed by a real CXR dataset (TorchXRayVision loaders).
+"""Patient stream over a capability-aware `Dataset`.
 
-Wraps any TorchXRayVision dataset object (NIH, CheXpert, RSNA, ...) and turns it
-into the simulation's patient stream: Poisson inter-arrival timing, real
-pre-processed images, and ground-truth label vectors aligned to the dataset's
-``pathologies``. Labels the dataset does not annotate arrive as ``-1`` (the
-"not annotated" sentinel) and are skipped by the metrics.
+`DatasetPatientGenerator` turns any `Dataset` into the simulation's patient
+stream: it samples examples (sequential or random), resolves the requested
+ground-truth source against the dataset's *declared* capabilities, and stamps
+Poisson inter-arrival delays. It is dataset-agnostic — the same generator streams
+a `MockDataset`, an `XRVDataset`, or any future `Dataset`.
 
-The dataset object is expected to:
-  - expose ``pathologies`` (a sequence aligned to the active ``LabelSchema``),
-  - support ``len(dataset)`` and ``dataset[i] -> {"img": ndarray, "lab": ndarray}``
-    where ``img`` is the model-ready ``(1, 224, 224)`` array and ``lab`` is a
-    float vector with ``1.0`` / ``0.0`` / ``NaN`` entries.
+`XRVDatasetPatientGenerator` is a thin back-compat shim that wraps a raw
+TorchXRayVision dataset object in an `XRVDataset` first.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from hai_sim.core.types import Image, LabelSchema, Patient, PatientContext
+from hai_sim.core.types import DatasetExample, Patient, PatientContext
+from hai_sim.data.xrv import XRVDataset
+
+if TYPE_CHECKING:
+    from hai_sim.core.protocols import Dataset
+    from hai_sim.core.types import LabelSchema
 
 SampleMode = Literal["sequential", "random"]
 
 
-def _to_sentinel(v: float) -> int:
-    """Map a dataset label cell to the simulation's {1, 0, -1} convention."""
-    if v != v:  # NaN
-        return -1
-    return 1 if float(v) >= 0.5 else 0
+class DatasetPatientGenerator:
+    """Yields `Patient` objects sampled from a `Dataset` with Poisson arrivals."""
+
+    def __init__(
+        self,
+        dataset: Dataset,
+        arrival_rate: float,
+        n_patients: int,
+        rng: np.random.Generator | None = None,
+        sample_mode: SampleMode = "sequential",
+        gt_source: str = "native",
+    ) -> None:
+        if arrival_rate <= 0:
+            raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
+        if n_patients <= 0:
+            raise ValueError(f"n_patients must be > 0, got {n_patients}")
+        if len(dataset) == 0:
+            raise ValueError("dataset is empty")
+        available = dataset.capabilities.gt_sources
+        if gt_source not in available:
+            raise ValueError(
+                f"dataset {dataset.name!r} does not provide gt_source {gt_source!r}; "
+                f"available: {available}"
+            )
+        self.dataset = dataset
+        self.arrival_rate = arrival_rate
+        self.n_patients = n_patients
+        self.rng = rng if rng is not None else np.random.default_rng()
+        self.sample_mode: SampleMode = sample_mode
+        self.gt_source = gt_source
+
+    def _index_stream(self) -> list[int]:
+        n = len(self.dataset)
+        if self.sample_mode == "random":
+            return [int(i) for i in self.rng.integers(0, n, size=self.n_patients)]
+        # sequential, wrapping around if more patients than examples are requested
+        return [i % n for i in range(self.n_patients)]
+
+    def _resolve_gt(self, example: DatasetExample) -> tuple[int, ...]:
+        if self.gt_source == "native":
+            return example.ground_truth
+        if self.gt_source.startswith("reader:") and example.reader_labels is not None:
+            return example.reader_labels[self.gt_source.split(":", 1)[1]]
+        raise ValueError(f"cannot resolve gt_source {self.gt_source!r} for this example")
+
+    def __iter__(self) -> Iterator[tuple[float, Patient]]:
+        for pid, idx in enumerate(self._index_stream()):
+            example = self.dataset[idx]
+            gt = self._resolve_gt(example)
+            delay = float(self.rng.exponential(1.0 / self.arrival_rate))
+            meta = example.metadata
+            context = PatientContext(
+                patient_id=pid,
+                arrival_time=0.0,  # set by the engine at arrival
+                age=meta.get("age"),
+                sex=meta.get("sex"),
+            )
+            yield delay, Patient(
+                id=pid, images=(example.image,), ground_truth=gt, context=context
+            )
 
 
 class XRVDatasetPatientGenerator:
-    """Yields `Patient` objects sampled from a TorchXRayVision dataset."""
+    """Back-compat shim: wrap a raw TorchXRayVision dataset object, then stream it."""
 
     def __init__(
         self,
@@ -44,45 +101,13 @@ class XRVDatasetPatientGenerator:
         rng: np.random.Generator | None = None,
         sample_mode: SampleMode = "sequential",
     ) -> None:
-        if arrival_rate <= 0:
-            raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
-        if n_patients <= 0:
-            raise ValueError(f"n_patients must be > 0, got {n_patients}")
-        if len(dataset) == 0:
-            raise ValueError("dataset is empty")
-        if tuple(dataset.pathologies) != schema.labels:
-            raise ValueError(
-                "dataset.pathologies do not match the active LabelSchema; "
-                "align the schema to the dataset (use label_schema: xrv)."
-            )
-        self.dataset = dataset
-        self.schema = schema
-        self.arrival_rate = arrival_rate
-        self.n_patients = n_patients
-        self.rng = rng if rng is not None else np.random.default_rng()
-        self.sample_mode: SampleMode = sample_mode
-
-    def _index_stream(self) -> list[int]:
-        n = len(self.dataset)
-        if self.sample_mode == "random":
-            return [int(i) for i in self.rng.integers(0, n, size=self.n_patients)]
-        # sequential, wrapping around if more patients than images are requested
-        return [i % n for i in range(self.n_patients)]
+        self._gen = DatasetPatientGenerator(
+            XRVDataset(dataset, schema),
+            arrival_rate=arrival_rate,
+            n_patients=n_patients,
+            rng=rng,
+            sample_mode=sample_mode,
+        )
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
-        for pid, idx in enumerate(self._index_stream()):
-            item = self.dataset[idx]
-            image: Image = np.asarray(item["img"], dtype=np.float32)
-            gt = tuple(_to_sentinel(v) for v in np.asarray(item["lab"]).ravel())
-            if len(gt) != self.schema.n:
-                raise ValueError(
-                    f"dataset label length {len(gt)} != schema.n {self.schema.n}"
-                )
-            delay = float(self.rng.exponential(1.0 / self.arrival_rate))
-            context = PatientContext(patient_id=pid, arrival_time=0.0)
-            yield delay, Patient(
-                id=pid,
-                images=(image,),
-                ground_truth=gt,
-                context=context,
-            )
+        return iter(self._gen)

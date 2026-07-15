@@ -21,6 +21,8 @@ from hai_sim.config.scenario import (
 )
 from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SeverityModel, SortStrategy
 from hai_sim.core.types import LabelSchema, Patient
+from hai_sim.data.mock import MockDataset
+from hai_sim.data.xrv import XRVDataset
 from hai_sim.doctors.assisted import AssistedDoctor, LinearPoolPolicy, LogOddsFusionPolicy
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
@@ -32,6 +34,7 @@ from hai_sim.severity.models import (
     EmbeddingSeverity,
     ImageQualitySeverity,
 )
+from hai_sim.sim.dataset_generator import DatasetPatientGenerator
 from hai_sim.sim.patient_generator import PoissonPatientGenerator
 from hai_sim.sort.random import RandomSort
 from hai_sim.sort.uncertainty import UncertaintyDescSort
@@ -220,13 +223,12 @@ def build_patient_generator(
     schema: LabelSchema,
     rng: np.random.Generator,
 ) -> Iterable[tuple[float, Patient]]:
-    if cfg.gt_source != "native":
-        raise NotImplementedError(
-            f"gt_source={cfg.gt_source!r} is not wired yet; only 'native' (the dataset's "
-            "own labels) is available. Alternative ground-truth sources (NIH adjudicated "
-            "consensus, per-reader reads) land with the real-data / persona-calibration work."
-        )
     if cfg.kind == "poisson":
+        if cfg.gt_source != "native":
+            raise ValueError(
+                f"kind=poisson (synthetic) only provides gt_source='native', "
+                f"got {cfg.gt_source!r}"
+            )
         return PoissonPatientGenerator(
             schema=schema,
             arrival_rate=cfg.arrival_rate,
@@ -235,17 +237,31 @@ def build_patient_generator(
             image_shape=cfg.image_shape,
             rng=rng,
         )
-    if cfg.kind == "xrv_dataset":
-        from hai_sim.sim.dataset_generator import XRVDatasetPatientGenerator
-
-        ds = build_xrv_dataset(cfg)
-        return XRVDatasetPatientGenerator(
-            dataset=ds,
+    if cfg.kind == "mock_dataset":
+        mock = MockDataset(
             schema=schema,
+            n_examples=cfg.n_examples,
+            prevalence=cfg.prevalence,
+            rng=rng,
+            image_shape=cfg.image_shape,
+        )
+        return DatasetPatientGenerator(
+            mock,
             arrival_rate=cfg.arrival_rate,
             n_patients=cfg.n_patients,
             rng=rng,
             sample_mode=cfg.sample_mode,
+            gt_source=cfg.gt_source,
+        )
+    if cfg.kind == "xrv_dataset":
+        xrv = XRVDataset(build_xrv_dataset(cfg), schema, name=cfg.dataset)
+        return DatasetPatientGenerator(
+            xrv,
+            arrival_rate=cfg.arrival_rate,
+            n_patients=cfg.n_patients,
+            rng=rng,
+            sample_mode=cfg.sample_mode,
+            gt_source=cfg.gt_source,
         )
     raise ValueError(f"unknown patient_generator.kind: {cfg.kind}")
 

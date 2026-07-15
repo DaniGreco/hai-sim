@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from hai_sim.core.types import (
+    DatasetCapabilities,
+    DatasetExample,
     Image,
     LabelSchema,
     LocalizationExample,
@@ -127,6 +129,27 @@ class SeverityModel(Protocol):
         ai_output: ModelOutput | None,
         context: PatientContext,
     ) -> float | np.ndarray: ...
+
+
+@runtime_checkable
+class Dataset(Protocol):
+    """Unified, capability-aware dataset contract (dataset-agnostic).
+
+    A dataset provides indexable `DatasetExample`s (image + native ground truth,
+    plus optional masks / per-reader reads / metadata) and *declares* what it
+    provides via `DatasetCapabilities`. The simulation patient stream, persona
+    calibration and localization validation all read this one contract and gate
+    their features on the declared capabilities — so adding a dataset means
+    implementing this contract and declaring its provisions, nothing else.
+    """
+
+    name: str
+    schema: LabelSchema
+    capabilities: DatasetCapabilities
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> DatasetExample: ...
 
 
 # --- Validation plane -------------------------------------------------------

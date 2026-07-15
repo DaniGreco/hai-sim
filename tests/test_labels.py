@@ -176,6 +176,7 @@ def test_build_from_scenario_binary_abnormal_run():
 
 
 def test_gt_source_non_native_raises():
+    # poisson (synthetic) only provides native GT → capability rejection
     sc = ScenarioConfig.model_validate(_scenario_dict(gt_source="adjudicated"))
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         build_from_scenario(sc)

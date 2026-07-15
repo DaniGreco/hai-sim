@@ -208,3 +208,41 @@ class LocalizationExample:
                 f"labels (n={len(self.labels)}) and masks (n={len(self.masks)}) "
                 f"must have the same length (one entry per schema label)"
             )
+
+
+@dataclass(frozen=True)
+class DatasetCapabilities:
+    """Declarative descriptor of what a dataset provides.
+
+    The framework *gates* features on this descriptor instead of hardcoding
+    dataset names: which ground-truth sources are selectable (``gt_sources``),
+    whether a persona can be calibrated on per-reader reads (``has_per_reader`` /
+    ``reader_ids``), whether localization can be validated (``has_masks``), and
+    what extra per-example metadata is available (``metadata_fields``). A scenario
+    requesting a capability the dataset lacks fails fast with a clear error.
+    """
+
+    gt_sources: tuple[str, ...] = ("native",)
+    has_per_reader: bool = False
+    reader_ids: tuple[str, ...] = ()
+    has_masks: bool = False
+    metadata_fields: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DatasetExample:
+    """One dataset item: image + native ground truth, plus optional provisions.
+
+    ``masks`` / ``reader_labels`` / ``metadata`` are populated only when the
+    dataset advertises the matching capability; consumers check
+    `DatasetCapabilities` before relying on them. ``ground_truth`` uses the
+    ``{1, 0, -1}`` convention (``-1`` = not annotated), aligned to the dataset
+    schema. ``reader_labels`` maps a reader id to that reader's label vector.
+    """
+
+    example_id: str
+    image: Image
+    ground_truth: tuple[int, ...]
+    masks: tuple[np.ndarray | None, ...] | None = None
+    reader_labels: dict[str, tuple[int, ...]] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
