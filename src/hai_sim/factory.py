@@ -88,6 +88,22 @@ def build_ai(
             device=cfg.device,
             emit_embedding=emit_embedding,
         )
+    if cfg.kind == "cached":
+        from hai_sim.analysis.inference_cache import InferenceCache
+        from hai_sim.models.cached import CachedEnsembleAI
+        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
+
+        if cfg.cache_stem is None:
+            raise ValueError("ai.kind=cached requires ai.cache_stem")
+        cache = InferenceCache.load(cfg.cache_stem)
+        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
+        return CachedEnsembleAI(
+            cache=cache,
+            schema=schema,
+            uq=uq,
+            decision_threshold=cfg.decision_threshold,
+            service_time=cfg.service_time,
+        )
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
 
 
@@ -297,6 +313,25 @@ def build_patient_generator(
             rng=rng,
             sample_mode=cfg.sample_mode,
             gt_source=cfg.gt_source,
+        )
+    if cfg.kind == "inference_cache":
+        from hai_sim.analysis.inference_cache import InferenceCache
+        from hai_sim.sim.cache_generator import CachedPatientGenerator
+
+        if cfg.cache_stem is None:
+            raise ValueError("patient_generator.kind=inference_cache requires cache_stem")
+        if cfg.gt_source != "native":
+            raise ValueError(
+                f"inference_cache provides only gt_source='native', got {cfg.gt_source!r}"
+            )
+        cache = InferenceCache.load(cfg.cache_stem)
+        return CachedPatientGenerator(
+            cache=cache,
+            schema=schema,
+            arrival_rate=cfg.arrival_rate,
+            n_patients=cfg.n_patients,
+            rng=rng,
+            sample_mode=cfg.sample_mode,
         )
     raise ValueError(f"unknown patient_generator.kind: {cfg.kind}")
 

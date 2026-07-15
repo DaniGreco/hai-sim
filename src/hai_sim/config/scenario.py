@@ -14,8 +14,11 @@ class _Strict(BaseModel):
 
 
 class AIModelConfig(_Strict):
-    kind: Literal["random_mock", "torchxrv"] = "random_mock"
+    kind: Literal["random_mock", "torchxrv", "cached"] = "random_mock"
     service_time: float = 0.05
+    # cached params: replay an inference cache (real ensemble predictions, no re-inference).
+    # Reuses uq / ensemble_measure / decision_threshold below.
+    cache_stem: str | None = None
     # random_mock params
     alpha_conf: float = 2.0
     beta_conf: float = 2.0
@@ -129,9 +132,11 @@ class LabelViewConfig(_Strict):
 
 
 class PatientGenConfig(_Strict):
-    kind: Literal["poisson", "mock_dataset", "xrv_dataset"] = "poisson"
+    kind: Literal["poisson", "mock_dataset", "xrv_dataset", "inference_cache"] = "poisson"
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
+    # inference_cache params: replay a prebuilt inference cache as the patient stream.
+    cache_stem: str | None = None
     # poisson / mock_dataset params (synthetic)
     prevalence: float | tuple[float, ...] = 0.2
     image_shape: tuple[int, ...] = (1, 1)
