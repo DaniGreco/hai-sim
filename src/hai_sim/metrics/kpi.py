@@ -21,7 +21,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from hai_sim.metrics.collector import PatientRecord
 
@@ -386,32 +386,183 @@ def compute_kpis(records: Sequence[PatientRecord]) -> RunKPIs:
             team=TeamKPIs(0.0, 0.0, None, None, None, None, 0, 0),
         )
 
-    n = len(records)
-    # sim_duration: last verdict timestamp. Defines the "end of simulation" for
-    # throughput, even though Python wall-clock may differ.
-    last_t = max(r.ts_doctor_end for r in records)
-
-    # Three queue-time decompositions, per patient:
-    #   wait_to_model  = time spent in input_queue (Store, FIFO)
-    #   wait_to_doctor = time spent in triaged_store (PriorityStore, sort-aware)
-    #   time_in_system = end-to-end latency (arrival → verdict)
-    # The mean of each gives a single number characterizing the run.
-    waits_model = [r.ts_model_start - r.ts_arrival for r in records]
-    waits_doctor = [r.ts_doctor_start - r.ts_model_end for r in records]
-    sys_times = [r.ts_doctor_end - r.ts_arrival for r in records]
-
+    sm = _system_metrics(records)
     ai_k = _actor_kpis(records, "ai")
     doctor_k = _actor_kpis(records, "doctor")
     hybrid_k = _actor_kpis(records, "hybrid")
     return RunKPIs(
-        n_patients=n,
-        sim_duration=last_t,
-        throughput=_safe_div(n, last_t),  # patients per simulated time unit
-        mean_wait_to_model=sum(waits_model) / n,
-        mean_wait_to_doctor=sum(waits_doctor) / n,
-        mean_time_in_system=sum(sys_times) / n,
+        n_patients=int(sm["n_patients"]),
+        sim_duration=sm["sim_duration"],
+        throughput=sm["throughput"],
+        mean_wait_to_model=sm["mean_wait_to_model"],
+        mean_wait_to_doctor=sm["mean_wait_to_doctor"],
+        mean_time_in_system=sm["mean_time_in_system"],
         ai=ai_k,
         doctor=doctor_k,
         hybrid=hybrid_k,
         team=_team_kpis(records, ai_k, doctor_k, hybrid_k),
     )
+
+
+# ── System metrics ────────────────────────────────────────────────────────────
+
+
+def _system_metrics(records: Sequence[PatientRecord]) -> dict[str, float]:
+    """System-level metrics (throughput, queue waits) as a name→value dict.
+
+    Single source of truth for both `compute_kpis` (packed into `RunKPIs`) and the
+    swappable ``system`` KPI bundle.
+    """
+    if not records:
+        return {
+            "n_patients": 0.0,
+            "sim_duration": 0.0,
+            "throughput": 0.0,
+            "mean_wait_to_model": 0.0,
+            "mean_wait_to_doctor": 0.0,
+            "mean_time_in_system": 0.0,
+        }
+    n = len(records)
+    last_t = max(r.ts_doctor_end for r in records)
+    waits_model = [r.ts_model_start - r.ts_arrival for r in records]
+    waits_doctor = [r.ts_doctor_start - r.ts_model_end for r in records]
+    sys_times = [r.ts_doctor_end - r.ts_arrival for r in records]
+    return {
+        "n_patients": float(n),
+        "sim_duration": last_t,
+        "throughput": _safe_div(n, last_t),
+        "mean_wait_to_model": sum(waits_model) / n,
+        "mean_wait_to_doctor": sum(waits_doctor) / n,
+        "mean_time_in_system": sum(sys_times) / n,
+    }
+
+
+# ── AI x Doctor x ground-truth joint contingency table ──────────────────────────
+
+
+@dataclass(frozen=True)
+class JointTable:
+    """AI x Doctor x ground-truth joint contingency over labeled (patient, label) entries.
+
+    The AIxDoctorxGT table the thesis' contingency analysis needs (cf. tabella-TPFNFPTN):
+    two 2x2 confusion matrices (``ai_confusion`` = AI vs GT, ``doctor_confusion`` =
+    Doctor vs GT) plus ``joint`` — the 8 cells that, for each ground-truth sign, give the
+    2x2 count of (AI positive/negative) x (Doctor positive/negative). 'Doctor' is the final
+    team (hybrid) decision. Raw counts; the reliance ratios in `TeamKPIs` summarize the
+    same joint structure. Keys of ``joint``: ``"gt{g}_ai{a}_doc{d}"`` with g,a,d in {1,0}.
+    """
+
+    n_entries: int
+    ai_confusion: dict[str, int]
+    doctor_confusion: dict[str, int]
+    joint: dict[str, int]
+
+
+def _bump(conf: dict[str, int], pred: int, gt: int) -> None:
+    if pred == 1 and gt == 1:
+        conf["tp"] += 1
+    elif pred == 1 and gt == 0:
+        conf["fp"] += 1
+    elif pred == 0 and gt == 1:
+        conf["fn"] += 1
+    else:
+        conf["tn"] += 1
+
+
+def _joint_table(records: Sequence[PatientRecord]) -> JointTable:
+    ai_conf = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+    doc_conf = {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
+    joint = {f"gt{g}_ai{a}_doc{d}": 0 for g in (1, 0) for a in (1, 0) for d in (1, 0)}
+    n = 0
+    for r in records:
+        ai_pred = _labels_for(r, "ai")
+        doc_pred = _labels_for(r, "hybrid")  # the doctor's final (team) call
+        for a, d, g in zip(ai_pred, doc_pred, r.ground_truth, strict=True):
+            if g not in (0, 1):
+                continue  # unannotated entry — skip (matches the actor/team KPIs)
+            n += 1
+            _bump(ai_conf, a, g)
+            _bump(doc_conf, d, g)
+            joint[f"gt{g}_ai{a}_doc{d}"] += 1
+    return JointTable(
+        n_entries=n, ai_confusion=ai_conf, doctor_confusion=doc_conf, joint=joint
+    )
+
+
+# ── Swappable KPI bundles: a named registry selectable per scenario ─────────────
+
+
+@runtime_checkable
+class KPIBundle(Protocol):
+    """A named, swappable KPI bundle: a pure function over the run telemetry.
+
+    Bundles are the unit of KPI selection: a scenario picks which to compute for its
+    end-to-end test. Custom bundles satisfy this contract structurally — no inheritance.
+    """
+
+    name: str
+
+    def compute(self, records: Sequence[PatientRecord]) -> Any: ...
+
+
+class SystemBundle:
+    name = "system"
+
+    def compute(self, records: Sequence[PatientRecord]) -> dict[str, float]:
+        return _system_metrics(records)
+
+
+class ActorsBundle:
+    name = "actors"
+
+    def compute(self, records: Sequence[PatientRecord]) -> dict[str, ActorKPIs]:
+        return {
+            "ai": _actor_kpis(records, "ai"),
+            "doctor": _actor_kpis(records, "doctor"),
+            "hybrid": _actor_kpis(records, "hybrid"),
+        }
+
+
+class TeamBundle:
+    name = "team"
+
+    def compute(self, records: Sequence[PatientRecord]) -> TeamKPIs:
+        ai_k = _actor_kpis(records, "ai")
+        doctor_k = _actor_kpis(records, "doctor")
+        hybrid_k = _actor_kpis(records, "hybrid")
+        return _team_kpis(records, ai_k, doctor_k, hybrid_k)
+
+
+class JointTableBundle:
+    name = "joint_table"
+
+    def compute(self, records: Sequence[PatientRecord]) -> JointTable:
+        return _joint_table(records)
+
+
+_BUNDLES: tuple[KPIBundle, ...] = (
+    SystemBundle(),
+    ActorsBundle(),
+    TeamBundle(),
+    JointTableBundle(),
+)
+KPI_BUNDLES: dict[str, KPIBundle] = {b.name: b for b in _BUNDLES}
+DEFAULT_KPI_BUNDLES: tuple[str, ...] = ("system", "actors", "team", "joint_table")
+
+
+def compute_report(
+    records: Sequence[PatientRecord], bundle_names: Sequence[str] | None = None
+) -> dict[str, Any]:
+    """Compute the selected KPI bundles over the run telemetry.
+
+    ``bundle_names`` selects the swappable set (default = all standard bundles).
+    Unknown names fail fast with the list of available bundles.
+    """
+    names = tuple(bundle_names) if bundle_names is not None else DEFAULT_KPI_BUNDLES
+    report: dict[str, Any] = {}
+    for name in names:
+        bundle = KPI_BUNDLES.get(name)
+        if bundle is None:
+            raise ValueError(f"unknown KPI bundle {name!r}; available: {tuple(KPI_BUNDLES)}")
+        report[name] = bundle.compute(records)
+    return report

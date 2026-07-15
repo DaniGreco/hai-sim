@@ -133,6 +133,9 @@ class ScenarioConfig(_Strict):
     doctor: DoctorConfig
     sort: SortConfig
     severity: SeverityConfig | None = None
+    # Which swappable KPI bundles to compute for this run's end-to-end test.
+    # None → the default set (system, actors, team, joint_table).
+    kpis: tuple[str, ...] | None = None
     n_ai_workers: int = 1
     n_doctor_workers: int = 1
 
