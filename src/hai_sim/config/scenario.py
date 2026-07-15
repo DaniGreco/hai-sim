@@ -32,7 +32,7 @@ class AIModelConfig(_Strict):
 
 
 class DoctorConfig(_Strict):
-    kind: Literal["random_mock", "fixed_accuracy"] = "random_mock"
+    kind: Literal["random_mock", "fixed_accuracy", "assisted"] = "random_mock"
     service_time_mu: float = 2.5
     service_time_sigma: float = 0.4
     # random_mock params
@@ -46,6 +46,14 @@ class DoctorConfig(_Strict):
     # fixed_accuracy params (scalar applied to all labels, or per-label vector)
     sensitivity: float | tuple[float, ...] = 0.9
     specificity: float | tuple[float, ...] = 0.9
+    # assisted params (kind="assisted"): a `base` doctor forms the unaided opinion
+    # (reusing the fields above), an `integration_policy` fuses it with the AI hint.
+    base: Literal["fixed_accuracy", "random_mock"] = "fixed_accuracy"
+    integration_policy: Literal["linear_pool", "log_odds_fusion"] = "log_odds_fusion"
+    policy_weight_ai: float = Field(default=0.4, ge=0.0, le=1.0)  # linear_pool
+    policy_beta: float = Field(default=1.0, ge=0.0)  # log_odds_fusion: uncertainty sharpness
+    policy_weight_doctor: float = Field(default=1.0, ge=0.0)  # log_odds_fusion
+    policy_prior: float = Field(default=0.5, gt=0.0, lt=1.0)  # log_odds_fusion: per-label prior
 
 
 class SortConfig(_Strict):

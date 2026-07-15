@@ -154,8 +154,19 @@ Computed in `src/hai_sim/metrics/kpi.py` and printed by the CLI.
 
 **The three actor blocks**:
 - **`ai`** — score the AI's label vector against ground truth. Baseline: "what would the model deployed alone do?"
-- **`doctor`** — score the doctor's label vector (which may already be assisted; see *Hybrid mode*).
-- **`hybrid`** — in v0 identical to `doctor`. Reserved for an explicit AI+doctor fusion policy decoupled from the doctor mock (next iteration).
+- **`doctor`** — the *unaided* (solo) doctor call. When the doctor is an `AssistedDoctor`, this is the counterfactual it stashes (`doctor_solo_labels`); otherwise it is simply the doctor's output.
+- **`hybrid`** — the doctor stage's *actual* output = the *aided* (team) call when AI-assisted, else identical to `doctor`.
+
+**Team block (`TeamKPIs`)** — human-AI team quality vs its two members. Because the simulator knows both counterfactuals (doctor-solo, AI-solo) for every case, the appropriate-reliance metrics — normally needing a two-stage user study — are computed directly:
+
+| KPI | Definition | Reading |
+|---|---|---|
+| `complementarity_gap_f1` / `_accuracy` | team − max(AI-solo, doctor-solo) | > 0 ⇒ the team beats the better of its two members ("the whole exceeds its parts") |
+| `rair` | Relative AI Reliance: of entries where doctor-solo wrong & AI right, fraction the team got right | did the team *harvest* correct AI? (Schemmer et al. 2023) |
+| `rsr` | Relative Self-Reliance: of entries where doctor-solo right & AI wrong, fraction the team got right | did the team *resist* wrong AI? |
+| `over_reliance` / `under_reliance` | `1 − rsr` / `1 − rair` | agency lost to wrong AI / correct AI ignored |
+
+See `LITERATURE_doctor_ai_integration.md` for the model + policy design behind these.
 
 ---
 

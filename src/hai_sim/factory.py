@@ -18,8 +18,9 @@ from hai_sim.config.scenario import (
     SortConfig,
     ValidationScenarioConfig,
 )
-from hai_sim.core.protocols import DiagnosticActor, SortStrategy
+from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SortStrategy
 from hai_sim.core.types import LabelSchema, Patient
+from hai_sim.doctors.assisted import AssistedDoctor, LinearPoolPolicy, LogOddsFusionPolicy
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.models.mock import RandomMockAI
@@ -89,6 +90,18 @@ def build_doctor(cfg: DoctorConfig, schema: LabelSchema, rng: np.random.Generato
             service_time_mu=cfg.service_time_mu,
             service_time_sigma=cfg.service_time_sigma,
         )
+    if cfg.kind == "assisted":
+        base = build_doctor(cfg.model_copy(update={"kind": cfg.base}), schema, rng)
+        policy: IntegrationPolicy
+        if cfg.integration_policy == "linear_pool":
+            policy = LinearPoolPolicy(weight_ai=cfg.policy_weight_ai)
+        else:
+            policy = LogOddsFusionPolicy(
+                beta=cfg.policy_beta,
+                weight_doctor=cfg.policy_weight_doctor,
+                prior=cfg.policy_prior,
+            )
+        return AssistedDoctor(base=base, policy=policy)
     raise ValueError(f"unknown doctor.kind: {cfg.kind}")
 
 

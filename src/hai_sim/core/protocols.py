@@ -50,6 +50,30 @@ class DiagnosticActor(Protocol):
 
 
 @runtime_checkable
+class IntegrationPolicy(Protocol):
+    """How a doctor integrates the AI's output into its own decision.
+
+    The modular seam of the human-AI study: given the doctor's *own* (unaided)
+    `ModelOutput` and the AI ``ai_hint``, return the doctor's *final* (aided)
+    `ModelOutput`. Swap the policy — fixed-weight pool, uncertainty-weighted
+    log-odds fusion, trust dynamics — without touching the doctor or the engine.
+    Normative fusion rules and descriptive advice-taking rules are both just
+    implementations of this one contract. Implementations should stash the
+    unaided doctor labels in ``extra["doctor_solo_labels"]`` so the KPI layer can
+    keep the solo counterfactual alongside the team verdict.
+    """
+
+    name: str
+
+    def combine(
+        self,
+        doctor_out: ModelOutput,
+        ai_hint: ModelOutput,
+        context: PatientContext | None = None,
+    ) -> ModelOutput: ...
+
+
+@runtime_checkable
 class SortStrategy(Protocol):
     """Computes the priority key used by the triaged PriorityStore.
 
