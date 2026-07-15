@@ -62,6 +62,42 @@ class SortConfig(_Strict):
     weights: tuple[float, ...] | None = None
 
 
+class SeverityConfig(_Strict):
+    """Optional per-patient severity model. Omit the block → no severity computed.
+
+    `activation` is the workhorse: ``severity = agg(criticality * activation)``,
+    where `criticality` is a pre-assigned per-label clinical weight (length =
+    n_labels) and `activation` comes from the AI output or the ground truth.
+    """
+
+    kind: Literal["constant", "activation", "image_quality", "embedding"] = "constant"
+    # constant
+    value: float = 0.0
+    # activation
+    source: Literal["ai_probs", "ai_binary", "ai_uncertainty", "gt"] = "ai_probs"
+    criticality: tuple[float, ...] | None = None
+    aggregator: Literal["mean", "max", "sum"] = "max"
+    mode: Literal["scalar", "vector"] = "scalar"
+    # image_quality
+    quality_metric: Literal["laplacian_var", "intensity_std"] = "laplacian_var"
+    # embedding
+    embedding_reduce: Literal["l2_norm", "mean"] = "l2_norm"
+
+
+class LabelViewConfig(_Strict):
+    """Projects the model's native labels to the active study label set.
+
+    ``full`` (default) = no projection (multi-label over the whole schema).
+    ``subset`` = keep only ``targets`` (one target → a single-label study).
+    ``binary_abnormal`` = collapse ``targets`` (or all labels) to a single
+    "Abnormal" label (any finding), combining probabilities via ``combine``.
+    """
+
+    mode: Literal["full", "subset", "binary_abnormal"] = "full"
+    targets: tuple[str, ...] | None = None
+    combine: Literal["noisy_or", "max"] = "noisy_or"
+
+
 class PatientGenConfig(_Strict):
     kind: Literal["poisson", "xrv_dataset"] = "poisson"
     arrival_rate: float = Field(gt=0)
@@ -71,6 +107,10 @@ class PatientGenConfig(_Strict):
     image_shape: tuple[int, ...] = (1, 1)
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
+    # Ground truth is owned by the dataset: selecting a dataset selects its GT.
+    # 'native' = the dataset's own labels. Alternative sources (e.g. NIH adjudicated
+    # consensus, per-reader reads) are a dataset sub-knob wired with the real-data work.
+    gt_source: str = "native"
     imgpath: str | None = None
     csvpath: str | None = None
     sample_mode: Literal["sequential", "random"] = "sequential"
@@ -85,10 +125,12 @@ class ScenarioConfig(_Strict):
     name: str = "unnamed"
     seed: int = 0
     label_schema: Literal["default_v0", "chexpert", "xrv"] = "default_v0"
+    label_view: LabelViewConfig | None = None
     patient_generator: PatientGenConfig
     ai: AIModelConfig
     doctor: DoctorConfig
     sort: SortConfig
+    severity: SeverityConfig | None = None
     n_ai_workers: int = 1
     n_doctor_workers: int = 1
 

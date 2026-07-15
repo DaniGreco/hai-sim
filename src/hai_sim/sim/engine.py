@@ -22,7 +22,9 @@ from hai_sim.metrics.collector import MetricsCollector
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from hai_sim.core.protocols import DiagnosticActor, SortStrategy
+    import numpy as np
+
+    from hai_sim.core.protocols import DiagnosticActor, SeverityModel, SortStrategy
 
 
 @dataclass
@@ -35,6 +37,7 @@ class _InFlight:
     ts_model_end: float = 0.0
     ai_out: ModelOutput | None = None
     priority_key: float = 0.0
+    severity: float | np.ndarray | None = None
 
 
 @dataclass
@@ -55,6 +58,7 @@ class SimulationEngine:
         ai: DiagnosticActor,
         doctor: DiagnosticActor,
         sort_strategy: SortStrategy,
+        severity_model: SeverityModel | None = None,
         n_ai_workers: int = 1,
         n_doctor_workers: int = 1,
     ) -> None:
@@ -62,6 +66,7 @@ class SimulationEngine:
         self.ai = ai
         self.doctor = doctor
         self.sort_strategy = sort_strategy
+        self.severity_model = severity_model
         self.n_ai_workers = n_ai_workers
         self.n_doctor_workers = n_doctor_workers
 
@@ -99,6 +104,14 @@ class SimulationEngine:
                 )
                 inflight.ts_model_end = env.now
                 inflight.ai_out = ai_out
+                # Severity is a produced-and-logged signal; nothing here consumes
+                # it yet (triage/KPI/cost consumers are opt-in, added separately).
+                if self.severity_model is not None:
+                    inflight.severity = self.severity_model.score(
+                        patient=inflight.patient,
+                        ai_output=ai_out,
+                        context=inflight.patient.context,
+                    )
                 inflight.priority_key = self.sort_strategy.priority(ai_out, inflight.patient)
                 yield triaged_store.put(
                     simpy.PriorityItem(priority=inflight.priority_key, item=inflight)
@@ -136,6 +149,7 @@ class SimulationEngine:
                     ai_out=inflight.ai_out,
                     doc_out=doc_out,
                     priority_key=inflight.priority_key,
+                    severity=inflight.severity,
                 )
                 state["completed"] += 1
 

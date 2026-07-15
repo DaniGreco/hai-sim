@@ -6,7 +6,18 @@ import csv
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from hai_sim.core.types import ModelOutput, Patient
+
+
+def _norm_severity(sev: float | np.ndarray | None) -> float | tuple[float, ...] | None:
+    """Normalize a severity value for storage: per-label arrays → tuples."""
+    if sev is None:
+        return None
+    if isinstance(sev, np.ndarray):
+        return tuple(float(x) for x in sev.ravel())
+    return float(sev)
 
 
 @dataclass
@@ -32,6 +43,9 @@ class PatientRecord:
     # doc_labels already IS the solo verdict). Lets the KPI layer separate the aided
     # (team = doc_labels) call from the solo call for complementarity/reliance.
     doctor_solo_labels: tuple[int, ...] | None = None
+    # Per-patient severity from an optional SeverityModel: a scalar, a per-label
+    # vector (stored as a tuple), or None when no severity model is configured.
+    severity: float | tuple[float, ...] | None = None
 
 
 @dataclass
@@ -49,6 +63,7 @@ class MetricsCollector:
         ai_out: ModelOutput,
         doc_out: ModelOutput,
         priority_key: float,
+        severity: float | np.ndarray | None = None,
     ) -> None:
         self.records.append(
             PatientRecord(
@@ -67,6 +82,7 @@ class MetricsCollector:
                 doc_uncertainty=doc_out.uncertainty,
                 priority_key=priority_key,
                 doctor_solo_labels=doc_out.extra.get("doctor_solo_labels"),
+                severity=_norm_severity(severity),
             )
         )
 
@@ -75,6 +91,13 @@ class MetricsCollector:
         if not self.records:
             path.write_text("")
             return
+        # Severity is optional and either scalar or per-label; add columns only if
+        # present, and pick the layout from the first record that carries one.
+        sev_vals = [r.severity for r in self.records if r.severity is not None]
+        sev_mode = "none"
+        if sev_vals:
+            sev_mode = "vector" if isinstance(sev_vals[0], tuple) else "scalar"
+
         header = [
             "patient_id",
             "ts_arrival",
@@ -91,6 +114,20 @@ class MetricsCollector:
             *[f"doc_conf__{name}" for name in label_names],
             *[f"doc_unc__{name}" for name in label_names],
         ]
+        if sev_mode == "scalar":
+            header.append("severity")
+        elif sev_mode == "vector":
+            header.extend(f"severity__{name}" for name in label_names)
+
+        def _sev_cells(r: PatientRecord) -> list[str]:
+            if sev_mode == "scalar":
+                return [f"{r.severity:.6f}"] if isinstance(r.severity, float) else [""]
+            if sev_mode == "vector":
+                if isinstance(r.severity, tuple):
+                    return [f"{x:.6f}" for x in r.severity]
+                return [""] * len(label_names)
+            return []
+
         with path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(header)
@@ -111,5 +148,6 @@ class MetricsCollector:
                         *r.doc_labels,
                         *[f"{x:.6f}" for x in r.doc_confidence],
                         *[f"{x:.6f}" for x in r.doc_uncertainty],
+                        *_sev_cells(r),
                     ]
                 )
