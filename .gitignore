@@ -38,6 +38,6 @@ out/
 runs/
 *.log
 
-# Local data (datasets / large files) — not versioned; keep only the README
+# Local data (datasets / large files) — not versioned.
+# Layout and download instructions: see README.md ("Data & caches").
 /data/*
-!/data/README.md
