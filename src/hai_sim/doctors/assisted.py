@@ -1,7 +1,7 @@
 """AI-assisted doctor: own opinion + a swappable ``IntegrationPolicy``.
 
-Runtime spine of the human-AI integration study (see
-``LITERATURE_doctor_ai_integration.md``). An `AssistedDoctor` wraps a *base*
+Runtime spine of the human-AI integration study (design and literature: see
+``../TESI.md`` §4.5, §6.6). An `AssistedDoctor` wraps a *base*
 doctor — its own, AI-unaided opinion (e.g. `FixedAccuracyDoctor`) — and an
 `IntegrationPolicy` that fuses that opinion with the AI ``ai_hint`` into the
 doctor's final, aided decision. Swap the policy (fixed-weight pool,
