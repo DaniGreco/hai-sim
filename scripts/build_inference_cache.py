@@ -101,8 +101,12 @@ def main(argv: list[str] | None = None) -> int:
     out_stem = Path(args.out)
     # Composition signature: dataset indices are only meaningful for this exact
     # filtering, so a differently-filtered cache must never be resumed into.
+    # Resolution is part of it because it changes what the model was shown, not just how
+    # many images there were: silently extending a 224-pixel cache with 896-pixel rows
+    # would leave one cache holding two different experiments.
     fingerprint = (
-        f"{pg.dataset}|views={','.join(pg.views)}|unique={pg.unique_patients}|ndata={len(dataset)}"
+        f"{pg.dataset}|views={','.join(pg.views)}|unique={pg.unique_patients}"
+        f"|resize={pg.resize}|ndata={len(dataset)}"
     )
 
     # Resume: reuse a compatible cache at the same stem unless --fresh was passed.
@@ -117,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print(
                 f"[error] existing cache {out_stem}.npz is incompatible "
-                f"(weights/pathologies/dataset/views differ).\n"
+                f"(members/pathologies/dataset/views/resolution differ).\n"
                 f"  existing: {prior.dataset_fingerprint!r}\n"
                 f"  current : {fingerprint!r}\n"
                 "  Use --fresh or a different --out."

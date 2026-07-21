@@ -33,7 +33,11 @@
 # overlap; it is NOT enough for the rare ones, and a write-up should say so rather than
 # quote a per-pathology number computed on a handful of positives.
 name: v2_medgemma_nih
-seed: 0
+# Seed 42 is not arbitrary: the builder's image selection is deterministic in
+# (dataset size, seed), and 42 reproduces the exact sequence data/cache/nih_ensemble was
+# built from. So `--limit N` here yields the FIRST N images of that cache, and the two
+# caches align image-for-image instead of overlapping by luck. Changing it wastes the run.
+seed: 42
 label_schema: xrv
 
 patient_generator:
@@ -44,7 +48,10 @@ patient_generator:
   arrival_rate: 0.5
   n_patients: 50
   views: [PA, AP]
-  unique_patients: false
+  # Must match data/cache/nih_ensemble (fingerprint nih|views=PA,AP|unique=True|ndata=4230):
+  # a different filter is a different image pool, so the two caches would share almost
+  # nothing and the comparison would have nothing to align on.
+  unique_patients: true
   # MedGemma encodes at 896x896. The DenseNet scenarios use 224 because that is what it
   # was trained at — serving 224 here would hand this model an upscaled thumbnail and
   # measure it outside its training distribution. Each backend gets its own resolution,
