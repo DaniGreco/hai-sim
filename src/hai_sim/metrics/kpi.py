@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 from hai_sim.metrics.collector import PatientRecord
 from hai_sim.metrics.registry import register_bundle, resolve_bundle
+from hai_sim.metrics.slicing import Grouping, split_records
 
 Actor = Literal["ai", "doctor", "hybrid"]
 
@@ -553,3 +554,21 @@ def compute_report(
         bundle = resolve_bundle(name)
         report[bundle.name] = bundle.compute(records)
     return report
+
+
+def compute_grouped_report(
+    records: Sequence[PatientRecord],
+    bundle_names: Sequence[str] | None = None,
+    groupings: Sequence[Grouping] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """The same report, computed once per subgroup: ``{group key: report}``.
+
+    Group-major on purpose — a subgroup's report is exactly what `compute_report`
+    returns for it, so nothing downstream needs a second shape to understand. With no
+    groupings the result is a single ``""`` group holding the whole-run report, which
+    keeps callers free of a special case.
+    """
+    return {
+        piece.key: compute_report(piece.records, bundle_names)
+        for piece in split_records(records, groupings or ())
+    }

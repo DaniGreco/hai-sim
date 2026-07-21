@@ -5,7 +5,7 @@ Kept separate from the config module so the config layer stays pure data.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import numpy as np
@@ -13,6 +13,7 @@ import numpy as np
 from hai_sim.config.scenario import (
     AIModelConfig,
     CapabilityConfig,
+    KPIGroupConfig,
     PatientGenConfig,
     PersonaConfig,
     ScenarioConfig,
@@ -34,6 +35,7 @@ from hai_sim.doctors.assisted import (
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.labels import ProjectedActor, build_projection, project_generator
+from hai_sim.metrics.slicing import Grouping, LabelGrouping, ValueGrouping
 from hai_sim.models.mock import RandomMockAI
 from hai_sim.personas import resolve_persona
 from hai_sim.severity.models import (
@@ -171,6 +173,25 @@ def build_persona(
     trust = cfg.trust if cfg.trust is not None else TrustConfig()
     policy = build_trust_policy(trust)
     return AssistedDoctor(base=base, policy=policy, name=f"Persona[{cfg.name or 'inline'}]")
+
+
+def build_kpi_groupings(
+    cfgs: Sequence[KPIGroupConfig], schema: LabelSchema
+) -> list[Grouping]:
+    """Build the KPI conditioning axes; ``key: label`` needs the schema for its names."""
+    groupings: list[Grouping] = []
+    for cfg in cfgs:
+        if cfg.key == "label":
+            if cfg.edges:
+                raise ValueError("kpi_groups 'label' takes no edges: it is categorical")
+            groupings.append(LabelGrouping(label_names=schema.labels))
+        else:
+            groupings.append(
+                ValueGrouping(
+                    key=cfg.key, edges=cfg.edges, include_missing=cfg.include_missing
+                )
+            )
+    return groupings
 
 
 def build_sort(cfg: SortConfig, rng: np.random.Generator) -> SortStrategy:

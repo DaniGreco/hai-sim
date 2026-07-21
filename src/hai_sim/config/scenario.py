@@ -158,6 +158,24 @@ class PatientGenConfig(_Strict):
     unique_patients: bool = True
 
 
+class KPIGroupConfig(_Strict):
+    """One conditioning axis for the KPI bundles: every bundle is computed per subgroup.
+
+    ``key`` is either the literal ``"label"`` — one subgroup per pathology, which turns
+    a macro-averaged bundle into a per-pathology one — or something readable off a
+    record: a plain field (``severity``, ``priority_key``, ``ts_arrival``) or an
+    observation (``ctx.sex``, ``load.in_system_at_arrival``, ``ai.uq_method``).
+
+    ``edges`` bins a continuous quantity into ordered groups: ``[1, 5]`` gives ``<1``,
+    ``1-5``, ``>=5``. Leave it out for categoricals. Records missing the key are
+    dropped unless ``include_missing`` — otherwise the denominator changes silently.
+    """
+
+    key: str
+    edges: tuple[float, ...] = ()
+    include_missing: bool = False
+
+
 class ScenarioConfig(_Strict):
     name: str = "unnamed"
     seed: int = 0
@@ -168,9 +186,14 @@ class ScenarioConfig(_Strict):
     persona: str | PersonaConfig
     sort: SortConfig
     severity: SeverityConfig | None = None
-    # Which swappable KPI bundles to compute for this run's end-to-end test.
+    # Which swappable KPI bundles to compute for this run's end-to-end test. Each entry
+    # is a registered name or a reference to your own bundle, e.g.
+    # "configs/examples/custom_metrics.py:CostBundle".
     # None → the default set (system, actors, team, joint_table).
     kpis: tuple[str, ...] | None = None
+    # Optional conditioning axes: every selected bundle is computed once per subgroup
+    # (per severity band, per load regime, per pathology, ...). Several axes cross.
+    kpi_groups: tuple[KPIGroupConfig, ...] = ()
     n_ai_workers: int = 1
     n_doctor_workers: int = 1
 

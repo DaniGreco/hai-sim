@@ -228,8 +228,13 @@ class MetricsCollector:
 # ── Flattening the observation bag into CSV columns ─────────────────────────────
 
 
-def _as_sequence(value: Any) -> list[Any] | None:
-    """``value`` as a plain list when it is a non-string sequence, else ``None``."""
+def as_sequence(value: Any) -> list[Any] | None:
+    """``value`` as a plain list when it is a non-string sequence, else ``None``.
+
+    Public because every consumer of the observation bag needs the same question
+    answered — "is this one number per label, or one number?" — and they must all
+    answer it identically.
+    """
     if isinstance(value, np.ndarray):
         return [x.item() for x in value.ravel()]
     if isinstance(value, (list, tuple)):
@@ -238,7 +243,7 @@ def _as_sequence(value: Any) -> list[Any] | None:
 
 
 def _is_label_vector(value: Any, n_labels: int) -> bool:
-    seq = _as_sequence(value)
+    seq = as_sequence(value)
     return seq is not None and len(seq) == n_labels
 
 
@@ -286,7 +291,7 @@ def _observation_cells(
             continue
         value = record.observations[key]
         if per_label:
-            cells.extend(_fmt_observation(x) for x in (_as_sequence(value) or []))
+            cells.extend(_fmt_observation(x) for x in (as_sequence(value) or []))
         else:
             cells.append(_fmt_observation(value))
     return cells
