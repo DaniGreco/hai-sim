@@ -1,0 +1,57 @@
+# RQ3 on real NIH predictions, as a *paired* comparison against the unaided senior.
+#
+#   hai-sim study configs/examples/study_nih_persona_contrast.yaml
+#
+# Same cache-replay setup as study_nih_persona_grid.yaml (needs data/cache/nih_ensemble),
+# but it claims what the engine's seeding was built for. The seed is split into
+# independent per-module substreams, so every arm at seed 1 reads the *same* patients in
+# the same order; the difference between two arms at that seed is the persona's effect
+# with the shared sampling noise cancelled, not averaged over. Declaring `baseline` is
+# what turns that property into a number: the reported delta is the mean of the per-seed
+# differences, with a 95% interval on those differences.
+#
+# `by` additionally conditions every metric on how congested the department was when the
+# patient arrived — order and reliance effects live under saturation, and an
+# unconditioned mean hides them.
+#
+# Omitting `report` tabulates every scalar in the report rather than a chosen few.
+name: nih_persona_contrast
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/nih_ensemble
+    arrival_rate: 0.5
+    n_patients: 1000
+    sample_mode: sequential
+  ai:
+    kind: cached
+    cache_stem: data/cache/nih_ensemble
+    uq: ensemble
+    ensemble_measure: predictive_entropy
+    decision_threshold: 0.5
+  persona: solo_senior
+  sort:
+    kind: uncertainty_desc
+    aggregator: mean
+
+factors:
+  persona: [solo_senior, senior_trusting, senior_skeptical, junior_trusting, junior_skeptical]
+
+design: grid
+replications: [1, 2, 3, 4, 5]
+
+baseline:
+  persona: solo_senior        # every other persona is contrasted against this arm
+
+kpis: [system, actors, team]
+
+report:
+  - actors.hybrid.recall_macro
+  - actors.hybrid.f1_macro
+  - actors.hybrid.n_fn
+  - team.complementarity_gap_f1
+  - team.rair
+  - team.rsr
