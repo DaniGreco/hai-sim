@@ -20,7 +20,7 @@ The CXR dataset is the simulation's *patient generator*, not a training set.
 - [Install](#install) · [Quickstart](#quickstart) · [Pipeline](#pipeline) · [CLI](#cli)
 - [Data & caches](#data--caches)
 - [Scenario reference](#scenario-reference) — the experiment control panel
-- [Study reference](#study-reference) — factor grids
+- [Study reference](#study-reference) — factor grids, paired contrasts
 - [Output](#output) · [KPI definitions](#kpi-definitions)
 - [What is implemented](#what-is-implemented) — protocols, implementations, scripts
 - [Determinism](#determinism) · [Tests](#tests) · [Not implemented yet](#not-implemented-yet)
@@ -376,11 +376,57 @@ label_view:
   combine: noisy_or           # binary_abnormal: noisy_or | max (how AI probs collapse)
 ```
 
-### `kpis` (optional)
+### `kpis` (optional) — including metrics you wrote yourself
 
 ```yaml
 kpis: [system, actors, team, joint_table]   # default = all four
 ```
+
+Each entry is either a **registered name** or a reference to your own bundle, so a new
+metric never requires patching the library:
+
+```yaml
+kpis:
+  - system
+  - configs/examples/custom_metrics.py:CostBundle   # path/to/file.py:Attribute
+  - my_package.my_metrics:CostBundle                # or an importable module
+```
+
+A bundle needs only a `name` and a `compute(records)`, and must be constructible with no
+arguments. The report is keyed by the bundle's own `name`, so a custom bundle is reachable
+by the study layer's dotted paths (`cost.hybrid_total`) exactly like a built-in one. See
+`configs/examples/custom_metrics.py` for two worked examples and
+`src/hai_sim/metrics/registry.py` for the contract.
+
+> Resolving a reference imports the target, which runs its module-level code. A scenario
+> file is therefore as trusted as a script.
+
+### `kpi_groups` (optional) — conditioned metrics
+
+Every selected bundle is computed once **per subgroup**. This is how you ask for recall on
+the severe cases, waiting time under saturation, or per-pathology figures:
+
+```yaml
+kpi_groups:
+  - key: severity
+    edges: [1.0, 2.5]                    # → severity=<1, 1-2.5, >=2.5
+  - key: load.in_system_at_arrival
+    edges: [5.0, 20.0]                   # quiet / busy / saturated at arrival
+  - key: label                           # one subgroup per pathology
+  - key: ctx.sex                         # categorical: no edges
+```
+
+| field | meaning |
+|---|---|
+| `key` | `label`, a record field (`severity`, `priority_key`, `ts_arrival`), or any observation column (`ctx.*`, `load.*`, `ai.*`, `doc.*`) |
+| `edges` | bin thresholds for a continuous value; omit for categoricals |
+| `include_missing` | keep records that lack the key (default: drop, so the denominator never changes silently) |
+
+Several entries **cross**: `severity × label` yields one subgroup per (band, pathology).
+The console prints one column per axis; the full grid goes to the JSON under
+`kpis_by_group`. Because a grouping just splits the records and re-runs the unchanged
+bundle, *any* bundle is conditionable — including your own. Example:
+`configs/examples/v2_conditioned_kpis.yaml`.
 
 ### `n_ai_workers` / `n_doctor_workers`
 
@@ -451,21 +497,64 @@ factors:                 # dotted config-paths → levels
   persona: [solo_senior, senior_trusting, senior_skeptical, junior_trusting, junior_skeptical]
   sort.aggregator: [mean, max]
 
-design: grid             # "grid" = full cross-product | "ofat" = one-factor-at-a-time
+design: grid             # "grid" | "ofat" | "random"
 replications: [1, 2, 3]  # seeds — common random numbers give each arm the same stream
 
-report:                  # KPI-paths to tabulate (one column each)
+baseline:                # optional: the reference arm → paired contrasts
+  persona: solo_senior
+
+by:                      # optional: same shape as a scenario's `kpi_groups`
+  - key: load.in_system_at_arrival
+    edges: [5.0, 20.0]
+
+kpis: [system, actors, team]   # optional; may name your own bundle by file path
+
+report:                  # optional — omit to tabulate EVERY scalar in the report
   - team.complementarity_gap_f1
   - team.rair
   - actors.hybrid.recall_macro
   - actors.hybrid.n_fn
 ```
 
-`design: ofat` runs a baseline (first level of each factor) plus, for each other factor,
-one run per remaining level — linear instead of exponential in the number of factors.
+| design | what it runs |
+|---|---|
+| `grid` | the full cross-product |
+| `ofat` | a baseline (first level of each factor) plus one run per remaining level — linear, not exponential, in the number of factors |
+| `random` | `n_samples` cells drawn from the grid (`design_seed` fixes which). Not a Latin hypercube and it does not claim to be: factors here are lists of levels, with no interval to stratify. The `baseline` cell is always kept |
 
-`configs/examples/study_nih_persona_grid.yaml` is the same sweep on **real NIH images via
-cache replay**: 5 personas × 2 aggregators × 3 seeds = 30 runs in seconds, no inference.
+#### Paired contrasts — what `baseline` buys you
+
+The engine splits each run's seed into independent per-module substreams, so **two arms at
+the same seed read the same patients in the same order**. Declaring `baseline` turns that
+into a number: the reported delta is the mean of the *per-seed differences*, with a 95%
+interval on those differences. The shared sampling noise cancels rather than being averaged
+over, which is why the interval is far tighter than comparing two independent means. Seeds
+present in only one arm are skipped. A partial baseline (naming some factors) contrasts
+each arm against the cell that differs in *those* factors alone, so a contrast never
+confounds two changes at once.
+
+#### Output files
+
+| file | shape |
+|---|---|
+| `study_<name>_<stamp>.csv` | wide — one row per (run, subgroup); identical to the pre-grouping format when the study conditions on nothing |
+| `study_<name>_<stamp>_long.csv` | **canonical** — one row per (cell, seed, subgroup, metric); the shape to group and plot |
+| `study_<name>_<stamp>_summary.csv` | per-cell `n / mean / sd / ci_low / ci_high`, plus `vs_baseline_delta` and its interval |
+| `study_<name>_<stamp>.json` | everything above, plus the validated study config |
+
+Confidence intervals are two-sided 95% on Student's t (`study/stats.py` carries its own
+critical-value table, so no scipy; normal approximation past 30 degrees of freedom). Other
+levels are out of scope rather than silently approximated.
+
+#### Examples
+
+- `configs/examples/study_nih_persona_grid.yaml` — the sweep on **real NIH images via cache
+  replay**: 5 personas × 2 aggregators × 3 seeds = 30 runs in seconds, no inference.
+- `configs/examples/study_nih_persona_contrast.yaml` — the same population as a *paired*
+  comparison against the unaided senior. On the current stack the senior arms come back at
+  delta 0.0000 with a zero-width interval (the AI never flips a senior's call), while
+  `junior_trusting` loses 0.197 macro recall `[-0.204, -0.189]` and gains 112.6 false
+  negatives — over-reliance on a weak AI degrading a competent reader, with an interval on it.
 
 ---
 
@@ -485,6 +574,27 @@ One row per patient. Any downstream KPI can be re-derived from this file alone.
 | `gt__<label>` | ground truth bit per label (0/1; `-1` = unannotated, skipped) |
 | `ai_label__`, `ai_conf__`, `ai_unc__` | AI prediction / confidence / uncertainty per label |
 | `doc_label__`, `doc_conf__`, `doc_unc__` | doctor's, per label |
+| `severity` / `severity__<label>` | present when a `severity` model is configured |
+
+#### Observations — the open part of the record
+
+Beyond the fixed columns above, the record carries a namespaced **observation bag**:
+whatever a module puts in `ModelOutput.extra` reaches the telemetry, so a new module
+surfaces a new observable with no change to the collector. Per-label values expand into
+one column per label (`ai.mutual_information__Effusion`); scalars take one column.
+
+| namespace | source | examples |
+|---|---|---|
+| `ai.*` | the AI station's `ModelOutput.extra` | `ai.uq_method`, `ai.n_members`, `ai.image_id`, `ai.cache_index`, and from `uq: ensemble` the **full decomposition**: `ai.predictive_entropy__*` (total), `ai.mean_entropy__*` (aleatoric), `ai.mutual_information__*` (epistemic), `ai.std__*`, `ai.coverage__*` |
+| `doc.*` | the doctor station's `ModelOutput.extra` | `doc.policy`, `doc.assisted`, `doc.ai_hint_used`, `doc.fusion_weight_ai__*` (the weight the trust policy actually applied, per label), `doc.doctor_solo_confidence__*` |
+| `ctx.*` | `PatientContext` | `ctx.example_id` (the dataset item / image filename — this is what joins telemetry back to the image), `ctx.age`, `ctx.sex`, `ctx.priority` |
+| `load.*` | queue occupancy sampled by the engine | `load.input_queue_at_arrival`, `load.in_system_at_arrival`, `load.triaged_at_enqueue` (how deep the triaged queue was when this patient joined it — i.e. whether triage had room to act), `load.triaged_at_read` |
+
+`patient_id` counts arrivals and is unique even when the same image is sampled twice;
+`ctx.example_id` names the image. They are deliberately different things.
+
+Every observation key is also a valid `kpi_groups` key and readable from a custom bundle
+via `record.observation("ai.mutual_information")`.
 
 ### JSON — run summary
 
@@ -588,13 +698,18 @@ and inheriting it is optional.
 | `LocalizationDataset` | | `ChestXDetDataset` |
 | `LocalizationMetric` | `score(heatmap, gt_mask)` | `PointingGame`, `EnergyInMask`, `IoU`, `Dice` |
 
-`KPIBundle` (`metrics/kpi.py`) is a second Protocol: `SystemBundle`, `ActorsBundle`,
-`TeamBundle`, `JointTableBundle`.
+Two more Protocols live in `metrics/`:
+
+| Protocol | Method | Implementations |
+|---|---|---|
+| `KPIBundle` (`metrics/registry.py`) | `compute(records) → Any` | `SystemBundle`, `ActorsBundle`, `TeamBundle`, `JointTableBundle` — **plus anything you reference from a scenario as `file.py:Attribute`** |
+| `Grouping` (`metrics/slicing.py`) | `split(records) → [RecordSlice]` | `ValueGrouping`, `LabelGrouping` |
 
 ### Module map — `src/hai_sim/`
 
 ```
-core/protocols.py           the 9 Protocols = the public contract
+core/protocols.py           the 9 Protocols = the public contract (KPIBundle and
+                            Grouping live in metrics/, for 11 in total)
 core/types.py               frozen dataclasses: LabelSchema, Diagnosis, ModelOutput,
                             Patient(Context), Localization/DatasetExample, DatasetCapabilities
 core/base.py                BaseDiagnosticActor ABC
@@ -611,9 +726,14 @@ severity/models.py                   the four severity models
 data/{mock,xrv}.py                   MockDataset | XRVDataset ({1,0,-1} sentinel convention)
 sim/engine.py                        the SimPy engine
 sim/{patient,dataset,cache}_generator.py   the three patient streams
-metrics/collector.py                 PatientRecord + MetricsCollector (CSV telemetry)
-metrics/kpi.py                       the four KPI bundles
-study/{spec,runner}.py               factor grid → tidy table
+metrics/collector.py                 PatientRecord + MetricsCollector — fixed core plus the
+                                     open, namespaced observation bag (ai./doc./ctx./load.)
+metrics/kpi.py                       the four built-in bundles + compute_(grouped_)report
+metrics/registry.py                  open bundle registry: name | module:Attr | file.py:Attr
+metrics/slicing.py                   conditioned metrics: split the records, rerun the bundle
+metrics/report.py                    flatten a report to dotted path → scalar
+study/{spec,runner}.py               factor grid → tidy long table (+ wide, + summary)
+study/stats.py                       replication statistics and paired contrasts
 analysis/inference_cache.py          resumable per-member probability cache
 analysis/calibration.py              per-pathology threshold fitting
 analysis/error_curve.py              error-capture curves, AUROC, dashboards (the RQ1 apparatus)
