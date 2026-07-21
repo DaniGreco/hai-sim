@@ -1,19 +1,34 @@
-"""KPI computation from a list of `PatientRecord`s.
+"""The built-in metrics, computed from a run's `PatientRecord` telemetry.
 
-Two KPI scopes:
-- per-actor (`ActorKPIs`): classification quality of one decision maker (ai / doctor / hybrid)
-  evaluated against the ground truth label vector.
-- per-run (`RunKPIs`): system-level metrics (throughput, queue waits) that do not depend on
-  which actor is being measured, plus three nested `ActorKPIs` (ai, doctor, hybrid).
+KPI = key performance indicator; GT = ground truth (the reference answer); AI =
+artificial intelligence, here the automated reader. See ``GLOSSARY.md`` for the rest.
 
-Conventions in this module:
-- "error" on a patient = the actor's predicted label vector differs from ground truth on
-  at least one label (multi-label hamming-style error, NOT exact-match).
-- "FN event" on a patient = the actor predicted 0 on at least one label that is actually 1
-  (i.e. missed at least one pathology). FN events are the clinically dangerous ones — they
-  drive `n_fn` and `mttfn`.
-- All temporal KPIs use `ts_doctor_end` as the patient's "event time", because that is the
-  moment at which the system's verdict on that patient becomes known.
+**Three verdicts, always compared.** Because the AI reads *before* the doctor and the
+doctor keeps its own opinion, every patient leaves behind three answers, and every
+per-actor metric is computed for all three:
+
+    ai       what the model alone would have decided
+    doctor   what the doctor alone would have decided (the unaided counterfactual)
+    hybrid   what the doctor actually decided after seeing the model — the team
+
+``hybrid`` is the one that says whether putting the model in front of the doctor was
+worth it; ``ai`` and ``doctor`` are the two things it has to beat. When the doctor never
+sees the AI, ``hybrid`` and ``doctor`` coincide by construction.
+
+Scopes: `ActorKPIs` scores one verdict against the GT · `TeamKPIs` compares the three ·
+`JointTable` cross-tabulates them · `RunKPIs` adds run-level throughput and queue waits.
+
+Conventions used throughout:
+
+- An **error** on a patient = the predicted label vector differs from the GT on at least
+  one label. Multi-label, so this is a per-label (Hamming) notion, not exact match.
+- An **FN event** (false negative) on a patient = at least one pathology that was present
+  was called absent, i.e. something was missed. Singled out from ordinary errors because
+  a miss and a false alarm are not the same mistake clinically.
+- Entries whose GT is ``-1`` — not annotated by this dataset for this image — are
+  **skipped everywhere**, never counted as absent.
+- Temporal metrics use ``ts_doctor_end`` as a patient's event time: the moment the
+  system's verdict on them exists.
 """
 
 from __future__ import annotations
@@ -56,13 +71,14 @@ class ActorKPIs:
 
     # ── Aggregated confusion counts (sum over labels, sum over patients) ──────────────
     n_fn: int
-    """Total false negatives = number of (patient, label) pairs where ground truth = 1
-    but the actor predicted 0. Clinically: missed pathologies — usually the worst kind
-    of mistake in radiology, motivating the cost matrix mentioned in CONTEXT.md."""
+    """Total false negatives (FN) = (patient, label) pairs where the truth is 1 but the
+    actor predicted 0. Clinically: a **missed** pathology — the expensive mistake, and
+    the reason this simulator never judges a change by one combined score. Weighing FN
+    against FP explicitly is the planned cost model (``../TESI.md`` §9)."""
 
     n_fp: int
-    """Total false positives = number of (patient, label) pairs where ground truth = 0
-    but the actor predicted 1. Clinically: unnecessary alarm / overdiagnosis."""
+    """Total false positives (FP) = (patient, label) pairs where the truth is 0 but the
+    actor predicted 1. Clinically: a false alarm — follow-up imaging, and overdiagnosis."""
 
     # ── Reliability metrics over the patient timeline ─────────────────────────────────
     ttfe: float | None
@@ -86,36 +102,47 @@ class ActorKPIs:
 
 @dataclass(frozen=True)
 class TeamKPIs:
-    """Human-AI team metrics: is the aided doctor better than either alone, and does
-    it rely on the AI *appropriately*? All computed from the per-(patient, label) 2x2
-    of (doctor-solo correct?) x (AI correct?), on labeled entries only. Because the
-    simulator knows both counterfactuals for every case, the reliance ratios — which
-    normally need a two-stage user study — are computed directly. Ratios follow
-    Schemmer et al. (2023, IUI)."""
+    """Was pairing them worth it, and did the doctor take the advice *when it should*?
+
+    Two different questions, and a team can pass one while failing the other: a doctor
+    who ignores the AI entirely never gets misled, and also never gains anything.
+
+    Everything here comes from one 2x2 built per (patient, label) on annotated entries —
+    *was the doctor alone right?* x *was the AI right?* — which sorts every entry into a
+    case where the AI could have helped, could have hurt, or was irrelevant. Because the
+    simulator knows both counterfactuals for every patient, these ratios come out
+    directly; measuring them on real readers needs a two-stage study where each reader is
+    asked twice. Definitions follow Schemmer et al. (2023, IUI).
+    """
 
     complementarity_gap_f1: float
-    """team macro-F1 - max(AI macro-F1, doctor-solo macro-F1). > 0 ⇒ the team beats the
-    better of its two members ("the whole exceeds its parts")."""
+    """Team macro-F1 minus the better of (AI macro-F1, unaided-doctor macro-F1).
+    Positive ⇒ the pair genuinely beats *both* its members. Zero or negative ⇒ the
+    pairing bought nothing, whatever the headline accuracy says."""
 
     complementarity_gap_accuracy: float
-    """Same, on micro accuracy. Reported alongside F1; prefer F1 under class imbalance."""
+    """The same gap measured on accuracy. Reported for completeness — prefer the F1 gap,
+    since accuracy flatters everyone when most labels are absent."""
 
     rair: float | None
-    """Relative AI Reliance: of entries where doctor-solo was WRONG but the AI was RIGHT
-    (AI-reliance opportunities), the fraction the team got right (switched to the AI).
-    None if there were no such opportunities."""
+    """**RAIR — relative AI reliance.** Of the entries where the doctor alone was wrong
+    and the AI was right (the chances the AI had to help), the fraction the team got
+    right, i.e. how often the doctor was persuaded when it should have been.
+    ``None`` when no such opportunity arose."""
 
     rsr: float | None
-    """Relative Self-Reliance: of entries where doctor-solo was RIGHT but the AI was WRONG
-    (self-reliance opportunities), the fraction the team got right (kept its own answer).
-    None if there were no such opportunities."""
+    """**RSR — relative self-reliance.** Of the entries where the doctor alone was right
+    and the AI was wrong (the chances the AI had to *hurt*), the fraction the team still
+    got right, i.e. how often the doctor held its ground when it should have.
+    ``None`` when no such opportunity arose."""
 
     over_reliance: float | None
-    """1 - RSR: fraction of self-reliance opportunities lost by following wrong AI — the
-    'agency loss' the reliance literature warns explanations inflate."""
+    """1 - RSR: the share of "hold your ground" chances lost by following a wrong AI.
+    This is the failure mode the clinical literature keeps finding, and the one a badly
+    tuned trust setting produces here."""
 
     under_reliance: float | None
-    """1 - RAIR: fraction of AI-reliance opportunities missed by ignoring correct AI."""
+    """1 - RAIR: the share of "be persuaded" chances missed by ignoring a correct AI."""
 
     n_ai_reliance_opportunities: int
     """# labeled entries where doctor-solo wrong and AI right (RAIR denominator)."""
@@ -146,8 +173,9 @@ class RunKPIs:
     # ── Queue-time decomposition (averaged across patients) ───────────────────────────
     mean_wait_to_model: float
     """Mean of (ts_model_start - ts_arrival) over all patients. How long a patient sits
-    in the input queue before the AI starts processing. With v0's single AI worker and
-    fast mock AI this is usually ~0 unless arrivals burst faster than AI service time."""
+    in the input queue before the AI starts reading. Usually ~0: one AI station keeps up
+    easily unless arrivals burst faster than its service time. The doctor, not the AI,
+    is normally the bottleneck — which is the situation this simulator is about."""
 
     mean_wait_to_doctor: float
     """Mean of (ts_doctor_start - ts_model_end) over all patients. How long a patient
@@ -168,9 +196,10 @@ class RunKPIs:
     Baseline for "what would the deployed model do without a human in the loop"."""
 
     doctor: ActorKPIs
-    """Metrics computed treating the doctor's prediction as the final verdict.
-    Baseline for "what would the doctor do without the AI" (only meaningful when
-    `doctor.use_ai_hint = false`; otherwise the doctor saw the AI suggestion)."""
+    """Metrics for the doctor's **own, unaided** call: "what would this doctor have done
+    without the AI?". Always available, even in an assisted run — an `AssistedDoctor`
+    forms its opinion before folding in the hint and keeps it, which is what makes the
+    solo-vs-team comparison below possible at all."""
 
     hybrid: ActorKPIs
     """Metrics for the joint Human-AI verdict = the doctor stage's actual output. When

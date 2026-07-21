@@ -1,6 +1,21 @@
-"""Build runtime objects from a `ScenarioConfig`.
+"""From a YAML scenario to running objects — the one place every ``kind:`` is resolved.
 
-Kept separate from the config module so the config layer stays pure data.
+This is the bridge that makes the playground a playground. Each ``build_*`` function
+takes one validated config block and returns the object it names, so the set of values a
+``kind:`` accepts is literally the set of branches below. **Adding a new AI model, a new
+triage rule or a new severity signal means writing the class and adding one branch
+here** — nothing else in the framework needs to learn about it.
+
+Kept separate from `hai_sim.config.scenario` on purpose: that module stays pure data
+(pydantic models with no imports of runtime code), so a config can be validated, dumped
+and diffed without constructing anything or importing a deep-learning stack.
+
+Heavy dependencies are imported *inside* the branch that needs them — torch and
+torchxrayvision only when ``ai.kind: torchxrv`` is actually requested — so running the
+mock stack never pays for a framework it does not use.
+
+``build_from_scenario`` at the bottom assembles the whole run in the pipeline's own
+order: patient stream, then AI, then triage, then doctor.
 """
 
 from __future__ import annotations

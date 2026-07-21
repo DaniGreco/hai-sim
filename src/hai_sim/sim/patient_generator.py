@@ -1,7 +1,15 @@
-"""Patient arrival generator.
+"""Synthetic patient arrivals — the dependency-free stream used by tests and smoke runs.
 
-For v0: Poisson inter-arrival times, random multi-label ground truth with a
-configurable prevalence per label, placeholder image array.
+Arrivals follow a **homogeneous Poisson process**: the gap between two patients is
+exponential with a constant mean, i.e. arrivals are memoryless and the rate never
+changes. Real reading rooms are busier by day than by night; modelling that needs a
+time-varying rate (``../TESI.md`` §6.5), which is not implemented — so treat the load
+here as a dial you set, not as a claim about a real department.
+
+Ground truth is drawn per label from a configured prevalence, and the image is a
+placeholder: nothing in this stream looks at pixels. For real images and real ground
+truth use `DatasetPatientGenerator` (any `Dataset`) or `CachedPatientGenerator` (replay
+of pre-computed model outputs).
 """
 
 from __future__ import annotations
@@ -55,7 +63,9 @@ class PoissonPatientGenerator:
                 int(self.rng.random() < p) for p in self.prevalence
             )
             image: Image = np.zeros(self.image_shape, dtype=np.uint8)
-            context = PatientContext(patient_id=pid, arrival_time=0.0)  # arrival_time set by engine
+            # No example_id: these patients are synthesised, not drawn from a dataset, so
+            # there is no image identity to record. arrival_time is stamped by the engine.
+            context = PatientContext(patient_id=pid, arrival_time=0.0)
             yield delay, Patient(
                 id=pid,
                 images=(image,),

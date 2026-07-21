@@ -22,10 +22,15 @@ The mocks use ``np.zeros((1, 1), dtype=np.uint8)`` as placeholder. Real wrappers
 
 @dataclass(frozen=True)
 class LabelSchema:
-    """Names of the labels (pathologies) the simulation reasons about.
+    """The pathologies this run reasons about, in a fixed order.
 
-    For v0 the mocks use 5 fake labels. Switch to the 14 CheXpert names when
-    a real model is wired in.
+    Every per-patient vector in the framework — predictions, confidences, ground truth —
+    is indexed by this order, so the schema is what keeps the AI, the doctor, the dataset
+    and the metrics talking about the same findings.
+
+    Pick the one matching your model: `xrv` for the pre-trained chest X-ray classifier
+    (18 pathologies), `chexpert` for the 14-finding CheXpert convention, `default_v0` for
+    the 5 fake labels the mocks use in tests and smoke runs.
     """
 
     labels: tuple[str, ...]
@@ -36,6 +41,7 @@ class LabelSchema:
 
     @classmethod
     def default_v0(cls) -> LabelSchema:
+        """Five nameless labels for mocks, tests and smoke runs. Not clinical."""
         return cls(labels=("L0", "L1", "L2", "L3", "L4"))
 
     @classmethod
@@ -113,10 +119,14 @@ class Diagnosis:
 class ModelOutput:
     """The full per-patient output from a `DiagnosticActor`.
 
-    ``uncertainty`` is a per-label vector. The aggregation (mean, max,
-    weighted) is the SortStrategy's job: don't collapse it here. For v0 the
-    uncertainty value mixes aleatoric and epistemic — splitting them is
-    deferred to a later iteration.
+    ``uncertainty`` stays a **per-label vector**: collapsing it to one number is the
+    `SortStrategy`'s job, not this type's, because different triage rules want to
+    collapse it differently (mean across findings, worst finding, clinically weighted).
+
+    What the number means depends on the `UQMethod` that produced it. A Deep Ensemble
+    can separate *aleatoric* uncertainty (irreducible ambiguity in the image) from
+    *epistemic* (the model's own ignorance); this field carries whichever measure was
+    selected, and the full decomposition travels in ``extra``.
 
     ``extra`` is the actor's **observation channel**. Whatever a module puts
     here reaches the telemetry, namespaced by the producing stage (``ai.*`` for
@@ -152,8 +162,8 @@ class ModelOutput:
 class PatientContext:
     """Optional metadata an actor may use to modulate its decision.
 
-    Kept deliberately minimal in v0 — the doctor twin will grow this when
-    fatigue and case-complexity modifiers come in.
+    Deliberately small. It grows when a module needs a new input — case difficulty and
+    reader fatigue are the two expected next additions (``../TESI.md`` §8.1).
 
     ``ground_truth`` is a *simulation device*, not clinical information: it is
     injected by the engine only into the context handed to the doctor stage so

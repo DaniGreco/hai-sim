@@ -1,8 +1,33 @@
-"""Structural contracts for swappable modules.
+"""The seams — every place you can substitute your own piece.
 
-Protocols are the *public contract* of the framework. Anything that walks like
-a `DiagnosticActor` is one — no inheritance required. Use the `BaseDiagnosticActor`
-ABC in `hai_sim.core.base` if you want a base class with default behavior.
+These Protocols are the framework's public contract. They are *structural*: a class
+satisfies one by having the right methods, with no inheritance and no registration. If
+you want the default ``name``/``service_time`` behaviour for free, subclass
+`BaseDiagnosticActor` in `hai_sim.core.base` — but you never have to.
+
+Where each seam sits in the run, which is what makes them independently swappable:
+
+    Dataset ─→ [ DiagnosticActor: the AI ] ─→ SortStrategy ─→ [ DiagnosticActor: the
+                        │  UQMethod              (triage)        doctor ] ─→ KPIBundle
+                        │  SeverityModel                          │ IntegrationPolicy   │
+                        └──────────────────────────────────────────┘         Grouping ──┘
+
+`DiagnosticActor` is deliberately one contract for **both** readers. A model and a
+doctor differ in what they do, not in what they are asked for, and sharing the contract
+is what lets a study put either of them at either station — or compare a doctor against
+the model on identical terms.
+
+Contracts defined here: `DiagnosticActor` (reads images) · `IntegrationPolicy` (how much
+the doctor trusts the model) · `SortStrategy` (what order the queue is worked in) ·
+`UQMethod` (where the uncertainty number comes from) · `SeverityModel` (per-patient
+clinical weight) · `Dataset` (images and ground truth) · and three for offline
+validation (`SaliencyProvider`, `LocalizationDataset`, `LocalizationMetric`).
+
+Two more live next to what they serve, in `hai_sim.metrics`: `KPIBundle` (a metric) and
+`Grouping` (a conditioning axis).
+
+Acronyms: AI = artificial intelligence (the automated reader) · UQ = uncertainty
+quantification · KPI = key performance indicator. Full list in ``GLOSSARY.md``.
 """
 
 from __future__ import annotations
@@ -27,11 +52,20 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class DiagnosticActor(Protocol):
-    """Unified contract for any entity that produces a diagnosis from images.
+    """Anything that turns images into a diagnosis: an AI model, or a doctor.
 
-    Implemented by AI models and by doctor digital twins. The `ai_hint` kwarg
-    is only meaningful for doctors operating in assisted mode; AI models
-    should accept it and ignore it.
+    ``diagnose`` returns the per-label verdict; ``service_time`` says how long the actor
+    occupies its station for this patient, which is what creates queues.
+
+    ``ai_hint`` carries an upstream reader's opinion. Only the doctor stage is given one
+    — it is how the AI's output reaches the doctor in the serial arrangement. **An AI
+    model must accept the argument and ignore it**, both because nothing upstream feeds
+    it one and because a model reading another model's answer is not what is being
+    studied here.
+
+    ``context`` carries the patient. Note that its ``ground_truth`` field is populated
+    *only* for the doctor stage, as the mechanism that makes a simulated reader err at a
+    chosen rate; an actor that reads real pixels must never consult it.
     """
 
     name: str

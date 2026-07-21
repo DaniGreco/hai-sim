@@ -1,19 +1,36 @@
-"""Concrete `UQMethod` implementations.
+"""How "how sure are you?" is computed. UQ = uncertainty quantification.
 
-Two strategies ship here, both operating on a ``(n_members, n_labels)`` stack of
-per-member positive-class probabilities:
+The number these produce is what triage sorts by, so what it *means* decides what
+"hardest case" means in a study. Both take a ``(n_members, n_labels)`` stack of
+probabilities — one row per model, one column per pathology — and return a probability
+and an uncertainty per label.
 
-- ``EntropyUQ``: single forward pass (n_members may be 1). Uncertainty = the
-  binary predictive entropy of each label's probability. This is a cheap
-  *aleatoric-flavoured* proxy derived from the model's own confidence.
+``EntropyUQ`` — one model, one forward pass
+    Uncertainty = the entropy of the predicted probability: highest at p = 0.5, zero at
+    p = 0 or 1. It measures only *how close to the fence this model sat*, so a single
+    confidently wrong model reports low uncertainty. Cheap, and blind to its own
+    ignorance.
 
-- ``EnsembleUQ``: a Deep Ensemble over several model members (e.g. the different
-  TorchXRayVision weight sets). It decomposes total uncertainty into the three
-  classic measures — predictive entropy (total), mean entropy (aleatoric) and
-  their difference, the mutual information (epistemic disagreement) — matching
-  the ENTROPY / MEAN_ENTROPY / MUTUAL_INFORMATION trio used in the prior "Roby"
-  framework. Any of them (or the member std) can be selected as the scalar
-  uncertainty; the rest are returned in ``extra``.
+``EnsembleUQ`` — several independently trained models (a **Deep Ensemble**)
+    Uncertainty comes from **disagreement between models**, which lets it separate two
+    things that are not the same problem:
+
+        predictive entropy   = total uncertainty (entropy of the averaged probability)
+        mean entropy         = ALEATORIC: ambiguity in the image itself. Every model is
+                               individually unsure, and they all agree about it. More
+                               training data would not help.
+        mutual information   = EPISTEMIC: the models *disagree*. The image is unlike
+                               what they were trained on. This is the one that should
+                               flag the cases where the model is out of its depth —
+                               = predictive entropy - mean entropy.
+        std                  = raw spread of the members' probabilities.
+
+    One of the four is selected as *the* uncertainty for triage; all four are returned
+    in ``extra`` and reach the telemetry, so a study can compare them as triage keys
+    without rerunning anything.
+
+Both are NaN-aware: a pathology no ensemble member was trained on comes back NaN rather
+than as a fabricated zero, and downstream code keeps it out of the metrics.
 """
 
 from __future__ import annotations
