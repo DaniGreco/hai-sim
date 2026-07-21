@@ -18,7 +18,15 @@ from hai_sim.factory import build_from_scenario, build_kpi_groupings
 from hai_sim.metrics.kpi import compute_grouped_report, compute_report
 from hai_sim.metrics.report import flatten_report
 from hai_sim.sim.engine import SimulationEngine
-from hai_sim.study import StudyResult, load_study, run_study, write_tidy_csv, write_tidy_json
+from hai_sim.study import (
+    StudyResult,
+    load_study,
+    run_study,
+    write_long_csv,
+    write_summary_csv,
+    write_tidy_csv,
+    write_tidy_json,
+)
 
 console = Console()
 
@@ -121,22 +129,91 @@ def cmd_study(args: argparse.Namespace) -> int:
     wall = time.time() - t0
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    csv_path = out_dir / f"study_{study.name}_{stamp}.csv"
-    json_path = out_dir / f"study_{study.name}_{stamp}.json"
+    stem = out_dir / f"study_{study.name}_{stamp}"
+    csv_path = stem.with_suffix(".csv")
+    json_path = stem.with_suffix(".json")
+    long_path = Path(f"{stem}_long.csv")
+    summary_path = Path(f"{stem}_summary.csv")
     write_tidy_csv(result, csv_path)
     write_tidy_json(result, json_path)
+    write_long_csv(result, long_path)
+    write_summary_csv(result, summary_path)
 
     _print_study_preview(result)
+    _print_contrasts(result)
+    if result.n_executed < len(result.rows):
+        console.print(
+            f"[dim]{len(result.rows)} rows from {result.n_executed} distinct scenarios "
+            "— cells differing only in an inert factor were simulated once[/dim]"
+        )
     console.print(f"[green]tidy csv  -> {csv_path}[/green]")
+    console.print(f"[green]long csv  -> {long_path}[/green]")
+    console.print(f"[green]summary   -> {summary_path}[/green]")
     console.print(
         f"[green]tidy json -> {json_path}[/green]  ({wall:.1f}s, {len(result.rows)} runs)"
     )
     return 0
 
 
+_CONTRAST_PREVIEW_ROWS = 15
+
+
+def _print_contrasts(result: StudyResult) -> None:
+    """Each arm against its baseline, paired seed by seed — the point of the seeding."""
+    contrasts = result.contrasts()
+    if not contrasts:
+        return
+    # Every factor, including the ones the baseline names: those are precisely what
+    # tells one arm from another, so dropping them leaves rows unidentifiable.
+    factors = list(result.factor_names)
+    grouped = any(c.group for c in contrasts)
+    table = Table(
+        title=f"paired contrasts vs baseline {result.study.baseline} "
+        f"({len(contrasts)} comparisons)"
+    )
+    for name in factors:
+        table.add_column(name, overflow="fold")
+    if grouped:
+        table.add_column("group", overflow="fold")
+    # baseline/arm means live in the summary CSV and in the preview above; a terminal
+    # cannot hold them and the interval too, and the interval is the point here.
+    table.add_column("metric", overflow="fold")
+    table.add_column("delta", justify="right")
+    table.add_column("95% CI", justify="right")
+    for c in contrasts[:_CONTRAST_PREVIEW_ROWS]:
+        interval = (
+            f"[{c.delta.ci_low:+.3f}, {c.delta.ci_high:+.3f}]"
+            if c.delta.ci_low is not None and c.delta.ci_high is not None
+            else "-"
+        )
+        delta = f"{c.delta.mean:+.4f}"
+        table.add_row(
+            *[str(c.factors.get(n)) for n in factors],
+            *([c.group] if grouped else []),
+            c.metric,
+            f"[bold]{delta}[/bold]" if c.delta.excludes_zero else delta,
+            interval,
+        )
+    console.print(table)
+    if len(contrasts) > _CONTRAST_PREVIEW_ROWS:
+        console.print(
+            f"  … {len(contrasts) - _CONTRAST_PREVIEW_ROWS} more in the summary CSV"
+        )
+    console.print(
+        "[dim]delta = mean of the per-seed differences (paired), bold when the "
+        "interval excludes zero; baseline and arm means are in the summary CSV[/dim]"
+    )
+
+
 def _print_study_preview(result: StudyResult) -> None:
     table = Table(title=f"study {result.study.name} — {len(result.rows)} runs (preview)")
-    header = [*result.factor_names, "seed", *result.report_paths]
+    grouped = any(row.get("group") for row in result.rows)
+    header = [
+        *result.factor_names,
+        "seed",
+        *(["group"] if grouped else []),
+        *result.report_paths[:6],
+    ]
     for c in header:
         table.add_column(c, justify="right")
     for row in result.rows[:12]:

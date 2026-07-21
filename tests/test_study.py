@@ -50,9 +50,16 @@ def test_empty_factor_levels_rejected():
         _study(factors={"persona": []})
 
 
-def test_report_required():
-    with pytest.raises(ValueError):
-        StudyConfig.model_validate({"base": _BASE, "factors": {"persona": ["solo_senior"]}})
+def test_report_is_optional_and_means_every_scalar():
+    """Naming paths up front stopped being required: a study that omits `report` gets
+    every scalar the KPI report flattens to, so it need not know the names first."""
+    study = StudyConfig.model_validate(
+        {"base": _BASE, "factors": {"persona": ["solo_senior"]}}
+    )
+    assert study.report == ()
+    result = run_study(study)
+    assert "actors.ai.f1_macro" in result.report_paths
+    assert "system.n_patients" in result.report_paths
 
 
 # --- path setting ------------------------------------------------------------

@@ -15,10 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from hai_sim.config.scenario import ScenarioConfig
+from hai_sim.config.scenario import KPIGroupConfig, ScenarioConfig
 
 
 class StudyConfig(BaseModel):
@@ -29,9 +30,27 @@ class StudyConfig(BaseModel):
     name: str = "unnamed_study"
     base: str | dict[str, Any]  # path to a scenario YAML, or an inline scenario mapping
     factors: dict[str, list[Any]]  # dotted config-path -> list of levels
-    design: Literal["grid", "ofat"] = "grid"
+    design: Literal["grid", "ofat", "random"] = "grid"
+    n_samples: int | None = None  # design 'random': how many cells to draw from the grid
+    design_seed: int = 0  # design 'random': which cells get drawn
     replications: tuple[int, ...] = (0,)  # seeds; one run per cell per seed
-    report: tuple[str, ...] = Field(min_length=1)  # KPI-paths to tabulate, e.g. team.rair
+    report: tuple[str, ...] = ()
+    """KPI-paths to tabulate, e.g. ``team.rair``. Empty → every scalar the report
+    flattens to, so a study need not know the path names up front."""
+    kpis: tuple[str, ...] | None = None
+    """Bundles to compute. None → derived from `report` when it names paths, else the
+    base scenario's own selection. Name your own bundle here as
+    ``path/to/file.py:Attribute`` to tabulate a metric that lives outside the library."""
+    by: tuple[KPIGroupConfig, ...] = ()
+    """Conditioning axes: every metric is also produced per subgroup (per severity
+    band, per load regime, per pathology). Several axes cross."""
+    baseline: dict[str, Any] | None = None
+    """Factor assignment naming the reference arm, e.g. ``{persona: solo_senior}``. Set
+    it to get **paired** contrasts: because the engine's seed substreams are independent
+    per module, two arms at the same seed see the same patient stream, so the per-seed
+    difference removes sampling noise instead of averaging over it. Partial assignments
+    are allowed — the baseline for each arm is the cell that matches on these factors
+    and agrees with the arm on all the others."""
 
     @field_validator("factors")
     @classmethod
@@ -40,6 +59,25 @@ class StudyConfig(BaseModel):
             if not levels:
                 raise ValueError(f"factor {name!r} has no levels")
         return v
+
+    @model_validator(mode="after")
+    def _check_design(self) -> StudyConfig:
+        if self.design == "random" and not self.n_samples:
+            raise ValueError("design 'random' requires n_samples")
+        if self.baseline:
+            unknown = set(self.baseline) - set(self.factors)
+            if unknown:
+                raise ValueError(
+                    f"baseline names non-factors {sorted(unknown)}; "
+                    f"factors are {sorted(self.factors)}"
+                )
+            for name, level in self.baseline.items():
+                if level not in self.factors[name]:
+                    raise ValueError(
+                        f"baseline {name}={level!r} is not among that factor's levels "
+                        f"{self.factors[name]}"
+                    )
+        return self
 
 
 def load_study(path: Path) -> StudyConfig:
@@ -84,11 +122,24 @@ def _assignments(study: StudyConfig) -> list[dict[str, Any]]:
     names = list(study.factors)
     if not names:
         return [{}]
-    if study.design == "grid":
-        return [
+    if study.design in ("grid", "random"):
+        cells = [
             dict(zip(names, combo, strict=True))
             for combo in itertools.product(*(study.factors[n] for n in names))
         ]
+        if study.design == "grid":
+            return cells
+        # 'random': draw a subset of the full grid, for a space too large to enumerate.
+        # (Not a Latin hypercube: factors here are lists of levels, not continuous
+        # ranges, so there is no interval to stratify.) The baseline arm is always kept
+        # — a contrast against a cell that was not run is not a contrast.
+        n_samples = min(int(study.n_samples or 0), len(cells))
+        forced = [c for c in cells if study.baseline and _matches(c, study.baseline)]
+        pool = [c for c in cells if c not in forced]
+        rng = np.random.default_rng(study.design_seed)
+        take = max(n_samples - len(forced), 0)
+        picked = rng.choice(len(pool), size=min(take, len(pool)), replace=False)
+        return forced + [pool[int(i)] for i in sorted(picked)]
     # one-factor-at-a-time: a baseline (first level of each factor) plus, for every other
     # level of every factor, one run that varies only that factor.
     baseline = {n: study.factors[n][0] for n in names}
@@ -101,6 +152,25 @@ def _assignments(study: StudyConfig) -> list[dict[str, Any]]:
             a[n] = level
             out.append(a)
     return out
+
+
+def _matches(assignment: dict[str, Any], pattern: dict[str, Any]) -> bool:
+    """True when ``assignment`` agrees with every factor named in ``pattern``."""
+    return all(assignment.get(name) == level for name, level in pattern.items())
+
+
+def baseline_of(
+    assignment: dict[str, Any], study: StudyConfig
+) -> dict[str, Any] | None:
+    """The reference cell for ``assignment``: the baseline levels on the factors the
+    baseline names, and ``assignment``'s own levels everywhere else.
+
+    Returns ``None`` for the baseline cell itself (nothing to contrast against) and when
+    the study declares no baseline.
+    """
+    if not study.baseline or _matches(assignment, study.baseline):
+        return None
+    return {**assignment, **study.baseline}
 
 
 def expand_runs(study: StudyConfig) -> list[Run]:
