@@ -14,8 +14,9 @@ from rich.console import Console
 from rich.table import Table
 
 from hai_sim.config.scenario import load_scenario
-from hai_sim.factory import build_from_scenario
-from hai_sim.metrics.kpi import compute_report
+from hai_sim.factory import build_from_scenario, build_kpi_groupings
+from hai_sim.metrics.kpi import compute_grouped_report, compute_report
+from hai_sim.metrics.report import flatten_report
 from hai_sim.sim.engine import SimulationEngine
 from hai_sim.study import StudyResult, load_study, run_study, write_tidy_csv, write_tidy_json
 
@@ -60,6 +61,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     wall = time.time() - t0
 
     report = compute_report(result.collector.records, scenario.kpis)
+    groupings = build_kpi_groupings(scenario.kpi_groups, schema)
+    grouped = (
+        compute_grouped_report(result.collector.records, scenario.kpis, groupings)
+        if groupings
+        else None
+    )
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
     csv_path = out_dir / f"records_{scenario.name}_{stamp}.csv"
@@ -75,9 +82,13 @@ def cmd_run(args: argparse.Namespace) -> int:
         "metadata": result.metadata,
         "kpis": _serialize_report(report),
     }
+    if grouped is not None:
+        summary["kpis_by_group"] = {g: _serialize_report(r) for g, r in grouped.items()}
     json_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
 
     _print_kpi_table(scenario.name, report)
+    if grouped is not None:
+        _print_grouped_report(grouped)
     console.print(f"[green]records -> {csv_path}[/green]")
     console.print(f"[green]summary -> {json_path}[/green]")
     return 0
@@ -188,6 +199,62 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
 
 # Bundles with a bespoke rendering above; anything else gets the generic table.
 _SPECIALLY_RENDERED = frozenset({"actors", "system", "team", "joint_table"})
+
+
+_GROUPED_PREVIEW_COLUMNS = 4
+
+
+def _print_grouped_report(grouped: dict[str, dict[str, Any]]) -> None:
+    """One row per subgroup, one column per metric — the conditioned view.
+
+    Only a preview: a report can flatten to hundreds of paths, so the console shows the
+    first few and the JSON keeps all of them. Which few is deliberately not a guess at
+    what matters — narrow `kpis` in the scenario to choose.
+    """
+    flat = {group: flatten_report(report) for group, report in grouped.items()}
+    paths: list[str] = []
+    for values in flat.values():
+        for path in values:
+            if path not in paths:
+                paths.append(path)
+    if not paths:
+        return
+    axes, levels = _group_axes(list(flat))
+    shown = paths[:_GROUPED_PREVIEW_COLUMNS]
+    table = Table(title=f"KPI by group ({len(flat)} groups, {len(paths)} metrics)")
+    for axis in axes:
+        table.add_column(axis, overflow="fold")
+    for path in shown:
+        table.add_column(path, justify="right")
+    for group, values in flat.items():
+        table.add_row(*levels[group], *[_fmt(values.get(p)) for p in shown])
+    console.print(table)
+    if len(paths) > len(shown):
+        console.print(f"[dim]… {len(paths) - len(shown)} more metrics in the JSON[/dim]")
+
+
+def _group_axes(keys: list[str]) -> tuple[list[str], dict[str, list[str]]]:
+    """Split ``'severity=<1|ctx.sex=F'`` keys into one column per conditioning axis.
+
+    One wide column of concatenated keys is unreadable at three crossed groupings; the
+    axes are already named in the key, so give each its own column and print only the
+    level in the cells.
+    """
+    axes: list[str] = []
+    for key in keys:
+        for part in key.split("|") if key else []:
+            axis = part.split("=", 1)[0]
+            if axis not in axes:
+                axes.append(axis)
+    if not axes:
+        return ["group"], {key: ["(all)"] for key in keys}
+    levels: dict[str, list[str]] = {}
+    for key in keys:
+        found = dict(
+            part.split("=", 1) for part in key.split("|") if "=" in part
+        )
+        levels[key] = [found.get(axis, "-") for axis in axes]
+    return axes, levels
 
 
 def _print_generic_bundle(key: str, result: Any) -> None:
