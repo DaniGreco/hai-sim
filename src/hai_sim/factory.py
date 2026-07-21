@@ -105,6 +105,34 @@ def build_ai(
             device=cfg.device,
             emit_embedding=emit_embedding,
         )
+    if cfg.kind == "medgemma":
+        from hai_sim.models.medgemma import MedGemmaAI
+        from hai_sim.models.readout import (
+            GeneratedJsonReadout,
+            LabelReadout,
+            TeacherForcedLogprobReadout,
+        )
+        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
+
+        readout: LabelReadout = (
+            GeneratedJsonReadout()
+            if cfg.readout == "generated_json"
+            else TeacherForcedLogprobReadout(both_polarities=cfg.both_polarities)
+        )
+        # One prompt yields one member, so member disagreement does not exist and only
+        # entropy of the model's own probability is available; several prompts do.
+        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
+        return MedGemmaAI(
+            schema=schema,
+            model_id=cfg.model_id,
+            readout=readout,
+            prompt_set=cfg.prompt_set,
+            uq=uq,
+            decision_threshold=cfg.decision_threshold,
+            service_time=cfg.service_time,
+            device=cfg.device,
+            dtype=cfg.dtype,
+        )
     if cfg.kind == "cached":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.models.cached import CachedEnsembleAI

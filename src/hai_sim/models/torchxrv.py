@@ -168,6 +168,16 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
         img = self._transform(img)
         return np.asarray(img, dtype=np.float32)
 
+    @property
+    def member_names(self) -> tuple[str, ...]:
+        """Ensemble member identities = the weight sets, in member order.
+
+        The neutral name the cache builder uses, so a backend whose members are not
+        weight sets at all — a generative model's prompt paraphrases, say — satisfies the
+        same contract.
+        """
+        return tuple(self.weight_list)
+
     def member_probabilities_batch(self, images: Sequence[Image]) -> np.ndarray:
         """Raw per-member positive-class probabilities for a batch of images.
 

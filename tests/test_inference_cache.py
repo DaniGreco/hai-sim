@@ -118,7 +118,11 @@ class _FakeModel:
 
     def __init__(self, schema: LabelSchema, m: int) -> None:
         self.schema = schema
-        self.weight_list = [f"w{j}" for j in range(m)]
+        self._members = tuple(f"w{j}" for j in range(m))
+
+    @property
+    def member_names(self) -> tuple[str, ...]:
+        return self._members
 
     def member_probabilities_batch(self, images: list[np.ndarray]) -> np.ndarray:
         return np.stack(images)  # (b, M, L)

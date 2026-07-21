@@ -32,12 +32,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from hai_sim.models.torchxrv import TorchXRayVisionAI
+    from hai_sim.core.types import LabelSchema
 
 
 @dataclass
@@ -180,8 +180,34 @@ def _image_id(dataset: Any, idx: int) -> str:
     return str(idx)
 
 
+@runtime_checkable
+class CacheableModel(Protocol):
+    """What building a cache needs of a model — deliberately less than a full actor.
+
+    Any model that can score an image several times over (a Deep Ensemble's weight sets,
+    a generative model's prompt paraphrases) satisfies this, which is what lets one cache
+    format and one builder serve backends of completely different natures.
+    """
+
+    schema: LabelSchema
+
+    @property
+    def member_names(self) -> tuple[str, ...]:
+        """Identifier per member, in the order `member_probabilities_batch` returns them."""
+
+    def member_probabilities(self, image: Any) -> np.ndarray:
+        """``(n_members, n_labels)`` probabilities for one image."""
+
+    def member_probabilities_batch(self, images: Sequence[Any]) -> np.ndarray:
+        """``(len(images), n_members, n_labels)``.
+
+        A backend with no real batching may loop; the builder still calls this so the
+        timing it records covers whatever the backend actually does per image.
+        """
+
+
 def build_inference_cache(
-    model: TorchXRayVisionAI,
+    model: CacheableModel,
     dataset: Any,
     *,
     indices: Sequence[int],
@@ -205,7 +231,7 @@ def build_inference_cache(
     inference cost, usable to calibrate the simulator's ``ai.service_time``.
     """
     n_total = len(indices)
-    n_members = len(model.weight_list)
+    n_members = len(model.member_names)
     n_labels = model.schema.n
 
     member_probs = np.full((n_total, n_members, n_labels), np.nan, dtype=np.float32)
@@ -234,7 +260,7 @@ def build_inference_cache(
             inference_seconds=inf,
             image_ids=ids,
             dataset_indices=di,
-            weights=tuple(model.weight_list),
+            weights=tuple(model.member_names),
             pathologies=tuple(model.schema.labels),
             dataset=dataset_name,
             batch_size=batch_size,

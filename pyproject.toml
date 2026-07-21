@@ -74,6 +74,7 @@ module = [
     "torch.*",
     "torchvision.*",
     "torchxrayvision.*",
+    "transformers.*",
     "skimage.*",
     "kagglehub.*",
     "matplotlib.*",

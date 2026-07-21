@@ -14,7 +14,7 @@ class _Strict(BaseModel):
 
 
 class AIModelConfig(_Strict):
-    kind: Literal["random_mock", "torchxrv", "cached"] = "random_mock"
+    kind: Literal["random_mock", "torchxrv", "cached", "medgemma"] = "random_mock"
     service_time: float = 0.05
     # cached params: replay an inference cache (real ensemble predictions, no re-inference).
     # Reuses uq / ensemble_measure / decision_threshold below.
@@ -32,6 +32,18 @@ class AIModelConfig(_Strict):
     ] = "mutual_information"
     decision_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     device: str = "cpu"
+    # medgemma params — a generative vision-language model as the AI reader.
+    # `readout` is how a probability is elicited from a model that emits text:
+    #   teacher_forced_logprob → read P(yes)/P(no) off the logits, one forward pass
+    #   generated_json         → parse the confidences the model writes down (NOT the
+    #                            same quantity; kept as a deliberate contrast)
+    # `prompt_set` names a set of paraphrases used as ensemble members: `single` is one
+    # pass, `triple` gives member disagreement for an epistemic estimate at 3x the cost.
+    model_id: str = "google/medgemma-1.5-4b-it"
+    readout: Literal["teacher_forced_logprob", "generated_json"] = "teacher_forced_logprob"
+    prompt_set: Literal["single", "triple"] = "single"
+    both_polarities: bool = False
+    dtype: str = "auto"
 
 
 class CapabilityConfig(_Strict):
