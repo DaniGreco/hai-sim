@@ -1,0 +1,64 @@
+# MedGemma as the AI reader — a generative model in the CNN's place.
+#
+# ⚠️ Read this before running it.
+#
+# 1. MedGemma is gated. Accept the Health AI Developer Foundations terms at
+#    https://huggingface.co/google/medgemma-1.5-4b-it while signed in, then
+#    `huggingface-cli login` locally. Without that the load fails with a licence hint.
+# 2. Install the extra:  uv pip install -e ".[models]"
+# 3. On a CPU one forward pass of the 4B model takes tens of seconds. Running this
+#    scenario directly would simulate a department at roughly one patient a minute of
+#    *real* time. That is not the intended workflow.
+#
+# The intended workflow is to cache once and replay:
+#
+#     python scripts/build_inference_cache.py --scenario configs/examples/v2_medgemma_nih.yaml \
+#         --out data/cache/medgemma_nih --limit 200 --batch-size 1
+#
+# then point a study at `ai.kind: cached` with that stem, exactly as the DenseNet
+# ensemble studies do — a MedGemma cache is an ordinary InferenceCache. Afterwards:
+#
+#     python scripts/compare_models.py \
+#         --cache data/cache/nih_ensemble --name "Deep Ensemble" \
+#         --cache data/cache/medgemma_nih --name "MedGemma 1.5 4B"
+#
+# Start at --limit 200-500. That is enough for the common pathologies and the error
+# overlap; it is NOT enough for the rare ones, and a write-up should say so rather than
+# quote a per-pathology number computed on a handful of positives.
+name: v2_medgemma_nih
+seed: 0
+label_schema: xrv
+
+patient_generator:
+  kind: xrv_dataset
+  dataset: nih
+  imgpath: data/nih_sample/images
+  csvpath: data/nih_sample/sample_labels.xrvclean.csv
+  arrival_rate: 0.5
+  n_patients: 50
+  views: [PA, AP]
+  unique_patients: false
+
+ai:
+  kind: medgemma
+  model_id: google/medgemma-1.5-4b-it
+  # How a probability is elicited from a model that emits text:
+  #   teacher_forced_logprob → force a yes/no checklist and read the logits (1 pass)
+  #   generated_json         → parse the confidences it writes down (a DIFFERENT
+  #                            quantity: stated numbers, not held probabilities)
+  readout: teacher_forced_logprob
+  both_polarities: false      # true → also run the all-no checklist and average (2x cost)
+  # `single` = one prompt. `triple` = three paraphrases treated as ensemble members, so
+  # EnsembleUQ can split aleatoric from epistemic — at three times the inference cost.
+  prompt_set: single
+  uq: entropy                 # use `ensemble` together with prompt_set: triple
+  decision_threshold: 0.5
+  device: cpu
+  dtype: auto                 # float32 on CPU (bfloat16 emulation is slow off-GPU)
+  service_time: 30.0          # simulated seconds per read — measure yours from the cache
+
+persona: senior_skeptical
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean
