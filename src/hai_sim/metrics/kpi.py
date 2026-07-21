@@ -21,9 +21,10 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal
 
 from hai_sim.metrics.collector import PatientRecord
+from hai_sim.metrics.registry import register_bundle, resolve_bundle
 
 Actor = Literal["ai", "doctor", "hybrid"]
 
@@ -489,20 +490,9 @@ def _joint_table(records: Sequence[PatientRecord]) -> JointTable:
     )
 
 
-# ── Swappable KPI bundles: a named registry selectable per scenario ─────────────
-
-
-@runtime_checkable
-class KPIBundle(Protocol):
-    """A named, swappable KPI bundle: a pure function over the run telemetry.
-
-    Bundles are the unit of KPI selection: a scenario picks which to compute for its
-    end-to-end test. Custom bundles satisfy this contract structurally — no inheritance.
-    """
-
-    name: str
-
-    def compute(self, records: Sequence[PatientRecord]) -> Any: ...
+# ── The built-in KPI bundles ────────────────────────────────────────────────────
+# The registry itself lives in `metrics.registry`: a bundle can equally well come from
+# the researcher's own file, referenced from the scenario as 'my_metrics.py:CostBundle'.
 
 
 class SystemBundle:
@@ -540,13 +530,9 @@ class JointTableBundle:
         return _joint_table(records)
 
 
-_BUNDLES: tuple[KPIBundle, ...] = (
-    SystemBundle(),
-    ActorsBundle(),
-    TeamBundle(),
-    JointTableBundle(),
-)
-KPI_BUNDLES: dict[str, KPIBundle] = {b.name: b for b in _BUNDLES}
+for _builtin in (SystemBundle(), ActorsBundle(), TeamBundle(), JointTableBundle()):
+    register_bundle(_builtin, replace=True)
+
 DEFAULT_KPI_BUNDLES: tuple[str, ...] = ("system", "actors", "team", "joint_table")
 
 
@@ -555,14 +541,15 @@ def compute_report(
 ) -> dict[str, Any]:
     """Compute the selected KPI bundles over the run telemetry.
 
-    ``bundle_names`` selects the swappable set (default = all standard bundles).
-    Unknown names fail fast with the list of available bundles.
+    ``bundle_names`` selects the swappable set (default = all standard bundles). Each
+    entry is a registered name *or* a reference to the researcher's own bundle, e.g.
+    ``"analysis/my_metrics.py:CostBundle"`` — see `hai_sim.metrics.registry`. The
+    report is keyed by each bundle's own ``name``, so a custom bundle is reachable by
+    the study layer's dotted paths exactly like a built-in one.
     """
     names = tuple(bundle_names) if bundle_names is not None else DEFAULT_KPI_BUNDLES
     report: dict[str, Any] = {}
     for name in names:
-        bundle = KPI_BUNDLES.get(name)
-        if bundle is None:
-            raise ValueError(f"unknown KPI bundle {name!r}; available: {tuple(KPI_BUNDLES)}")
-        report[name] = bundle.compute(records)
+        bundle = resolve_bundle(name)
+        report[bundle.name] = bundle.compute(records)
     return report

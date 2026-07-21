@@ -6,13 +6,8 @@ import pytest
 
 from hai_sim.config.scenario import ScenarioConfig
 from hai_sim.metrics.collector import PatientRecord
-from hai_sim.metrics.kpi import (
-    DEFAULT_KPI_BUNDLES,
-    KPI_BUNDLES,
-    JointTable,
-    KPIBundle,
-    compute_report,
-)
+from hai_sim.metrics.kpi import DEFAULT_KPI_BUNDLES, JointTable, compute_report
+from hai_sim.metrics.registry import KPI_BUNDLES, KPIBundle
 
 
 def _rec(gt, ai, doc, t: float = 1.0) -> PatientRecord:
