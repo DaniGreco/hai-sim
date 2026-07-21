@@ -1,12 +1,21 @@
 """AI-assisted doctor: own opinion + a swappable ``IntegrationPolicy``.
 
-Runtime spine of the human-AI integration study (design and literature: see
-``../TESI.md`` §4.5, §6.6). An `AssistedDoctor` wraps a *base*
-doctor — its own, AI-unaided opinion (e.g. `FixedAccuracyDoctor`) — and an
-`IntegrationPolicy` that fuses that opinion with the AI ``ai_hint`` into the
-doctor's final, aided decision. Swap the policy (fixed-weight pool,
-uncertainty-weighted log-odds fusion, later trust dynamics) without touching the
-doctor or the engine.
+AI = artificial intelligence (here: the automated image reader).
+
+This is the second half of the *in-series* arrangement: the AI has already read the
+image, and now the doctor reads it while seeing what the AI concluded. An
+`AssistedDoctor` wraps a *base* doctor — its own, AI-unaided opinion (e.g.
+`FixedAccuracyDoctor`) — and an `IntegrationPolicy` that fuses that opinion with the AI
+``ai_hint`` into the doctor's final, aided decision.
+
+**The base opinion is always formed first, unaided.** That ordering is not incidental:
+keeping the solo verdict alongside the aided one is what lets the metrics layer ask
+whether the advice was taken *when it should have been*, instead of only whether the
+final answer was right. Design and literature: ``../TESI.md`` §4.5, §6.6.
+
+Policies are interchangeable — a fixed-weight blend, a confidence gate, log-odds
+fusion, later a trust that moves with experience — and swapping one touches neither the
+doctor nor the engine.
 
 **Belief probabilities.** Fusion needs each actor's per-label ``P(label=1)``:
 
@@ -109,12 +118,15 @@ def _team_output(
 
 
 class LinearPoolPolicy:
-    """M1 baseline: convex mix in probability space (fixed Weight of Advice).
+    """Baseline trust: blend the two opinions in probability space, at a fixed weight.
 
-    ``p_team = (1-w)·p_D + w·p_M``. The fused confidence cannot exceed the more
-    confident reader, so it is robust to an over-confident (mis-calibrated) AI —
-    the reason it is the calibration-tolerant baseline. ``w`` is the Weight of
-    Advice; the advice-taking literature's empirical mean is ≈0.39.
+    ``p_team = (1-w)·p_doctor + w·p_ai``. ``w`` is the **weight of advice (WOA)**: how
+    much of an advisor's opinion a judge adopts, 0 = ignored, 1 = adopted wholesale. The
+    human advice-taking literature puts its pooled average at ≈ 0.39.
+
+    Chosen as the baseline because a blend **cannot become more confident than the more
+    confident of the two readers**. That makes it tolerant of an AI whose probabilities
+    are over-stated — unlike `LogOddsFusionPolicy`, which such an AI can dominate.
     """
 
     def __init__(self, weight_ai: float = 0.4, name: str = "linear_pool") -> None:
@@ -129,24 +141,27 @@ class LinearPoolPolicy:
         ai_hint: ModelOutput,
         context: PatientContext | None = None,
     ) -> ModelOutput:
-        p_d = doctor_belief(doctor_out)
-        p_m = ai_probability(ai_hint)
-        uncovered = ~np.isfinite(p_m)  # an AI label no member scored → doctor only
-        w = np.where(uncovered, 0.0, self.weight_ai)
-        p_m = np.where(uncovered, 0.0, p_m)
-        p_team = (1.0 - w) * p_d + w * p_m
-        return _team_output(p_team, doctor_out, self.name, w)
+        p_doctor = doctor_belief(doctor_out)
+        p_ai = ai_probability(ai_hint)
+        uncovered = ~np.isfinite(p_ai)  # a label no ensemble member scored → doctor only
+        w_ai = np.where(uncovered, 0.0, self.weight_ai)
+        p_ai = np.where(uncovered, 0.0, p_ai)
+        p_team = (1.0 - w_ai) * p_doctor + w_ai * p_ai
+        return _team_output(p_team, doctor_out, self.name, w_ai)
 
 
 class ConfidenceGatedPoolPolicy:
-    """Confidence-gated Weight of Advice: listen to the AI only when it is confident.
+    """Conditional trust: listen to the AI only on the labels where it sounds sure.
 
-    Per label, the AI's confidence in its own call is ``max(p_M, 1-p_M)``. Where that
-    is at least ``confidence_threshold`` the reader blends toward the AI with
-    ``weight_ai`` (a linear pool); below it the AI is ignored (weight 0) and the reader
-    keeps its own opinion. Grounded in advice-taking: uptake rises with the advisor's
-    displayed confidence (Sniezek & Van Swol 2001). A swappable `IntegrationPolicy`
-    like the others — same seam, richer trust behaviour.
+    Per label, the AI's confidence in its own call is ``max(p_ai, 1-p_ai)`` — distance
+    from the 0.5 fence, not the probability itself. At or above
+    ``confidence_threshold`` the doctor blends toward the AI at ``weight_ai``, exactly
+    as `LinearPoolPolicy` would; below it the AI is ignored outright and the doctor
+    keeps its own opinion.
+
+    Grounded in the advice-taking literature, where uptake rises with how confident the
+    advisor *appears* (Sniezek & Van Swol 2001) — note that this tracks displayed
+    confidence, which is only as trustworthy as the model's calibration.
     """
 
     def __init__(
@@ -171,28 +186,37 @@ class ConfidenceGatedPoolPolicy:
         ai_hint: ModelOutput,
         context: PatientContext | None = None,
     ) -> ModelOutput:
-        p_d = doctor_belief(doctor_out)
-        p_m = ai_probability(ai_hint)
-        uncovered = ~np.isfinite(p_m)
-        ai_confidence = np.maximum(p_m, 1.0 - p_m)  # confidence in the AI's own call
-        gated_in = np.isfinite(p_m) & (ai_confidence >= self.confidence_threshold)
-        w = np.where(gated_in, self.weight_ai, 0.0)
-        p_m = np.where(uncovered, 0.0, p_m)
-        p_team = (1.0 - w) * p_d + w * p_m
-        return _team_output(p_team, doctor_out, self.name, w)
+        p_doctor = doctor_belief(doctor_out)
+        p_ai = ai_probability(ai_hint)
+        uncovered = ~np.isfinite(p_ai)
+        ai_confidence = np.maximum(p_ai, 1.0 - p_ai)  # confidence in its own call
+        heeded = np.isfinite(p_ai) & (ai_confidence >= self.confidence_threshold)
+        w_ai = np.where(heeded, self.weight_ai, 0.0)
+        p_ai = np.where(uncovered, 0.0, p_ai)
+        p_team = (1.0 - w_ai) * p_doctor + w_ai * p_ai
+        return _team_output(p_team, doctor_out, self.name, w_ai)
 
 
 class LogOddsFusionPolicy:
-    """M2 default: uncertainty-weighted log-odds (naïve-Bayes / SDT) fusion.
+    """Evidence-adding trust: sum the two opinions on the log-odds scale, weighted by
+    how uncertain the AI is.
 
-    ``logit(p_team) = logit(pi) + w_D*LLR_D + w_M(x)*LLR_M`` with
-    ``LLR = logit(p) - logit(pi)`` and ``w_M(x) = exp(-beta*H_AI)`` -- the AI's vote is
-    down-weighted on labels where its predictive entropy / mutual information
-    ``H_AI`` is high. With ``pi=0.5, w_D=1, beta=0`` this is exactly
-    ``logit(post) = logit(p_D) + logit(p_M)``, the optimal fusion of two
-    conditionally-independent readers. Assumes the AI probabilities are reasonably
-    calibrated — an over-confident AI dominates the log-odds sum (see §9 of the
-    literature note).
+    Each reader contributes a **log-likelihood ratio (LLR)** — its evidence relative to
+    the prior, ``LLR = logit(p) - logit(prior)``:
+
+        logit(p_team) = logit(prior) + w_doctor·LLR_doctor + w_ai(x)·LLR_ai
+        w_ai(x)       = exp(-beta · H_ai)
+
+    ``H_ai`` is the AI's own uncertainty on that label, so the AI's vote is discounted
+    exactly where it is unsure. With ``prior=0.5, w_doctor=1, beta=0`` this collapses to
+    ``logit(p_team) = logit(p_doctor) + logit(p_ai)`` — the optimal way to combine two
+    readers whose errors are independent.
+
+    ⚠️ **This one assumes the AI's probabilities mean what they say.** Adding log-odds
+    gives an over-confident AI an unbounded voice, so an uncalibrated model can drag the
+    team *below* the doctor alone. Calibration (temperature scaling) is not implemented
+    yet — see ``../TESI.md`` §8.2, which flags this as blocking for this policy. Prefer
+    `LinearPoolPolicy` until then.
     """
 
     def __init__(
@@ -219,21 +243,26 @@ class LogOddsFusionPolicy:
         ai_hint: ModelOutput,
         context: PatientContext | None = None,
     ) -> ModelOutput:
-        p_d = doctor_belief(doctor_out)
-        p_m = ai_probability(ai_hint)
-        h = np.asarray(ai_hint.uncertainty, dtype=float)
+        p_doctor = doctor_belief(doctor_out)
+        p_ai = ai_probability(ai_hint)
+        ai_uncertainty = np.asarray(ai_hint.uncertainty, dtype=float)
 
-        lp = _logit(np.full(p_d.shape, self.prior))
-        llr_d = _logit(p_d) - lp
+        logit_prior = _logit(np.full(p_doctor.shape, self.prior))
+        llr_doctor = _logit(p_doctor) - logit_prior
 
-        # Drop the AI on labels it cannot score (NaN prob or NaN uncertainty);
-        # elsewhere weight its log-likelihood ratio by exp(-beta * uncertainty).
-        uncovered = ~np.isfinite(p_m) | ~np.isfinite(h)
-        w_m = np.where(uncovered, 0.0, np.exp(-self.beta * np.where(uncovered, 0.0, h)))
-        llr_m = np.where(uncovered, 0.0, _logit(np.where(uncovered, 0.5, p_m)) - lp)
+        # Drop the AI on labels it cannot score (a NaN probability or uncertainty);
+        # elsewhere discount its evidence by exp(-beta * uncertainty). The nested
+        # np.where keeps NaNs out of exp() and logit(), which would propagate them.
+        uncovered = ~np.isfinite(p_ai) | ~np.isfinite(ai_uncertainty)
+        w_ai = np.where(
+            uncovered, 0.0, np.exp(-self.beta * np.where(uncovered, 0.0, ai_uncertainty))
+        )
+        llr_ai = np.where(
+            uncovered, 0.0, _logit(np.where(uncovered, 0.5, p_ai)) - logit_prior
+        )
 
-        p_team = _sigmoid(lp + self.weight_doctor * llr_d + w_m * llr_m)
-        return _team_output(p_team, doctor_out, self.name, w_m)
+        p_team = _sigmoid(logit_prior + self.weight_doctor * llr_doctor + w_ai * llr_ai)
+        return _team_output(p_team, doctor_out, self.name, w_ai)
 
 
 class AssistedDoctor(BaseDiagnosticActor):

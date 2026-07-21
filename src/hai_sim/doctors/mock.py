@@ -1,17 +1,24 @@
-"""Mock doctor digital twin.
+"""A doctor that decides at random — the null reader, for wiring tests.
 
-Service time ~ lognormal. Confidence skewed toward correctness via Beta(5, 2).
-No fatigue model yet — that's the next iteration.
+Its calls are near-coin-flips, so it is useful for checking that a pipeline runs and
+that metrics move, and useless for any claim about reading performance. For a doctor
+with a *chosen* skill level use `FixedAccuracyDoctor`; for one that consults the AI use
+`AssistedDoctor`, which is the supported way to model trust.
 
-Hybrid mode: when ``use_ai_hint=True`` and an `ai_hint` is provided, an
-`AssistedPolicy` decides whether to defer to the AI on a per-label basis. v0
-ships one minimal policy:
+Reading time is lognormal (right-skewed: most reads quick, a few much slower), and
+confidence is drawn from Beta(5, 2), leaning decisive. There is no fatigue: skill here
+does not drift with time or workload (``../TESI.md`` §8.6).
 
-- ``noop``: the hint is recorded in `extra` but the doctor's decision is
-  unchanged. Useful to verify wiring without affecting KPIs.
-- ``follow_when_certain``: on each label, if the AI's uncertainty is below
-  ``ai_hint_uncertainty_threshold`` the doctor copies the AI's label;
-  otherwise the doctor uses its own sampled decision.
+This class also carries its own small, self-contained way of consulting the AI, kept
+because tests exercise it — ``use_ai_hint`` plus one of:
+
+- ``noop``: record the hint, change nothing. Verifies wiring without moving any metric.
+- ``follow_when_certain``: copy the AI's label wherever the AI's uncertainty is below
+  ``ai_hint_uncertainty_threshold``, otherwise keep its own.
+
+Prefer `AssistedDoctor` with an `IntegrationPolicy` for real studies: that path keeps
+the doctor's unaided opinion, which these two do not, and without it the solo-versus-team
+comparison — the whole point of the reliance metrics — cannot be computed.
 """
 
 from __future__ import annotations

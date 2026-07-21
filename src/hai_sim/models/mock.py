@@ -1,4 +1,14 @@
-"""Mock AI model: random confidence + random uncertainty per label."""
+"""A model that guesses — the null AI, for checking that a pipeline is wired correctly.
+
+AI = artificial intelligence (the automated reader). This one does not look at the
+image at all: it draws a confidence and an uncertainty per pathology at random. Its
+purpose is to make the plumbing exercisable without installing a deep-learning stack,
+so any *result* obtained with it is about the plumbing, never about reading chest X-rays.
+
+For real predictions use `TorchXRayVisionAI` (runs a pre-trained classifier) or
+`CachedEnsembleAI` (replays predictions computed earlier, which is what makes large
+studies finish in seconds).
+"""
 
 from __future__ import annotations
 
@@ -13,9 +23,8 @@ from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, Patie
 class RandomMockAI(BaseDiagnosticActor):
     """Confidence ~ Beta(alpha_conf, beta_conf), uncertainty ~ Beta(alpha_unc, beta_unc).
 
-    Independent per label. Decision threshold at 0.5 on confidence. Useful as a
-    sanity-check actor to validate the pipeline; replace with a real wrapper
-    (TorchXRayVision, CheXNet, LLM) when the inference layer lands.
+    Drawn independently per pathology, with the positive/negative call taken at a 0.5
+    threshold on the confidence. Nothing here depends on the image.
     """
 
     def __init__(

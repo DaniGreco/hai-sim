@@ -117,7 +117,14 @@ class Contrast:
     n_pairs: int = field(default=0)
 
 
+# Index keys used below. A "series" is one metric of one cell in one subgroup, measured
+# once per replication seed; a "measurement" is one of those replications.
+_Series = tuple[str, str, str]  # (cell, subgroup, metric)
+_Measurement = tuple[str, int, str, str]  # (cell, seed, subgroup, metric)
+
+
 def _key(factors: dict[str, Any]) -> str:
+    """A stable string identifying one cell of the factor grid, usable as a dict key."""
     return json.dumps(factors, sort_keys=True, default=str)
 
 
@@ -156,68 +163,64 @@ def summarize_cells(rows: Iterable[TidyRow]) -> list[CellSummary]:
     return summaries
 
 
-def paired_contrasts(
-    rows: Iterable[TidyRow], baseline_for: Any
-) -> list[Contrast]:
+def paired_contrasts(rows: Iterable[TidyRow], baseline_for: Any) -> list[Contrast]:
     """Contrast every non-baseline cell against its reference, pairing on the seed.
 
     ``baseline_for(factors)`` returns the reference cell's factor assignment, or ``None``
-    for a cell that *is* the reference — `hai_sim.study.spec.baseline_of` bound to the
-    study. Seeds present in only one of the two arms are skipped: an unpaired difference
-    would reintroduce the noise the pairing exists to remove.
+    for a cell that *is* the reference — in practice `hai_sim.study.spec.baseline_of`
+    bound to the study.
+
+    Seeds measured on only one of the two arms are skipped. An unpaired difference would
+    put back exactly the run-to-run noise that pairing exists to cancel, so half a pair
+    is worse than none.
     """
-    materialized = list(rows)
-    by_cell: dict[str, dict[str, Any]] = {}
-    values: dict[tuple[str, int, str, str], float] = {}
-    for row in materialized:
+    # One pass builds two indexes: the value of every measurement, and which seeds each
+    # (cell, subgroup, metric) was measured at. Everything below is lookups.
+    value_at: dict[_Measurement, float] = {}
+    factors_of: dict[str, dict[str, Any]] = {}
+    seeds_of: dict[_Series, list[int]] = {}
+    for row in rows:
         number = _numeric(row.value)
         if number is None:
-            continue
+            continue  # a non-numeric metric has no difference to take
         cell = _key(row.factors)
-        by_cell[cell] = row.factors
-        values[(cell, row.seed, row.group, row.metric)] = number
+        measurement = (cell, row.seed, row.group, row.metric)
+        if measurement in value_at:
+            continue  # duplicate; keep the first so the seed is not counted twice
+        factors_of[cell] = row.factors
+        value_at[measurement] = number
+        seeds_of.setdefault((cell, row.group, row.metric), []).append(row.seed)
 
-    seen: set[tuple[str, str, str]] = set()
     contrasts: list[Contrast] = []
-    for row in materialized:
-        cell = _key(row.factors)
-        signature = (cell, row.group, row.metric)
-        if signature in seen or _numeric(row.value) is None:
-            continue
-        seen.add(signature)
-        reference = baseline_for(row.factors)
+    for (cell, group, metric), seeds in seeds_of.items():
+        reference = baseline_for(factors_of[cell])
         if reference is None:
-            continue
+            continue  # this cell IS the baseline: nothing to contrast it with
         reference_cell = _key(reference)
-        if reference_cell not in by_cell:
-            continue  # the reference arm was not run (e.g. a sampled design dropped it)
+        if reference_cell not in factors_of:
+            continue  # the reference arm was never run (a sampled design may drop it)
 
-        deltas: list[float] = []
         arm_values: list[float] = []
-        base_values: list[float] = []
-        for candidate in materialized:
-            if _key(candidate.factors) != cell or candidate.group != row.group:
-                continue
-            if candidate.metric != row.metric:
-                continue
-            arm = values.get((cell, candidate.seed, row.group, row.metric))
-            base = values.get((reference_cell, candidate.seed, row.group, row.metric))
-            if arm is None or base is None:
-                continue
-            deltas.append(arm - base)
-            arm_values.append(arm)
-            base_values.append(base)
+        baseline_values: list[float] = []
+        for seed in seeds:
+            baseline_value = value_at.get((reference_cell, seed, group, metric))
+            if baseline_value is None:
+                continue  # unpaired: this seed has no counterpart on the baseline arm
+            arm_values.append(value_at[(cell, seed, group, metric)])
+            baseline_values.append(baseline_value)
+
+        deltas = [a - b for a, b in zip(arm_values, baseline_values, strict=True)]
         delta = aggregate(deltas)
         if delta is None:
-            continue
+            continue  # no seed was measured on both arms
         contrasts.append(
             Contrast(
-                factors=row.factors,
+                factors=factors_of[cell],
                 baseline=reference,
-                group=row.group,
-                metric=row.metric,
+                group=group,
+                metric=metric,
                 arm_mean=sum(arm_values) / len(arm_values),
-                baseline_mean=sum(base_values) / len(base_values),
+                baseline_mean=sum(baseline_values) / len(baseline_values),
                 delta=delta,
                 n_pairs=len(deltas),
             )

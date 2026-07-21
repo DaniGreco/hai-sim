@@ -1,10 +1,23 @@
-# hai_sim — Human-AI Diagnostic Workflow Simulator
+# hai_sim — a playground for testing an AI placed *in series* with a doctor
 
-Modular SimPy simulator of a hybrid human-AI chest X-ray (CXR) reading department.
-Master thesis of Daniele Greco (UniBg).
+A simulated reading room where an AI model and a simulated radiologist read the same
+chest X-rays (CXR), **one after the other**, and everything that happens is measured.
+Change one piece — the model, the doctor's skill, how much the doctor trusts the model,
+the order the queue is worked through — rerun, and see what moved. Master thesis of
+Daniele Greco (UniBg = Università degli Studi di Bergamo).
+
+**"In series" is the whole point.** The AI reads first and does two separable jobs: its
+uncertainty **reorders the queue**, and its opinion **reaches the doctor as a hint**. The
+doctor always forms its own opinion *before* the hint is folded in, so every patient
+leaves behind three verdicts — model alone, doctor alone, and the team — which is what
+makes it possible to ask not just "was the team right?" but "did the doctor take the
+advice when it should have?".
 
 > **This is the technical reference**: how to install it, how to run it, every knob,
-> every KPI, and everything currently implemented.
+> every KPI (key performance indicator), and everything currently implemented.
+>
+> **Every acronym and term of art is defined once in [`GLOSSARY.md`](GLOSSARY.md)** —
+> start there if a word here is unfamiliar.
 >
 > **The *why* — research questions, state of the art, decisions, roadmap and open
 > questions — lives in [`../TESI.md`](../TESI.md)**, the project's single descriptive
@@ -17,6 +30,7 @@ The CXR dataset is the simulation's *patient generator*, not a training set.
 
 ## Contents
 
+- [**GLOSSARY.md**](GLOSSARY.md) — every acronym and term, defined once
 - [Install](#install) · [Quickstart](#quickstart) · [Pipeline](#pipeline) · [CLI](#cli)
 - [Data & caches](#data--caches)
 - [Scenario reference](#scenario-reference) — the experiment control panel
@@ -70,16 +84,22 @@ Always run from the repo root so the repo-relative paths in the scenarios resolv
 ## Pipeline
 
 ```
-PatientGenerator → input_queue (Store, FIFO)
-                 → ModelStation (× n_ai_workers)
-                 → triaged_store (PriorityStore, key = SortStrategy)
-                 → DoctorStation (× n_doctor_workers)
-                 → MetricsCollector
+PatientGenerator → input_queue (Store, first-in-first-out)
+                 → ModelStation (× n_ai_workers)          ← the AI reads FIRST
+                 → triaged_store (PriorityStore, key = SortStrategy)   ← triage happens here
+                 → DoctorStation (× n_doctor_workers)     ← the doctor reads SECOND,
+                 → MetricsCollector                          seeing the AI's opinion
 ```
 
 Every actor — AI model and doctor alike — implements the same `DiagnosticActor`
 protocol, `diagnose(images, *, context, ai_hint) → ModelOutput`, so any implementation is
 swappable from the scenario YAML. The doctor may consult the AI's `ModelOutput` as a hint.
+
+Why the AI sits *upstream of the queue* rather than beside it: having already read
+everyone, it can say which cases it found hardest **before** the doctor picks the next
+patient. That is what makes triage by uncertainty possible at all — and it only changes
+outcomes when patients are actually waiting, so any order study has to be run at a load
+that saturates the doctor.
 
 Two design seams worth knowing:
 

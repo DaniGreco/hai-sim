@@ -1,11 +1,48 @@
-"""SimPy orchestration of the v0 pipeline.
+"""The reading room: runs the AI and the doctor **in series** over a patient stream.
 
-Pipeline:
-    PatientGenerator -> input_queue (Store)
-                     -> model_worker xN_ai (loops on input_queue)
-                     -> triaged_store (PriorityStore, key=SortStrategy)
-                     -> doctor_worker xN_doc (loops on triaged_store)
-                     -> MetricsCollector
+Built on SimPy, a discrete-event simulator — time jumps from one event to the next
+(an arrival, a read finishing) rather than ticking, so a thousand patients take
+milliseconds and "simulated time" has nothing to do with Python's wall clock.
+
+    PatientGenerator
+        │  arrivals, one at a time
+        ▼
+    input_queue          plain first-in-first-out Store
+        │
+        ▼
+    model_worker  x n_ai_workers          ← the AI reads first
+        │  produces a per-label prediction + uncertainty,
+        │  from which SortStrategy derives one priority number
+        ▼
+    triaged_store        PriorityStore — THIS is where triage happens
+        │  lower priority value is served first, so the AI's
+        │  opinion decides who the doctor sees next
+        ▼
+    doctor_worker x n_doctor_workers      ← the doctor reads second,
+        │                                   with the AI's output as a hint
+        ▼
+    MetricsCollector     one record per patient, plus what each stage published
+
+Three things about this arrangement are load-bearing:
+
+1. **The AI is upstream of the queue, not beside it.** Its uncertainty is available
+   *before* the doctor picks the next patient, which is the only reason triage by
+   uncertainty is possible at all. Reordering only changes outcomes when patients are
+   waiting — with an idle queue there is nothing to reorder, so any triage study has to
+   be run at a load that actually saturates the doctor.
+
+2. **Only the doctor sees the ground truth.** The engine injects it into the context
+   handed to the doctor stage and nowhere else. It is a simulation device — the
+   mechanism by which a *simulated* reader is made to err at a chosen rate — not
+   information any real reader would have. An image-reading model must never receive it,
+   and the AI stage above is deliberately handed the plain context.
+
+3. **The doctor's own opinion is formed before the AI's is folded in.** That happens
+   inside `AssistedDoctor`, not here, but it is why the telemetry can carry both a solo
+   and a team verdict for every patient.
+
+Both stations can be widened (``n_ai_workers``, ``n_doctor_workers``). In practice the
+doctor is the bottleneck, which is the situation of interest.
 """
 
 from __future__ import annotations

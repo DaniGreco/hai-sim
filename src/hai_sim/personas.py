@@ -1,10 +1,20 @@
-"""Named doctor-persona library: capability x visibility x trust presets.
+"""The ready-made doctors: capability x visibility x trust.
 
-A 2 (capability: senior/junior) x 3 (solo / trusting / skeptical) grid — the natural
-sweep for the RQ3 "how do personas change team outcome & appropriate reliance?" study.
+A **persona** is a doctor described along three independent axes, so that "which kind of
+reader is this?" becomes something a study can vary one piece at a time:
 
-Capability = per-finding sensitivity/specificity (senior 0.95/0.95, junior 0.85/0.88).
-Trust = the Weight of Advice (`weight_ai`) on a linear pool:
+    capability   how good this reader is on its own, before any AI is involved
+    visibility   whether it sees the AI's opinion at all (`sees_ai`)
+    trust        how much weight it gives that opinion when it does
+
+The library is a 2 x 3 grid — {senior, junior} x {solo, trusting, skeptical} — which is
+the natural sweep for the research question "how does the kind of reader change the
+team's outcome and whether it relies on the AI appropriately?".
+
+Capability is expressed as per-finding sensitivity and specificity (senior 0.95/0.95,
+junior 0.85/0.88). Trust is the **weight of advice (WOA)** — how much of an advisor's
+opinion a judge adopts, 0 = ignored, 1 = adopted wholesale — applied here as the AI's
+share of a linear pool:
 
     skeptical:  senior 0.20 < junior 0.40      trusting: senior 0.45 < junior 0.65
 
@@ -15,8 +25,9 @@ so (see ../TESI.md §6.7-bis):
   N~17,000). Anchored, but that meta-analysis covers *generic* numeric-estimate
   judge-advisor tasks, not clinical reading.
 - **senior < junior is anchored only as an ordering, and on a different construct.**
-  Gaube 2021 (265 physicians, 8 CXR cases): 27.54% of radiologists vs 41.73% of IM/EM
-  physicians are *always* susceptible (always wrong when the advice is inaccurate), and
+  Gaube 2021 (265 physicians, 8 chest X-ray cases): 27.54% of radiologists vs 41.73% of
+  internal- and emergency-medicine physicians are *always* susceptible (always wrong
+  when the advice is inaccurate), and
   28.26% vs 17.32% refute *every* incorrect advice. Those are per-physician
   classifications, NOT advice-uptake rates. Same direction in Dratsch 2023 and Logg 2019.
 - **No clinical source measures WOA at all**, and Gaube cannot: participants see the X-ray
