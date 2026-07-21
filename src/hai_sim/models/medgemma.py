@@ -38,9 +38,10 @@ import numpy as np
 from hai_sim.core.base import BaseDiagnosticActor
 from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
 from hai_sim.models.readout import (
+    BranchScores,
     ContinuationScores,
+    IndependentQuestionReadout,
     LabelReadout,
-    TeacherForcedLogprobReadout,
     resolve_prompt_set,
 )
 from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
@@ -87,7 +88,7 @@ class MedGemmaAI(BaseDiagnosticActor):
         self.schema = schema
         self.model_id = model_id
         self.readout: LabelReadout = (
-            readout if readout is not None else TeacherForcedLogprobReadout()
+            readout if readout is not None else IndependentQuestionReadout()
         )
         self.prompt_set = prompt_set
         # One prompt is a single member, so entropy of its own probability is all the
@@ -119,16 +120,36 @@ class MedGemmaAI(BaseDiagnosticActor):
 
         self._torch = torch
         dtype = self._resolve_dtype(torch)
-        try:
-            self._processor = AutoProcessor.from_pretrained(self.model_id)
-            self._model = AutoModelForImageTextToText.from_pretrained(
-                self.model_id, torch_dtype=dtype
+        # Held as Any deliberately. transformers' own annotations on these factories are
+        # unreliable — it declares from_pretrained's first argument as a model instance
+        # rather than a repository id — and a `# type: ignore` cannot be used here
+        # because it would then be flagged as unused wherever transformers is absent.
+        processor_cls: Any = AutoProcessor
+        model_cls: Any = AutoModelForImageTextToText
+
+        def _fetch(local_only: bool) -> tuple[Any, Any]:
+            processor = processor_cls.from_pretrained(
+                self.model_id, local_files_only=local_only
+            )
+            model = model_cls.from_pretrained(
+                self.model_id, torch_dtype=dtype, local_files_only=local_only
             ).to(self.device)
-        except OSError as exc:  # gated repo, or no network
-            raise OSError(
-                f"could not load {self.model_id!r}. "
-                + _LICENCE_HINT.format(model_id=self.model_id)
-            ) from exc
+            return processor, model
+
+        try:
+            self._processor, self._model = _fetch(local_only=False)
+        except OSError as online_error:
+            # A gated repo re-authenticates on every online load, so a cache-building run
+            # that already has the weights on disk would still die on an expired token or
+            # a network blip. Fall back to the local cache before giving up — hours of
+            # inference should not depend on the Hub being reachable.
+            try:
+                self._processor, self._model = _fetch(local_only=True)
+            except OSError:
+                raise OSError(
+                    f"could not load {self.model_id!r}, and it is not in the local cache. "
+                    + _LICENCE_HINT.format(model_id=self.model_id)
+                ) from online_error
         self._model.eval()
 
     def _resolve_dtype(self, torch: Any) -> Any:
@@ -254,9 +275,23 @@ class MedGemmaAI(BaseDiagnosticActor):
         cont_tensor = torch.tensor([cont_ids], device=prompt_ids.device)
         full_ids = torch.cat([prompt_ids, cont_tensor], dim=1)
 
-        forward_kwargs = {
-            k: v for k, v in prompt_inputs.items() if k not in ("input_ids", "attention_mask")
-        }
+        # The processor returns companions of the prompt besides input_ids — pixel values,
+        # and for Gemma the token_type_ids that mark which positions are image tokens.
+        # Anything indexed by token position must be extended over the forced
+        # continuation too, or the model sees a shorter mask than sequence and fails on a
+        # shape mismatch. The continuation is plain text, hence zeros.
+        prompt_len = prompt_ids.shape[1]
+        forward_kwargs: dict[str, Any] = {}
+        for key, value in prompt_inputs.items():
+            if key in ("input_ids", "attention_mask"):
+                continue
+            if torch.is_tensor(value) and value.ndim >= 2 and value.shape[1] == prompt_len:
+                pad_shape = list(value.shape)
+                pad_shape[1] = len(cont_ids)
+                padding = torch.zeros(pad_shape, dtype=value.dtype, device=value.device)
+                value = torch.cat([value, padding], dim=1)
+            forward_kwargs[key] = value
+
         attention = torch.ones_like(full_ids)
         with torch.inference_mode():
             out = self._model(input_ids=full_ids, attention_mask=attention, **forward_kwargs)
@@ -273,6 +308,72 @@ class MedGemmaAI(BaseDiagnosticActor):
             token_texts=tuple(token_texts),
             candidates=tuple(kept),
             candidate_logprobs=np.asarray(table, dtype=float),
+        )
+
+    def score_branches(
+        self,
+        image: Any,
+        prompt: str,
+        branches: Sequence[str],
+        candidates: Sequence[str],
+    ) -> BranchScores:
+        """Score every branch independently, encoding the image and prompt only once.
+
+        Reading the image (896x896 into 256 tokens) and the instruction is nearly all the
+        work, and it is identical for every question. So run that prefix once, keep its
+        key-value cache, and let each question continue from it — rewinding the cache to
+        the prefix afterwards so the next question cannot see the previous answer. That
+        independence is the whole point: sharing the cache is an optimisation, but
+        rewinding it is what makes the numbers mean anything.
+        """
+        self._require_loaded()
+        torch = self._torch
+        from transformers import DynamicCache
+
+        tokenizer = self._processor.tokenizer
+        kept, columns = _single_token_candidates(tokenizer, candidates)
+
+        prompt_inputs = self._prompt_ids(image, prompt)
+        prompt_ids = prompt_inputs["input_ids"]
+        prefix_len = int(prompt_ids.shape[1])
+        image_kwargs = {
+            k: v for k, v in prompt_inputs.items() if k not in ("input_ids", "attention_mask")
+        }
+
+        rows: list[np.ndarray] = []
+        cache = DynamicCache()
+        with torch.inference_mode():
+            # The prefix, once. The image lives in the cache from here on, so the
+            # per-question calls pass no pixel values.
+            self._model(
+                input_ids=prompt_ids,
+                attention_mask=torch.ones_like(prompt_ids),
+                past_key_values=cache,
+                use_cache=True,
+                **image_kwargs,
+            )
+            for branch in branches:
+                branch_ids = tokenizer(branch, add_special_tokens=False)["input_ids"]
+                branch_tensor = torch.tensor([branch_ids], device=prompt_ids.device)
+                attention = torch.ones(
+                    (1, prefix_len + len(branch_ids)),
+                    dtype=torch.long,
+                    device=prompt_ids.device,
+                )
+                out = self._model(
+                    input_ids=branch_tensor,
+                    attention_mask=attention,
+                    past_key_values=cache,
+                    use_cache=True,
+                )
+                # The distribution over the token that would come next, i.e. the answer.
+                logprobs = torch.log_softmax(out.logits[0, -1, :].float(), dim=-1).cpu().numpy()
+                rows.append(logprobs[columns] if columns else np.zeros(0, dtype=float))
+                cache.crop(prefix_len)  # rewind: the next question starts clean
+
+        table = np.stack(rows, axis=0) if rows else np.zeros((0, len(kept)), dtype=float)
+        return BranchScores(
+            branches=tuple(branches), candidates=tuple(kept), candidate_logprobs=table
         )
 
     def generate(self, image: Any, prompt: str, max_new_tokens: int) -> str:

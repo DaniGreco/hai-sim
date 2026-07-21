@@ -294,17 +294,37 @@ Which readout you pick is a modelling choice, not a parsing detail:
 ai:
   kind: medgemma
   model_id: google/medgemma-1.5-4b-it   # 1.5 exists only at 4B
-  readout: teacher_forced_logprob        # | generated_json
-  both_polarities: false                 # true → run the all-no checklist too, and average
+  readout: independent_question          # the default; see the table below
   prompt_set: single                     # | triple — paraphrases become ensemble members
   uq: entropy                            # `ensemble` only makes sense with prompt_set: triple
   dtype: auto                            # float32 on CPU; bfloat16 emulation is slow off-GPU
 ```
 
-| readout | how the number is obtained | what it is |
+| readout | how the number is obtained | verdict |
 |---|---|---|
-| `teacher_forced_logprob` | forces a yes/no checklist and reads the logits — **one forward pass** | the model's own probability |
-| `generated_json` | parses the confidences the model writes | a number it found plausible to emit — *not* the same quantity, and empirically far worse calibrated |
+| `independent_question` **(default)** | one question per pathology, each branching off a *shared* reading of the image, so no answer can see another | **use this** |
+| `teacher_forced_logprob` | one forced yes/no checklist covering every pathology | **superseded — do not produce results with it**, see below |
+| `generated_json` | parses the confidences the model writes down | a number the model found plausible to emit, *not* a probability it holds — a deliberate contrast, useful to quantify the difference |
+
+⚠️ **Why the checklist was abandoned, measured rather than assumed.** A checklist is one
+sequence, so the answer at position *k* is conditioned on the answers forced before it.
+On real NIH chest X-rays that dependence dominated the image: forcing all-yes versus
+all-no moved the mean answer from **0.875 to 0.099** (mean absolute gap 0.78 on a 0–1
+scale), the gap correlated **+0.48 with position**, and position 0 — the only slot with
+nothing before it — came out **identical** under both fillers. Averaging the two
+polarities does not rescue it: the midpoint of two artefacts is not a measurement.
+
+`independent_question` removes the dependence by construction. The cost objection is
+answered by sharing work rather than by tolerating contamination: encoding the image
+(896×896 → 256 tokens) and the instruction is nearly all the compute and is identical for
+every question, so the backend runs that prefix **once** and rewinds its key-value cache
+between questions. Eighteen independent questions cost roughly one and a half passes.
+
+**Resolution is per-model.** `patient_generator.resize` defaults to 224 (what the
+DenseNet was trained at); the MedGemma example sets **896** (what MedGemma encodes at).
+Serving one model the other's resolution measures it outside its training distribution,
+so a comparison of *capability* gives each backend its own — and a write-up should say
+that is what it did.
 
 `prompt_set: triple` asks the same image three ways and treats the answers as ensemble
 members, so `EnsembleUQ` splits aleatoric from epistemic exactly as it does for a Deep

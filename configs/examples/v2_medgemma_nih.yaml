@@ -5,7 +5,14 @@
 # 1. MedGemma is gated. Accept the Health AI Developer Foundations terms at
 #    https://huggingface.co/google/medgemma-1.5-4b-it while signed in, then
 #    `huggingface-cli login` locally. Without that the load fails with a licence hint.
+#    The licence is per-account and covers the whole Gemma family, so if
+#    `google/gemma-3-4b-it` is also refused, it was never accepted. Note that
+#    `HfApi().model_info()` SUCCEEDS on a repo you cannot download — a gated repo's
+#    metadata is public — so check access by fetching config.json, not model_info.
 # 2. Install the extra:  uv pip install -e ".[models]"
+#    On Windows, export HF_HUB_DISABLE_XET=1 first: the Xet transfer backend fails to
+#    create its lock file (OSError 22) on the large shards while the small files download
+#    fine, which makes the failure look like a partial or permissions problem.
 # 3. On a CPU one forward pass of the 4B model takes tens of seconds. Running this
 #    scenario directly would simulate a department at roughly one patient a minute of
 #    *real* time. That is not the intended workflow.
@@ -38,6 +45,12 @@ patient_generator:
   n_patients: 50
   views: [PA, AP]
   unique_patients: false
+  # MedGemma encodes at 896x896. The DenseNet scenarios use 224 because that is what it
+  # was trained at — serving 224 here would hand this model an upscaled thumbnail and
+  # measure it outside its training distribution. Each backend gets its own resolution,
+  # so the comparison is of capability rather than of who tolerates the other's
+  # preprocessing; say which is which when reporting.
+  resize: 896
 
 ai:
   kind: medgemma

@@ -20,6 +20,7 @@ from hai_sim.models.medgemma import (
 from hai_sim.models.readout import (
     ContinuationScores,
     GeneratedJsonReadout,
+    IndependentQuestionReadout,
     TeacherForcedLogprobReadout,
     answer_token_positions,
     build_checklist,
@@ -67,6 +68,19 @@ class FakeVisionLanguage:
             token_texts=tuple(texts), candidates=kept, candidate_logprobs=table
         )
 
+    def score_branches(self, image, prompt, branches, candidates):
+        self.prompts_seen.append(prompt)
+        self.branches_seen = list(branches)
+        kept = ("yes", "no") if self.answerable else ()
+        table = np.full((len(branches), len(kept)), -np.inf)
+        if self.answerable:
+            for k in range(len(branches)):
+                p = self.p_yes[k]
+                table[k] = [np.log(max(p, 1e-12)), np.log(max(1 - p, 1e-12))]
+        from hai_sim.models.readout import BranchScores
+
+        return BranchScores(tuple(branches), kept, table)
+
     def generate(self, image, prompt, max_new_tokens):
         self.prompts_seen.append(prompt)
         return self.reply
@@ -112,7 +126,42 @@ def test_contiguous_slices_absorb_a_trailing_remainder():
     assert "".join(slices) == "abcd"
 
 
-# ── Teacher-forced log-probability readout ─────────────────────────────────────
+# ── The default readout: one independent question per pathology ────────────────
+
+
+def test_independent_questions_come_back_in_schema_order():
+    backend = FakeVisionLanguage([0.9, 0.1, 0.5])
+    got = IndependentQuestionReadout().probabilities(backend, None, _LABELS)
+    assert np.allclose(got, [0.9, 0.1, 0.5], atol=1e-6)
+
+
+def test_one_branch_per_pathology_each_naming_only_its_own():
+    """The contamination the checklist suffered is impossible here by construction: a
+    branch mentions one pathology and cannot see any other branch's answer."""
+    backend = FakeVisionLanguage([0.5, 0.5, 0.5])
+    IndependentQuestionReadout().probabilities(backend, None, _LABELS)
+    assert len(backend.branches_seen) == len(_LABELS)
+    for branch, label in zip(backend.branches_seen, _LABELS, strict=True):
+        assert label in branch
+        assert not any(other in branch for other in _LABELS if other != label)
+
+
+def test_the_image_is_read_once_for_all_the_questions():
+    """Eighteen questions must not cost eighteen readings of the image — that is what
+    makes asking them separately affordable at all."""
+    backend = FakeVisionLanguage([0.5, 0.5, 0.5])
+    IndependentQuestionReadout().probabilities(backend, None, _LABELS, prefix="P. ")
+    assert len(backend.prompts_seen) == 1
+    assert backend.prompts_seen[0].startswith("P. ")
+
+
+def test_independent_readout_reports_no_opinion_as_nan():
+    backend = FakeVisionLanguage([0.9], answerable=False)
+    got = IndependentQuestionReadout().probabilities(backend, None, ("Effusion",))
+    assert np.isnan(got[0])
+
+
+# ── Teacher-forced log-probability readout (superseded, kept as a diagnostic) ───
 
 
 def test_probabilities_come_back_in_schema_order():

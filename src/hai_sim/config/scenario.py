@@ -34,13 +34,20 @@ class AIModelConfig(_Strict):
     device: str = "cpu"
     # medgemma params — a generative vision-language model as the AI reader.
     # `readout` is how a probability is elicited from a model that emits text:
-    #   teacher_forced_logprob → read P(yes)/P(no) off the logits, one forward pass
+    #   independent_question   → one question per pathology off a shared reading of the
+    #                            image. THE DEFAULT: the alternatives below let the
+    #                            answers contaminate each other.
+    #   teacher_forced_logprob → one forced checklist. Superseded — measured to be
+    #                            dominated by its own filler (see readout.py). Diagnostic
+    #                            only; do not produce results with it.
     #   generated_json         → parse the confidences the model writes down (NOT the
     #                            same quantity; kept as a deliberate contrast)
     # `prompt_set` names a set of paraphrases used as ensemble members: `single` is one
     # pass, `triple` gives member disagreement for an epistemic estimate at 3x the cost.
     model_id: str = "google/medgemma-1.5-4b-it"
-    readout: Literal["teacher_forced_logprob", "generated_json"] = "teacher_forced_logprob"
+    readout: Literal[
+        "independent_question", "teacher_forced_logprob", "generated_json"
+    ] = "independent_question"
     prompt_set: Literal["single", "triple"] = "single"
     both_polarities: bool = False
     dtype: str = "auto"
@@ -168,6 +175,12 @@ class PatientGenConfig(_Strict):
     views: tuple[str, ...] = ("PA",)
     # Keep one image per patient (xrv default) → statistically independent samples.
     unique_patients: bool = True
+    # Square side the images are resized to after centre-cropping. **This is a per-model
+    # property, not a dataset constant**: the TorchXRayVision DenseNet was trained at 224,
+    # MedGemma encodes at 896. Feeding one model the other's resolution measures it
+    # outside its training distribution, so a comparison of *capability* gives each
+    # backend its own value and says so.
+    resize: int = Field(default=224, gt=0)
 
 
 class KPIGroupConfig(_Strict):

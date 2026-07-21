@@ -64,6 +64,26 @@ class ContinuationScores:
             )
 
 
+@dataclass(frozen=True)
+class BranchScores:
+    """Candidate scores at the end of several **independent** continuations of one prompt.
+
+    ``candidate_logprobs`` is ``(len(branches), len(candidates))``: what the model would
+    say at the end of each branch, with no branch able to see any other.
+    """
+
+    branches: tuple[str, ...]
+    candidates: tuple[str, ...]
+    candidate_logprobs: np.ndarray
+
+    def __post_init__(self) -> None:
+        expected = (len(self.branches), len(self.candidates))
+        if self.candidate_logprobs.shape != expected:
+            raise ValueError(
+                f"candidate_logprobs shape {self.candidate_logprobs.shape} != {expected}"
+            )
+
+
 @runtime_checkable
 class VisionLanguageBackend(Protocol):
     """The little a readout needs from a generative model, so readouts stay testable.
@@ -80,6 +100,17 @@ class VisionLanguageBackend(Protocol):
         candidates: Sequence[str],
     ) -> ContinuationScores:
         """Teacher-force ``continuation`` after ``prompt`` and score ``candidates``."""
+
+    def score_branches(
+        self,
+        image: Any,
+        prompt: str,
+        branches: Sequence[str],
+        candidates: Sequence[str],
+    ) -> BranchScores:
+        """Score ``candidates`` at the end of each branch, every branch starting fresh
+        from ``prompt``. Implementations should encode the image and prompt **once** and
+        rewind, since that shared work is what makes asking N questions affordable."""
 
     def generate(self, image: Any, prompt: str, max_new_tokens: int) -> str:
         """Free generation, for readouts that parse what the model chose to write."""
@@ -164,7 +195,12 @@ def _mean_ignoring_nan(stack: np.ndarray) -> np.ndarray:
 
 
 def _best_logprob(scores: ContinuationScores, position: int, wanted: Sequence[str]) -> float:
-    """The highest log-probability among ``wanted`` spellings at ``position``.
+    """The highest log-probability among ``wanted`` spellings at ``position``."""
+    return _best_of(scores.candidate_logprobs[position], scores.candidates, wanted)
+
+
+def _best_of(row: np.ndarray, candidates: Sequence[str], wanted: Sequence[str]) -> float:
+    """The highest log-probability among ``wanted`` spellings in one score row.
 
     Tokenizers split "yes" differently depending on the preceding character, so the same
     answer has several valid spellings; taking the best one avoids reading a near-zero
@@ -172,30 +208,98 @@ def _best_logprob(scores: ContinuationScores, position: int, wanted: Sequence[st
     """
     best = -np.inf
     for spelling in wanted:
-        if spelling in scores.candidates:
-            value = float(scores.candidate_logprobs[position, scores.candidates.index(spelling)])
-            best = max(best, value)
+        if spelling in candidates:
+            best = max(best, float(row[candidates.index(spelling)]))
     return best
+
+
+def _yes_probability(row: np.ndarray, candidates: Sequence[str]) -> float:
+    """P(yes) renormalised over the yes/no answers only, or NaN if neither was scored.
+
+    Renormalising against the whole vocabulary would fold in the model's inclination to
+    write prose rather than answer, which is not the quantity being asked for.
+    """
+    log_yes = _best_of(row, candidates, YES_TOKENS)
+    log_no = _best_of(row, candidates, NO_TOKENS)
+    if not np.isfinite(log_yes) and not np.isfinite(log_no):
+        return float("nan")
+    top = max(log_yes, log_no)
+    yes = np.exp(log_yes - top) if np.isfinite(log_yes) else 0.0
+    no = np.exp(log_no - top) if np.isfinite(log_no) else 0.0
+    return float(yes / (yes + no))
 
 
 # ── The readouts ────────────────────────────────────────────────────────────────
 
 
+QUESTION_PROMPT = (
+    "You are an expert radiologist reading this chest X-ray. Answer each question "
+    "about it with a single word: yes or no."
+)
+QUESTION_TEMPLATE = "\n\nQuestion: Is {label} present in this chest X-ray?\nAnswer:"
+
+
+@dataclass(frozen=True)
+class IndependentQuestionReadout:
+    """Ask about each pathology **separately**, off a shared reading of the image.
+
+    This is the default, and the reason is measured rather than assumed. Its predecessor
+    `TeacherForcedLogprobReadout` puts every pathology in one checklist, which makes the
+    answer at position *k* conditional on the answers forced before it. On real chest
+    X-rays that dependence dominates the image: forcing all-yes versus all-no moved the
+    mean answer from 0.875 to 0.099 — a gap of 0.78 on a 0-1 scale — and the gap grew
+    with position (correlation +0.48), while position 0, which has nothing before it,
+    was identical under both. The checklist was largely measuring its own filler.
+
+    Here each question is its own branch, so no pathology can see another's answer. The
+    cost objection is answered by sharing work rather than by accepting contamination:
+    encoding the image (896x896 into 256 tokens) and reading the instruction dominate,
+    and both are identical for every question, so the backend does them **once** and
+    rewinds between branches. Eighteen independent questions cost roughly one pass and a
+    half, not eighteen.
+    """
+
+    name: str = "independent_question"
+
+    def probabilities(
+        self,
+        backend: VisionLanguageBackend,
+        image: Any,
+        labels: Sequence[str],
+        prefix: str = "",
+    ) -> np.ndarray:
+        branches = [QUESTION_TEMPLATE.format(label=label) for label in labels]
+        scores = backend.score_branches(
+            image, prefix + QUESTION_PROMPT, branches, (*YES_TOKENS, *NO_TOKENS)
+        )
+        return np.array(
+            [_yes_probability(row, scores.candidates) for row in scores.candidate_logprobs],
+            dtype=float,
+        )
+
+
 @dataclass(frozen=True)
 class TeacherForcedLogprobReadout:
-    """Read P(yes) vs P(no) off the model's logits, in one forward pass per image.
+    """One forced checklist for all pathologies. **Superseded — kept as a diagnostic.**
 
-    Builds a checklist — one line per pathology — and forces an answer into every slot,
-    then asks what the model *would* have put there. Forcing rather than generating is
-    what keeps this to a single pass: no decoding loop, no risk of the model answering in
-    a format the parser does not expect, and every label gets an answer even when the
-    model would rather have written prose.
+    Builds a checklist, one line per pathology, forces an answer into every slot and
+    reads what the model would have put there. One forward pass, and an answer for every
+    label; that was the appeal.
 
-    ⚠️ **Known bias, by construction.** The model reads left to right, so the answer at
-    slot *k* is conditioned on the forced answers at slots before it: forcing all-``yes``
-    nudges later labels positive. ``both_polarities=True`` runs the all-yes and the
-    all-no forcing and averages the two, at twice the cost. The gap between them measures
-    how much this matters and is worth reporting rather than hiding.
+    ⚠️ **Do not use this to produce results.** The dependence it introduces is not a
+    small bias, it is the dominant term. Measured on real chest X-rays, forcing all-yes
+    versus all-no moved the mean answer from 0.875 to 0.099 (mean absolute gap 0.78 on a
+    0-1 scale); the gap correlated +0.48 with position, and position 0 — the only slot
+    with nothing before it — was identical under both fillers. The checklist mostly
+    measures its own filler.
+
+    ⚠️ ``both_polarities=True`` does **not** fix this, despite being written for that
+    purpose. Averaging an answer that saturates at 0.875 with one that saturates at 0.099
+    yields the midpoint of two artefacts, not a measurement.
+
+    Use `IndependentQuestionReadout`. This one stays because reproducing the failure is
+    how the choice is justified, and because the yes/no gap is a usable measure of how
+    suggestible a given model is.
     """
 
     name: str = "teacher_forced_logprob"
