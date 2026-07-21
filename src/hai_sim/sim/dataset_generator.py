@@ -83,6 +83,7 @@ class DatasetPatientGenerator:
                 arrival_time=0.0,  # set by the engine at arrival
                 age=meta.get("age"),
                 sex=meta.get("sex"),
+                example_id=example.example_id,
             )
             yield delay, Patient(
                 id=pid, images=(example.image,), ground_truth=gt, context=context

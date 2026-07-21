@@ -38,6 +38,11 @@ class _InFlight:
     ai_out: ModelOutput | None = None
     priority_key: float = 0.0
     severity: float | np.ndarray | None = None
+    # Queue occupancy sampled as this patient crosses each stage boundary; reaches the
+    # telemetry as the ``load.*`` observations. Without it no metric can be conditioned
+    # on workload — and order effects only exist under saturation, so a triage-order
+    # study is not answerable without these.
+    load: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -87,7 +92,14 @@ class SimulationEngine:
                     ground_truth=patient.ground_truth,
                     context=replace(patient.context, arrival_time=ts_arrival),
                 )
-                yield input_queue.put(_InFlight(patient=stamped, ts_arrival=ts_arrival))
+                inflight = _InFlight(patient=stamped, ts_arrival=ts_arrival)
+                # Sampled *before* the put and before the counter bumps: the congestion
+                # this patient sees on arrival, excluding itself.
+                inflight.load["input_queue_at_arrival"] = float(len(input_queue.items))
+                inflight.load["in_system_at_arrival"] = float(
+                    state["emitted"] - state["completed"]
+                )
+                yield input_queue.put(inflight)
                 state["emitted"] += 1
             state["done_emitting"] = True
 
@@ -113,6 +125,10 @@ class SimulationEngine:
                         context=inflight.patient.context,
                     )
                 inflight.priority_key = self.sort_strategy.priority(ai_out, inflight.patient)
+                # How deep the triaged queue was when this patient joined it: the sort
+                # strategy can only reorder what is already waiting, so this is the
+                # variable that says whether triage had any room to act.
+                inflight.load["triaged_at_enqueue"] = float(len(triaged_store.items))
                 yield triaged_store.put(
                     simpy.PriorityItem(priority=inflight.priority_key, item=inflight)
                 )
@@ -123,6 +139,7 @@ class SimulationEngine:
                 inflight: _InFlight = pitem.item
                 assert inflight.ai_out is not None
                 ts_doctor_start = env.now
+                inflight.load["triaged_at_read"] = float(len(triaged_store.items))
                 # Inject ground truth into the doctor's context only: simulated
                 # readers use it as their accuracy mechanism. The AI stage above
                 # is handed the plain context and never sees the truth.
@@ -150,6 +167,7 @@ class SimulationEngine:
                     doc_out=doc_out,
                     priority_key=inflight.priority_key,
                     severity=inflight.severity,
+                    load=inflight.load,
                 )
                 state["completed"] += 1
 

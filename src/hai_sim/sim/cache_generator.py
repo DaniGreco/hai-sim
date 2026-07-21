@@ -1,9 +1,11 @@
 """Patient stream that replays an `InferenceCache`.
 
-Yields patients whose ground truth is the cached label vector and whose **cache index rides
-in ``context.patient_id``** so a paired `CachedEnsembleAI` can look up the same image's
-cached predictions. The image pixels are a placeholder: in a cache-replay study the AI is
-served from the cache and the simulated reader reads ground truth, so nobody needs them.
+Yields patients whose ground truth is the cached label vector and whose **image id travels in
+``context.example_id``** so a paired `CachedEnsembleAI` can look up that image's cached
+predictions. ``patient_id`` stays a plain arrival counter, so sampling the same image twice
+still produces two distinguishable patients. The image pixels are a placeholder: in a
+cache-replay study the AI is served from the cache and the simulated reader reads ground
+truth, so nobody needs them.
 """
 
 from __future__ import annotations
@@ -58,10 +60,15 @@ class CachedPatientGenerator:
         return [i % n for i in range(self.n_patients)]
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
-        for idx in self._index_stream():
+        for pid, idx in enumerate(self._index_stream()):
             gt = tuple(int(x) for x in np.asarray(self.cache.ground_truth[idx]).ravel())
             image: Image = np.zeros((1, 1), dtype=np.uint8)  # unused: AI cached, reader reads GT
-            # The cache index rides in patient_id so CachedEnsembleAI can look this image up.
-            context = PatientContext(patient_id=int(idx), arrival_time=0.0)
+            # The image id travels in example_id so CachedEnsembleAI can look this image up;
+            # patient_id counts arrivals, so the same image sampled twice = two patients.
+            context = PatientContext(
+                patient_id=pid,
+                arrival_time=0.0,
+                example_id=str(self.cache.image_ids[idx]),
+            )
             delay = float(self.rng.exponential(1.0 / self.arrival_rate))
-            yield delay, Patient(id=int(idx), images=(image,), ground_truth=gt, context=context)
+            yield delay, Patient(id=pid, images=(image,), ground_truth=gt, context=context)
