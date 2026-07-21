@@ -5,9 +5,10 @@ identical across runs — only the doctor and the queue change. Re-running the 5
 ensemble (~5-6 s/image) for every run would waste hours. `CachedEnsembleAI` instead serves
 each image's cached per-member probabilities through the same swappable `UQMethod`,
 reconstructing exactly the `ModelOutput` a live `TorchXRayVisionAI` would produce — real NIH
-predictions, no torch, seconds not hours. The patient's cache index rides in
-``context.patient_id`` (set by `CachedPatientGenerator`), so AI and generator stay aligned
-as long as they load the same cache.
+predictions, no torch, seconds not hours. The patient carries its **image id** in
+``context.example_id`` (set by `CachedPatientGenerator`) and this actor resolves it back to a
+cache row, so AI and generator stay aligned as long as they load the same cache — and the
+telemetry keeps the real image identity rather than a run-local counter.
 """
 
 from __future__ import annotations
@@ -42,12 +43,19 @@ class CachedEnsembleAI(BaseDiagnosticActor):
             raise ValueError(
                 "cache pathologies do not match the active LabelSchema; use label_schema: xrv"
             )
+        image_ids = tuple(str(x) for x in cache.image_ids)
+        if len(set(image_ids)) != len(image_ids):
+            raise ValueError(
+                "inference cache has duplicate image_ids; the replay AI resolves a patient's "
+                "image by id, so ids must be unique"
+            )
         resolved = name if name is not None else f"CachedEnsembleAI({'+'.join(cache.weights)})"
         super().__init__(name=resolved, service_time=service_time)
         self.cache = cache
         self.schema = schema
         self.uq: UQMethod = uq if uq is not None else EntropyUQ()
         self.decision_threshold = decision_threshold
+        self._row_of: dict[str, int] = {img_id: i for i, img_id in enumerate(image_ids)}
 
     def diagnose(
         self,
@@ -56,15 +64,28 @@ class CachedEnsembleAI(BaseDiagnosticActor):
         context: PatientContext | None = None,
         ai_hint: ModelOutput | None = None,
     ) -> ModelOutput:
-        if context is None:
-            raise ValueError("CachedEnsembleAI needs a PatientContext carrying the cache index")
-        idx = int(context.patient_id)
+        if context is None or context.example_id is None:
+            raise ValueError(
+                "CachedEnsembleAI needs a PatientContext carrying the image id in "
+                "example_id (CachedPatientGenerator sets it)"
+            )
+        idx = self._row_of.get(context.example_id)
+        if idx is None:
+            raise ValueError(
+                f"image id {context.example_id!r} is not in this inference cache; "
+                "AI and patient generator must load the same cache"
+            )
         member_probs = np.asarray(self.cache.member_probs[idx], dtype=float)  # (M, L)
         probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
         probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
         uncertainty = np.nan_to_num(np.asarray(uncertainty, dtype=float), nan=0.0)
         labels = (probs >= self.decision_threshold).astype(int)
-        extra: dict[str, Any] = {"uq_method": self.uq.name, "cache_index": idx, **uq_extra}
+        extra: dict[str, Any] = {
+            "uq_method": self.uq.name,
+            "cache_index": idx,
+            "image_id": context.example_id,
+            **uq_extra,
+        }
         return ModelOutput(
             diagnosis=Diagnosis(
                 labels=tuple(int(x) for x in labels),

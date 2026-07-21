@@ -118,9 +118,15 @@ class ModelOutput:
     uncertainty value mixes aleatoric and epistemic — splitting them is
     deferred to a later iteration.
 
-    ``extra`` is for implementation-specific debug info (token logprobs from
-    an LLM, ensemble disagreement matrix, etc.). Stable consumers should not
-    rely on it.
+    ``extra`` is the actor's **observation channel**. Whatever a module puts
+    here reaches the telemetry, namespaced by the producing stage (``ai.*`` for
+    the AI station, ``doc.*`` for the doctor station), and is therefore readable
+    by any KPI bundle *without* changing the record schema. That is how a new
+    module surfaces a new observable — the aleatoric/epistemic decomposition, a
+    cache index, a latent difficulty draw — with no edit to the library. Keys
+    should be short and stable; values should be scalars, strings or per-label
+    sequences, so they flatten into CSV columns cleanly. Anything else is still
+    accepted and stored as JSON.
 
     ``embedding`` is the model's penultimate feature vector (the input to the
     final linear head), or ``None`` for actors that don't expose one. It is the
@@ -154,6 +160,13 @@ class PatientContext:
     that *simulated* readers (e.g. ``FixedAccuracyDoctor``) can corrupt the true
     label at a configured error rate. Real image-reading actors (the CNN
     wrapper) must ignore it. It is ``None`` for actors that should not see it.
+
+    ``patient_id`` and ``example_id`` are deliberately **two different things**:
+    ``patient_id`` counts arrivals in this run (unique per patient, even when the
+    same image is sampled twice), while ``example_id`` names the underlying
+    dataset item (stable across runs). Keeping them apart is what lets telemetry
+    be joined back to the image — and what lets a cache-backed actor look up the
+    predictions for the image the patient is carrying.
     """
 
     patient_id: int
@@ -162,6 +175,7 @@ class PatientContext:
     sex: str | None = None
     priority: int = 0
     ground_truth: tuple[int, ...] | None = None
+    example_id: str | None = None
 
 
 @dataclass(frozen=True)

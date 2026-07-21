@@ -1,0 +1,40 @@
+# Metric plug-in: a KPI bundle defined OUTSIDE the library, selected from config.
+#
+#   hai-sim run configs/examples/v2_custom_metrics.yaml
+#
+# `kpis` mixes registered names with references to the researcher's own code, written
+# as `path/to/file.py:Attribute` (the path is relative to where you run the command).
+# See configs/examples/custom_metrics.py for the two bundles referenced here, and
+# hai_sim/README.md for the contract a bundle must satisfy.
+#
+# Note on `uncertainty_split`: it reads the per-label entropy decomposition out of the
+# telemetry's `ai.*` observations, which only a Deep Ensemble publishes. Under the
+# random mock below it honestly reports None rather than inventing a number — swap in
+# `ai.kind: cached` (or `torchxrv` with an ensemble) to see it produce real values, as
+# in configs/examples/study_nih_persona_grid.yaml.
+name: v2_custom_metrics
+seed: 42
+label_schema: default_v0
+
+patient_generator:
+  kind: poisson
+  arrival_rate: 0.5
+  n_patients: 100
+  prevalence: 0.2
+  image_shape: [1, 1]
+
+ai:
+  kind: random_mock
+  service_time: 0.05
+
+persona: junior_trusting
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean
+
+kpis:
+  - system
+  - actors
+  - configs/examples/custom_metrics.py:CostBundle
+  - configs/examples/custom_metrics.py:UncertaintySplitBundle

@@ -181,6 +181,35 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
     jt = report.get("joint_table")
     if jt:
         _print_joint_table(name, jt)
+    for key, result in report.items():
+        if key not in _SPECIALLY_RENDERED:
+            _print_generic_bundle(key, result)
+
+
+# Bundles with a bespoke rendering above; anything else gets the generic table.
+_SPECIALLY_RENDERED = frozenset({"actors", "system", "team", "joint_table"})
+
+
+def _print_generic_bundle(key: str, result: Any) -> None:
+    """Render a bundle the CLI knows nothing about — a custom one, most likely.
+
+    A metric the framework lets you plug in has to be *visible* without opening the
+    JSON, so an unrecognized bundle gets a plain field/value table rather than being
+    quietly dropped from the console.
+    """
+    if is_dataclass(result) and not isinstance(result, type):
+        fields: dict[str, Any] = asdict(result)
+    elif isinstance(result, dict):
+        fields = result
+    else:
+        console.print(f"[bold]{key}[/bold]: {_fmt(result)}")
+        return
+    table = Table(title=key)
+    table.add_column("field")
+    table.add_column("value", justify="right")
+    for field_name, value in fields.items():
+        table.add_row(field_name, _fmt(value))
+    console.print(table)
 
 
 def _print_joint_table(name: str, jt: Any) -> None:

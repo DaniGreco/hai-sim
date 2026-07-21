@@ -41,19 +41,31 @@ def _cache() -> InferenceCache:
 # --- CachedEnsembleAI ---------------------------------------------------------
 
 
-def test_cached_ai_reconstructs_output_from_index():
+def test_cached_ai_reconstructs_output_from_image_id():
     ai = CachedEnsembleAI(_cache(), _SCHEMA, uq=EntropyUQ(), decision_threshold=0.5)
-    out = ai.diagnose([np.zeros((1, 1))], context=PatientContext(patient_id=0, arrival_time=0.0))
+    # patient_id is a run-local counter; the image is named by example_id.
+    ctx = PatientContext(patient_id=7, arrival_time=0.0, example_id="a")
+    out = ai.diagnose([np.zeros((1, 1))], context=ctx)
     # probs = mean over the 2 members of member_probs[0] = [0.85, 0.15, 0.5, 0.25, 0.75]
     assert out.diagnosis.labels == (1, 0, 1, 0, 1)
     assert abs(out.diagnosis.confidence[0] - 0.85) < 1e-6
     assert out.extra["cache_index"] == 0
+    assert out.extra["image_id"] == "a"
 
 
-def test_cached_ai_needs_context():
+def test_cached_ai_needs_example_id():
     ai = CachedEnsembleAI(_cache(), _SCHEMA)
-    with pytest.raises(ValueError, match="cache index"):
+    with pytest.raises(ValueError, match="example_id"):
         ai.diagnose([np.zeros((1, 1))], context=None)
+    with pytest.raises(ValueError, match="example_id"):
+        ai.diagnose([np.zeros((1, 1))], context=PatientContext(patient_id=0, arrival_time=0.0))
+
+
+def test_cached_ai_rejects_unknown_image_id():
+    ai = CachedEnsembleAI(_cache(), _SCHEMA)
+    ctx = PatientContext(patient_id=0, arrival_time=0.0, example_id="not-in-cache")
+    with pytest.raises(ValueError, match="not in this inference cache"):
+        ai.diagnose([np.zeros((1, 1))], context=ctx)
 
 
 def test_cached_ai_rejects_schema_mismatch():
@@ -64,7 +76,7 @@ def test_cached_ai_rejects_schema_mismatch():
 # --- CachedPatientGenerator ---------------------------------------------------
 
 
-def test_cached_generator_replays_gt_and_index():
+def test_cached_generator_replays_gt_and_image_id():
     gen = CachedPatientGenerator(
         _cache(), _SCHEMA, arrival_rate=1.0, n_patients=3, rng=np.random.default_rng(0)
     )
@@ -72,7 +84,26 @@ def test_cached_generator_replays_gt_and_index():
     assert len(items) == 3
     _delay, patient = items[0]
     assert patient.ground_truth == (1, 0, -1, 0, 1)  # cache row 0
-    assert patient.context.patient_id == 0  # cache index rides in patient_id
+    assert patient.context.example_id == "a"  # the image is named, not numbered
+    assert patient.context.patient_id == 0  # and the patient is counted separately
+
+
+def test_cached_generator_ids_stay_unique_when_images_repeat():
+    """Random sampling draws the same image more than once; the patients must still
+    be distinguishable. Conflating the two identities used to make them collide."""
+    gen = CachedPatientGenerator(
+        _cache(),
+        _SCHEMA,
+        arrival_rate=1.0,
+        n_patients=12,
+        rng=np.random.default_rng(0),
+        sample_mode="random",
+    )
+    patients = [p for _delay, p in gen]
+    ids = [p.context.patient_id for p in patients]
+    image_ids = [p.context.example_id for p in patients]
+    assert ids == list(range(12))  # unique, one per arrival
+    assert len(set(image_ids)) < len(image_ids)  # images genuinely repeat
 
 
 # --- end-to-end via the factory (save → load → build → run) -------------------
