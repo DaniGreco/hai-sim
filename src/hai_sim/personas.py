@@ -4,12 +4,34 @@ A 2 (capability: senior/junior) x 3 (solo / trusting / skeptical) grid — the n
 sweep for the RQ3 "how do personas change team outcome & appropriate reliance?" study.
 
 Capability = per-finding sensitivity/specificity (senior 0.95/0.95, junior 0.85/0.88).
-Trust = the Weight of Advice (`weight_ai`) on a linear pool, anchored to the advice-taking
-literature: pooled mean WOA ~= 0.39 (Bailey 2023). Experts discount more than novices
-(Logg 2019; Tschandl 2020; clinical uptake of a *wrong* AI ~25-36% experts vs 42-80%
-novices, Gaube 2021 / Dratsch 2023), so senior < junior at each attitude:
+Trust = the Weight of Advice (`weight_ai`) on a linear pool:
 
     skeptical:  senior 0.20 < junior 0.40      trusting: senior 0.45 < junior 0.65
+
+**What is anchored and what is not** — the two axes differ sharply, and papers should say
+so (see ../TESI.md §6.7-bis):
+
+- `weight_ai` default 0.39 = the pooled mean WOA of Bailey et al. 2023 (346 effects,
+  N~17,000). Anchored, but that meta-analysis covers *generic* numeric-estimate
+  judge-advisor tasks, not clinical reading.
+- **senior < junior is anchored only as an ordering, and on a different construct.**
+  Gaube 2021 (265 physicians, 8 CXR cases): 27.54% of radiologists vs 41.73% of IM/EM
+  physicians are *always* susceptible (always wrong when the advice is inaccurate), and
+  28.26% vs 17.32% refute *every* incorrect advice. Those are per-physician
+  classifications, NOT advice-uptake rates. Same direction in Dratsch 2023 and Logg 2019.
+- **No clinical source measures WOA at all**, and Gaube cannot: participants see the X-ray
+  and the advice together, so there is no pre-advice opinion to compute
+  (final - initial)/(advice - initial) from. Gaube also found the advice *source*
+  (AI vs human) did **not** affect decisions — algorithmic aversion showed up only in
+  quality ratings, and only among experts. So it licenses no AI-specific decision weight.
+- The four magnitudes (0.20/0.45/0.40/0.65) are modelling choices that respect the
+  ordering around 0.39. Not measured.
+- The sensitivity/specificity values are **modelling choices, not calibrated** — and they
+  are optimistic: the radiology literature reports ~0.82 baseline sensitivity, 54% on
+  subtle vs 87% on obvious findings, and a 32-63% nodule-reporting range across readers.
+
+Calibrating capability on real per-reader, per-finding reads (CheXpert reads vs the
+5-vote majority) is the planned fix; it unlocks `capability.source: reader`.
 """
 
 from __future__ import annotations
