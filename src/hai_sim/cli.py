@@ -40,9 +40,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    schema, generator, ai, doctor, sort_strategy, severity_model, n_ai, n_doc = (
-        build_from_scenario(scenario)
-    )
+    built = build_from_scenario(scenario)
+    schema, ai, doctor = built.schema, built.ai, built.doctor
+    sort_strategy, severity_model = built.sort, built.severity
 
     console.print(
         f"[bold]scenario[/bold]: {scenario.name}  "
@@ -57,13 +57,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     t0 = time.time()
     engine = SimulationEngine(
-        patient_generator=generator,
+        patient_generator=built.generator,
         ai=ai,
         doctor=doctor,
         sort_strategy=sort_strategy,
         severity_model=severity_model,
-        n_ai_workers=n_ai,
-        n_doctor_workers=n_doc,
+        difficulty_model=built.difficulty,
+        fatigue_curve=built.fatigue,
+        n_ai_workers=built.n_ai_workers,
+        n_doctor_workers=built.n_doctor_workers,
     )
     result = engine.run()
     wall = time.time() - t0
@@ -540,6 +542,40 @@ def _print_validation(name: str, report) -> None:
     )
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    """Launch the Streamlit result browser.
+
+    Shells out to Streamlit rather than importing it, because Streamlit owns the process
+    (it runs its own server and re-executes the page module on every interaction) and
+    because that keeps the optional dependency out of this module's import path.
+    """
+    import subprocess
+
+    app = Path(__file__).parent / "ui" / "app.py"
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        console.print(
+            "[red]streamlit is not installed.[/red] The result browser is an optional "
+            'extra:\n  uv pip install -e ".[ui]"'
+        )
+        return 2
+    console.print(f"[bold]browsing[/bold] {args.out_dir}  ->  http://localhost:{args.port}")
+    return subprocess.call(
+        [
+            sys.executable,
+            "-m",
+            "streamlit",
+            "run",
+            str(app),
+            "--server.port",
+            str(args.port),
+            "--server.headless",
+            "true",
+        ]
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hai-sim", description="Human-AI sim runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -578,6 +614,15 @@ def main(argv: list[str] | None = None) -> int:
         "--pointing-tolerance", type=int, default=16, help="pointing-game radius px (from-cache)"
     )
     val_p.set_defaults(func=cmd_validate)
+
+    ui_p = sub.add_parser("ui", help="browse results in a browser (needs the [ui] extra)")
+    ui_p.add_argument(
+        "--out-dir",
+        default="out",
+        help="directory to browse (default: out/); also settable in the page's sidebar",
+    )
+    ui_p.add_argument("--port", type=int, default=8501, help="port to serve on")
+    ui_p.set_defaults(func=cmd_ui)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

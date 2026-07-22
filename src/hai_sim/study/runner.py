@@ -115,20 +115,22 @@ def run_study(
         fingerprint = _fingerprint(run)
         grouped = cache.get(fingerprint)
         if grouped is None:
-            schema, generator, ai, doctor, sort, severity, n_ai, n_doc = build_from_scenario(
-                run.scenario
-            )
+            built = build_from_scenario(run.scenario)
             result = SimulationEngine(
-                patient_generator=generator,
-                ai=ai,
-                doctor=doctor,
-                sort_strategy=sort,
-                severity_model=severity,
-                n_ai_workers=n_ai,
-                n_doctor_workers=n_doc,
+                patient_generator=built.generator,
+                ai=built.ai,
+                doctor=built.doctor,
+                sort_strategy=built.sort,
+                severity_model=built.severity,
+                difficulty_model=built.difficulty,
+                fatigue_curve=built.fatigue,
+                n_ai_workers=built.n_ai_workers,
+                n_doctor_workers=built.n_doctor_workers,
             ).run()
             grouped = compute_grouped_report(
-                result.collector.records, bundles, build_kpi_groupings(study.by, schema)
+                result.collector.records,
+                bundles,
+                build_kpi_groupings(study.by, built.schema),
             )
             cache[fingerprint] = grouped
 

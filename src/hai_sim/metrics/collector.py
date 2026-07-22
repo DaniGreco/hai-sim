@@ -14,6 +14,10 @@ without anyone editing this file. Namespaces:
 - ``load.*`` — queue occupancy sampled by the engine at the stage transitions;
   the workload variables, without which order effects cannot be studied at all
   (they only exist under saturation).
+- ``sig.*``  — the signal plane the engine computes between the two stations:
+  ``severity``, ``difficulty``, ``fatigue``. These are the per-read modulators, and
+  having them here is what lets a metric be conditioned on *how hard the case was* or
+  *how worn the reader was* — a contrast that is otherwise invisible in the record.
 """
 
 from __future__ import annotations
@@ -52,6 +56,7 @@ def _observations(
     ai_out: ModelOutput,
     doc_out: ModelOutput,
     load: Mapping[str, float] | None,
+    signals: Mapping[str, float] | None = None,
 ) -> dict[str, Any]:
     """Assemble the namespaced observation bag for one patient."""
     obs: dict[str, Any] = {}
@@ -68,6 +73,12 @@ def _observations(
     if load:
         for key, value in load.items():
             obs[f"load.{key}"] = value
+    # Passed explicitly rather than read off ``context.signals``: the context the
+    # doctor received also carries the injected ground truth, and routing telemetry
+    # through it would be one refactor away from leaking the answer into the record.
+    if signals:
+        for key, value in signals.items():
+            obs[f"sig.{key}"] = float(value)
     return obs
 
 
@@ -128,6 +139,7 @@ class MetricsCollector:
         priority_key: float,
         severity: float | np.ndarray | None = None,
         load: Mapping[str, float] | None = None,
+        signals: Mapping[str, float] | None = None,
     ) -> None:
         self.records.append(
             PatientRecord(
@@ -147,7 +159,7 @@ class MetricsCollector:
                 priority_key=priority_key,
                 doctor_solo_labels=doc_out.extra.get("doctor_solo_labels"),
                 severity=_norm_severity(severity),
-                observations=_observations(patient.context, ai_out, doc_out, load),
+                observations=_observations(patient.context, ai_out, doc_out, load, signals),
             )
         )
 

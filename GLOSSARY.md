@@ -56,7 +56,36 @@ Ordered by what you meet first when reading the pipeline, not alphabetically.
 | **Aleatoric** uncertainty | Irreducible noise in the data itself (a genuinely ambiguous image). More data would not help. |
 | **Epistemic** uncertainty | The model's own ignorance (an image unlike its training data). More data *would* help. This is the one that ought to flag the errors. |
 | **Predictive entropy / mean entropy / mutual information** | The decomposition of an ensemble's uncertainty: predictive entropy = **total**; mean entropy = **aleatoric**; mutual information = total − aleatoric = **epistemic**. All three are recorded per label for every patient. |
-| **Calibration** | Whether a stated probability means what it says (of the cases called 0.8, do ~80% turn out positive?). **Temperature scaling** is the standard post-hoc fix. Not yet implemented — noted because log-odds fusion assumes it. |
+| **Calibration** | Whether a stated probability means what it says (of the cases called 0.8, do ~80% turn out positive?). Independent of ranking quality: a model can order cases well and still state meaningless numbers. Fixed post-hoc by a swappable `Calibrator`. |
+| **ECE** — expected calibration error | Average gap between stated confidence and observed frequency, over bins of confidence. 0 = perfectly calibrated. Measured here: DenseNet ensemble 0.27, MedGemma 0.80. |
+| **Temperature scaling** | The one-parameter calibration fix (Guo et al. 2017): divide the log-odds by `T`. **Monotone**, so it cannot change any ranking — AUROC and the triage order survive untouched, and only the numbers move. |
+| **Platt scaling** | Two-parameter calibration: `sigmoid(a·logit(p) + b)`. The intercept is what temperature lacks, and it is what a model biased toward calling findings *present* needs. |
+
+## The signal plane — what modulates a read
+
+Three per-read scalars the engine computes between the AI station and the doctor, hands to the reader in `context.signals`, and records as `sig.*`. None is produced by either reader; all three have several competing definitions, which is why each is a seam.
+
+| Term | Meaning |
+|---|---|
+| **Signal plane** | The delivery channel for these scalars. Its existence is what lets a per-case quantity reach a reader without every module learning about every other. |
+| **Severity** | How much this case *matters clinically*. Drives triage priority and cost weighting. |
+| **Difficulty** (`δ`, delta) | How easy this case is to *get wrong*. **Orthogonal to severity** — a large pneumothorax is severe and easy, a subtle nodule is mild and hard. The latent quantity that drives both readers' errors, and therefore the only route to a non-zero `ρ`. |
+| **ρ** (rho) — error correlation | How much the doctor's errors and the AI's land on the same cases. `ρ = 0` means independent errors, which is the regime where a team can beat both its members. **Pinned at zero unless a reader reads the difficulty signal**, because a reader that flips labels at a fixed rate has never seen the image. |
+| **Induced vs imposed coupling** | *Imposed*: `ρ` is a parameter you type in. *Induced*: difficulty comes from the AI's own predictive uncertainty, so the coupling is a measurement of real model behaviour. The second is preferred and is why the difficulty model runs *after* inference. |
+| **Inter-reader disagreement** | The data-grounded definition of difficulty: a case is hard exactly when expert readers split on it. Computable from the eight CheXpert radiologists; the natural validation target for any learned complexity model. |
+| **Fatigue** | How worn the *station* is at the moment it picks a case up. A property of the reader and the clock, not of the case — so two workers on one queue tire independently. |
+| **Vigilance decrement** | The shape fatigue actually takes in the sustained-attention literature: a fast early loss that then plateaus, not a linear ramp. Modelled as an exponential approach to an asymptote. |
+| **Circadian** | Fatigue as a function of the *hour*, independent of workload. A reader who has done nothing all night is still impaired, which is why it composes with a time-on-task curve rather than replacing it. |
+
+## When patients arrive
+
+| Term | Meaning |
+|---|---|
+| **Arrival process** | The rule generating gaps between arrivals — kept separate from *which* patient arrives, so comparing two schedules does not also compare two case mixes. |
+| **Homogeneous Poisson process** | Constant rate, exponential gaps, memoryless. The baseline. |
+| **NHPP** — non-homogeneous Poisson process | Poisson with a rate that varies over time: a reading room is busier by day than by night. |
+| **Thinning** (Lewis & Shedler 1979) | How an NHPP is sampled exactly: propose arrivals at the peak rate, keep each with probability `λ(t)/λ_max`. No numerical integration, and it works with a tabulated rate as easily as an analytic one. |
+| **Aggregation artefact** | Why overdispersed arrival models are *not* the default: pooling the same hour across weeks of differing intensity manufactures burstiness that was never in the data. Test before escalating. |
 
 ## Combining the two readers
 

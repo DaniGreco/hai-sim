@@ -41,6 +41,21 @@ Three things about this arrangement are load-bearing:
    inside `AssistedDoctor`, not here, but it is why the telemetry can carry both a solo
    and a team verdict for every patient.
 
+Between the two stations the engine also computes the **signal plane**: per-read scalars
+that no station produces for itself and that both the reader and the telemetry want.
+
+    severity    from a SeverityModel    — how much this case matters clinically
+    difficulty  from a DifficultyModel  — how easy it is to get wrong
+    fatigue     from a FatigueCurve     — how worn this station is, right now
+
+They travel to the doctor in ``PatientContext.signals`` and to the telemetry as
+``sig.*``. Two properties are load-bearing. First, they are computed **after** AI
+inference, so a difficulty model may use the model's own predictive uncertainty and
+thereby *induce* the human-AI error correlation from real behaviour instead of imposing
+it (``../TESI.md`` §8.1, §10). Second, fatigue is stamped **per read rather than per
+patient**, because it belongs to the reader and the clock: two doctor workers on the
+same queue tire independently, so each owns its own `ReaderState`.
+
 Both stations can be widened (``n_ai_workers``, ``n_doctor_workers``). In practice the
 doctor is the bottleneck, which is the situation of interest.
 """
@@ -51,17 +66,22 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+import numpy as np
 import simpy
 
-from hai_sim.core.types import ModelOutput, Patient
+from hai_sim.core.types import ModelOutput, Patient, ReaderState
 from hai_sim.metrics.collector import MetricsCollector
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    import numpy as np
-
-    from hai_sim.core.protocols import DiagnosticActor, SeverityModel, SortStrategy
+    from hai_sim.core.protocols import (
+        DiagnosticActor,
+        DifficultyModel,
+        FatigueCurve,
+        SeverityModel,
+        SortStrategy,
+    )
 
 
 @dataclass
@@ -80,6 +100,34 @@ class _InFlight:
     # on workload — and order effects only exist under saturation, so a triage-order
     # study is not answerable without these.
     load: dict[str, float] = field(default_factory=dict)
+    # The signal plane for this read: severity / difficulty / fatigue, whichever the
+    # scenario configured. Handed to the doctor via the context and to the telemetry
+    # under ``sig.*``.
+    signals: dict[str, float] = field(default_factory=dict)
+
+
+def _scalar(value: float | np.ndarray | None) -> float:
+    """Collapse a signal to the one number the signal plane carries.
+
+    A `SeverityModel` or `DifficultyModel` may return a per-label vector; the plane is
+    scalar because its consumers (a fatigue-sensitive reader, a service-time model) act
+    once per read, not once per finding. The per-label form is not lost — it stays in
+    the first-class ``severity`` record field and in the producing module's own
+    observation channel. NaN-safe: an all-NaN vector reads as 0.0 rather than poisoning
+    every downstream comparison.
+    """
+    if value is None:
+        return 0.0
+    arr = np.asarray(value, dtype=float)
+    if arr.ndim == 0:
+        return 0.0 if np.isnan(arr) else float(arr)
+    finite = arr[np.isfinite(arr)]
+    return float(np.mean(finite)) if finite.size else 0.0
+
+
+def _module_name(module: object | None) -> str:
+    """The configured module's own name, or ``"none"`` when the scenario omitted it."""
+    return "none" if module is None else str(getattr(module, "name", type(module).__name__))
 
 
 @dataclass
@@ -103,6 +151,8 @@ class SimulationEngine:
         severity_model: SeverityModel | None = None,
         n_ai_workers: int = 1,
         n_doctor_workers: int = 1,
+        difficulty_model: DifficultyModel | None = None,
+        fatigue_curve: FatigueCurve | None = None,
     ) -> None:
         self.patient_generator = patient_generator
         self.ai = ai
@@ -111,6 +161,8 @@ class SimulationEngine:
         self.severity_model = severity_model
         self.n_ai_workers = n_ai_workers
         self.n_doctor_workers = n_doctor_workers
+        self.difficulty_model = difficulty_model
+        self.fatigue_curve = fatigue_curve
 
     def run(self) -> SimulationResult:
         env = simpy.Environment()
@@ -153,13 +205,24 @@ class SimulationEngine:
                 )
                 inflight.ts_model_end = env.now
                 inflight.ai_out = ai_out
-                # Severity is a produced-and-logged signal; nothing here consumes
-                # it yet (triage/KPI/cost consumers are opt-in, added separately).
+                # The case-level signals, computed here because this is the first point
+                # at which both the pixels and the model's opinion are available. Both
+                # are produced-and-logged whether or not a reader consults them: what a
+                # signal is *for* is a separate, opt-in concern from whether it exists.
                 if self.severity_model is not None:
                     inflight.severity = self.severity_model.score(
                         patient=inflight.patient,
                         ai_output=ai_out,
                         context=inflight.patient.context,
+                    )
+                    inflight.signals["severity"] = _scalar(inflight.severity)
+                if self.difficulty_model is not None:
+                    inflight.signals["difficulty"] = _scalar(
+                        self.difficulty_model.score(
+                            patient=inflight.patient,
+                            ai_output=ai_out,
+                            context=inflight.patient.context,
+                        )
                     )
                 inflight.priority_key = self.sort_strategy.priority(ai_out, inflight.patient)
                 # How deep the triaged queue was when this patient joined it: the sort
@@ -171,28 +234,39 @@ class SimulationEngine:
                 )
 
         def doctor_worker():
+            # One state per worker, not per doctor object: two readers sharing a queue
+            # tire independently, and a state owned by the actor would merge them.
+            reader_state = ReaderState(clock=env.now, shift_start=env.now)
             while True:
                 pitem = yield triaged_store.get()
                 inflight: _InFlight = pitem.item
                 assert inflight.ai_out is not None
                 ts_doctor_start = env.now
                 inflight.load["triaged_at_read"] = float(len(triaged_store.items))
+                # Fatigue is sampled at pick-up, before the read is timed, because it
+                # has to be visible to the service-time model that decides how long the
+                # read takes — a worn reader is slower at this study, not the next one.
+                if self.fatigue_curve is not None:
+                    inflight.signals["fatigue"] = float(
+                        self.fatigue_curve.level(replace(reader_state, clock=env.now))
+                    )
                 # Inject ground truth into the doctor's context only: simulated
                 # readers use it as their accuracy mechanism. The AI stage above
                 # is handed the plain context and never sees the truth.
                 doc_context = replace(
                     inflight.patient.context,
                     ground_truth=inflight.patient.ground_truth,
+                    signals=dict(inflight.signals),
                 )
-                yield env.timeout(
-                    self.doctor.service_time(inflight.patient.images, doc_context)
-                )
+                service_time = self.doctor.service_time(inflight.patient.images, doc_context)
+                yield env.timeout(service_time)
                 doc_out = self.doctor.diagnose(
                     inflight.patient.images,
                     context=doc_context,
                     ai_hint=inflight.ai_out,
                 )
                 ts_doctor_end = env.now
+                reader_state = reader_state.advanced(now=env.now, service_time=service_time)
                 collector.add(
                     patient=inflight.patient,
                     ts_arrival=inflight.ts_arrival,
@@ -205,6 +279,7 @@ class SimulationEngine:
                     priority_key=inflight.priority_key,
                     severity=inflight.severity,
                     load=inflight.load,
+                    signals=inflight.signals,
                 )
                 state["completed"] += 1
 
@@ -243,5 +318,11 @@ class SimulationEngine:
                 "sim_end_time": env.now,
                 "n_ai_workers": self.n_ai_workers,
                 "n_doctor_workers": self.n_doctor_workers,
+                # Which modules produced the signal plane, so a result carries its own
+                # provenance: "difficulty 0.31" means nothing without knowing whether it
+                # came from a Beta prior or from the model's mutual information.
+                "severity_model": _module_name(self.severity_model),
+                "difficulty_model": _module_name(self.difficulty_model),
+                "fatigue_curve": _module_name(self.fatigue_curve),
             },
         )

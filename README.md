@@ -762,16 +762,26 @@ vs precision (FP).**
 
 ### The contract — `src/hai_sim/core/protocols.py`
 
-Nine `@runtime_checkable` Protocols. `BaseDiagnosticActor` (`core/base.py`) is the only ABC,
-and inheriting it is optional.
+Fourteen `@runtime_checkable` Protocols. `BaseDiagnosticActor` (`core/base.py`) is the only
+ABC, and inheriting it is optional.
+
+A seam earns its place when you can name three implementations you would actually run
+**and compare in the same study**. That rule is why there is no `CostModel` (a cost matrix
+is already a `KPIBundle`) and no workflow-topology seam (only one arrangement is under
+test: the AI in series, before the doctor).
 
 | Protocol | Method | Implementations |
 |---|---|---|
 | `DiagnosticActor` | `diagnose(images, *, context, ai_hint) → ModelOutput` | `RandomMockAI`, `TorchXRayVisionAI`, `CachedEnsembleAI`, `RandomMockDoctor`, `FixedAccuracyDoctor`, `AssistedDoctor`, `ProjectedActor` |
 | `IntegrationPolicy` | `combine(doctor_out, ai_hint, context)` | `LinearPoolPolicy`, `ConfidenceGatedPoolPolicy`, `LogOddsFusionPolicy` |
 | `SortStrategy` | `priority(output, patient) → float` | `RandomSort`, `UncertaintyDescSort` |
-| `UQMethod` | `estimate(member_probs) → (probs, unc, extra)` | `EntropyUQ`, `EnsembleUQ` |
+| `UQMethod` | `estimate(member_probs) → (probs, unc, extra)` | `EntropyUQ`, `EnsembleUQ`, `CalibratedUQ` |
+| `Calibrator` | `calibrate(probs) → probs` | `IdentityCalibrator`, `TemperatureScaling`, `PlattCalibrator`, `IsotonicCalibrator` |
+| `ArrivalProcess` | `next_delay(now) → float` | `PoissonArrival`, `DeterministicArrival`, `NHPPArrival` (+ `PiecewiseConstantRate`) |
 | `SeverityModel` | `score(*, patient, ai_output, context)` | `ConstantSeverity`, `ActivationSeverity`, `ImageQualitySeverity`, `EmbeddingSeverity` |
+| `DifficultyModel` | `score(*, patient, ai_output, context)` | `ConstantDifficulty`, `PriorDifficulty`, `UncertaintyDifficulty`, `ImageQualityDifficulty`, `TableDifficulty` |
+| `FatigueCurve` | `level(state) → float` | `NoFatigue`, `LinearFatigue`, `VigilanceFatigue`, `CircadianFatigue`, `CompositeFatigue` |
+| `ServiceTimeModel` | `sample(images, context) → float` | `ConstantServiceTime`, `LognormalServiceTime`, `ScaledServiceTime`, `FatigueModulatedServiceTime` |
 | `Dataset` | `__len__` / `__getitem__` + `capabilities` | `MockDataset`, `XRVDataset` |
 | `SaliencyProvider` | `heatmap(image, label_index)` | `GradCAMSaliency` (all-NaN = not localizable) |
 | `LocalizationDataset` | | `ChestXDetDataset` |
@@ -783,6 +793,33 @@ Two more Protocols live in `metrics/`:
 |---|---|---|
 | `KPIBundle` (`metrics/registry.py`) | `compute(records) → Any` | `SystemBundle`, `ActorsBundle`, `TeamBundle`, `JointTableBundle` — **plus anything you reference from a scenario as `file.py:Attribute`** |
 | `Grouping` (`metrics/slicing.py`) | `split(records) → [RecordSlice]` | `ValueGrouping`, `LabelGrouping` |
+
+### Browsing results — `hai-sim ui`
+
+```bash
+uv pip install -e ".[ui]"
+hai-sim ui                     # http://localhost:8501, reads out/
+hai-sim ui --out-dir out/other --port 8600
+```
+
+A Streamlit page over whatever is already in the output directory. It **reads only**:
+it never simulates, and it never writes into a run's output. Four tabs, each answering
+something the terminal answers badly:
+
+| Tab | Question |
+|---|---|
+| **Explore** | what did this sweep do? — pick a metric and two factors, get a chart |
+| **Contrasts** | did the arm actually beat the baseline? — paired deltas with intervals, read as *does it clear zero* |
+| **Signals** | what did the signal plane produce? — per-read distributions of `sig.difficulty`, `sig.fatigue`, `load.*` |
+| **Compare** | two runs disagree — *what was different about them?* — a configuration diff beside the metric deltas |
+
+Artefacts are classified by their **content**, not their filename, so a renamed or
+hand-named file still shows up; unreadable JSON in the directory is skipped rather than
+being allowed to stop the page.
+
+The split is deliberate: `ui/results.py` holds every reshaping decision, has no
+Streamlit import and is covered by the normal test suite; `ui/app.py` is widgets and
+layout only. A future front end reuses the first and replaces the second.
 
 ### Module map — `src/hai_sim/`
 

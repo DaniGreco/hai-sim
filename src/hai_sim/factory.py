@@ -20,24 +20,38 @@ order: patient stream, then AI, then triage, then doctor.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
 from hai_sim.config.scenario import (
     AIModelConfig,
+    ArrivalConfig,
+    CalibrationConfig,
     CapabilityConfig,
+    DifficultyConfig,
+    FatigueConfig,
     KPIGroupConfig,
     PatientGenConfig,
     PersonaConfig,
     ScenarioConfig,
+    ServiceTimeConfig,
     SeverityConfig,
     SortConfig,
     TrustConfig,
     ValidationScenarioConfig,
 )
-from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy, SeverityModel, SortStrategy
+from hai_sim.core.protocols import (
+    ArrivalProcess,
+    DiagnosticActor,
+    DifficultyModel,
+    FatigueCurve,
+    IntegrationPolicy,
+    SeverityModel,
+    SortStrategy,
+)
 from hai_sim.core.types import LabelSchema, Patient
 from hai_sim.data.mock import MockDataset
 from hai_sim.data.xrv import XRVDataset
@@ -75,6 +89,46 @@ def build_label_schema(name: str) -> LabelSchema:
     raise ValueError(f"unknown label_schema: {name}")
 
 
+def build_calibrator(cfg: CalibrationConfig | None) -> Any:
+    """Build the post-hoc probability calibrator, or the identity when unconfigured."""
+    from hai_sim.uq.calibration import (
+        IdentityCalibrator,
+        IsotonicCalibrator,
+        PlattCalibrator,
+        TemperatureScaling,
+    )
+
+    if cfg is None or cfg.kind == "identity":
+        return IdentityCalibrator()
+    if cfg.kind == "temperature":
+        return TemperatureScaling(cfg.temperature)
+    if cfg.kind == "platt":
+        return PlattCalibrator(a=cfg.a, b=cfg.b)
+    if cfg.kind == "isotonic":
+        if not cfg.knots_x or len(cfg.knots_x) != len(cfg.knots_y):
+            raise ValueError(
+                "calibration.kind=isotonic needs knots_x and knots_y of equal, non-zero "
+                "length; fit them with scripts/fit_calibration.py"
+            )
+        return IsotonicCalibrator(cfg.knots_x, cfg.knots_y)
+    raise ValueError(f"unknown calibration.kind: {cfg.kind}")
+
+
+def _build_uq(cfg: AIModelConfig) -> Any:
+    """The run's UQ method, wrapped in its calibrator when the scenario asks for one.
+
+    One place for all backends: every actor that reports uncertainty does so through a
+    `UQMethod`, so calibration enters here rather than in four model wrappers.
+    """
+    from hai_sim.uq.calibration import CalibratedUQ
+    from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
+
+    uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
+    if cfg.calibration is None or cfg.calibration.kind == "identity":
+        return uq
+    return CalibratedUQ(uq, build_calibrator(cfg.calibration))
+
+
 def build_ai(
     cfg: AIModelConfig,
     schema: LabelSchema,
@@ -93,13 +147,11 @@ def build_ai(
         )
     if cfg.kind == "torchxrv":
         from hai_sim.models.torchxrv import TorchXRayVisionAI
-        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
 
-        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
         return TorchXRayVisionAI(
             schema=schema,
             weights=cfg.weights,
-            uq=uq,
+            uq=_build_uq(cfg),
             decision_threshold=cfg.decision_threshold,
             service_time=cfg.service_time,
             device=cfg.device,
@@ -113,7 +165,6 @@ def build_ai(
             LabelReadout,
             TeacherForcedLogprobReadout,
         )
-        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
 
         readout: LabelReadout
         if cfg.readout == "generated_json":
@@ -122,15 +173,14 @@ def build_ai(
             readout = TeacherForcedLogprobReadout(both_polarities=cfg.both_polarities)
         else:
             readout = IndependentQuestionReadout()
-        # One prompt yields one member, so member disagreement does not exist and only
-        # entropy of the model's own probability is available; several prompts do.
-        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
         return MedGemmaAI(
             schema=schema,
             model_id=cfg.model_id,
             readout=readout,
             prompt_set=cfg.prompt_set,
-            uq=uq,
+            # One prompt yields one member, so member disagreement does not exist and
+            # only entropy of the model's own probability is available; several do.
+            uq=_build_uq(cfg),
             decision_threshold=cfg.decision_threshold,
             service_time=cfg.service_time,
             device=cfg.device,
@@ -139,20 +189,148 @@ def build_ai(
     if cfg.kind == "cached":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.models.cached import CachedEnsembleAI
-        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
 
         if cfg.cache_stem is None:
             raise ValueError("ai.kind=cached requires ai.cache_stem")
         cache = InferenceCache.load(cfg.cache_stem)
-        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
         return CachedEnsembleAI(
             cache=cache,
             schema=schema,
-            uq=uq,
+            uq=_build_uq(cfg),
             decision_threshold=cfg.decision_threshold,
             service_time=cfg.service_time,
         )
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
+
+
+def build_service_time(
+    cfg: ServiceTimeConfig | None, rng: np.random.Generator
+) -> Any | None:
+    """Build the reading-time model, composing the fatigue and scale wrappers."""
+    if cfg is None:
+        return None
+    from hai_sim.fatigue.service import (
+        ConstantServiceTime,
+        FatigueModulatedServiceTime,
+        LognormalServiceTime,
+        ScaledServiceTime,
+    )
+
+    base: Any
+    if cfg.kind == "constant":
+        base = ConstantServiceTime(value=cfg.value)
+    elif cfg.kind == "lognormal":
+        base = LognormalServiceTime(mu=cfg.mu, sigma=cfg.sigma, rng=rng)
+    else:
+        raise ValueError(f"unknown service_time.kind: {cfg.kind}")
+    # Fatigue first, then the constant scale, so `factor` multiplies the read the
+    # reader would actually have taken rather than a hypothetical fresh one.
+    if cfg.fatigue_slope > 0.0:
+        base = FatigueModulatedServiceTime(base, slope=cfg.fatigue_slope)
+    if cfg.factor != 1.0:
+        base = ScaledServiceTime(base, factor=cfg.factor)
+    return base
+
+
+def build_difficulty(cfg: DifficultyConfig | None, seed: int = 0) -> DifficultyModel | None:
+    """Build the per-case difficulty model. ``None`` → no difficulty signal at all."""
+    if cfg is None:
+        return None
+    from hai_sim.difficulty.models import (
+        ConstantDifficulty,
+        ImageQualityDifficulty,
+        PriorDifficulty,
+        TableDifficulty,
+        UncertaintyDifficulty,
+    )
+
+    if cfg.kind == "constant":
+        return ConstantDifficulty(value=cfg.value)
+    if cfg.kind == "prior":
+        return PriorDifficulty(a=cfg.a, b=cfg.b, seed=seed)
+    if cfg.kind == "uncertainty":
+        return UncertaintyDifficulty(
+            source=cfg.source, aggregator=cfg.aggregator, scale=cfg.scale
+        )
+    if cfg.kind == "image_quality":
+        return ImageQualityDifficulty(metric=cfg.quality_metric, reference=cfg.reference)
+    if cfg.kind == "table":
+        if cfg.path is None:
+            raise ValueError(
+                "difficulty.kind=table requires difficulty.path — a CSV of "
+                "example_id,difficulty. Build one from per-reader disagreement with "
+                "hai_sim.difficulty.disagreement_table, or from any model you like."
+            )
+        return TableDifficulty.from_csv(
+            cfg.path,
+            id_column=cfg.id_column,
+            value_column=cfg.value_column,
+            default=cfg.default,
+            strict=cfg.strict,
+        )
+    raise ValueError(f"unknown difficulty.kind: {cfg.kind}")
+
+
+def _one_fatigue_curve(cfg: FatigueConfig, kind: str) -> FatigueCurve:
+    from hai_sim.fatigue.curves import CircadianFatigue, LinearFatigue, VigilanceFatigue
+
+    if kind == "linear":
+        return LinearFatigue(per_unit=cfg.per_unit, basis=cfg.basis, cap=cfg.cap)
+    if kind == "vigilance":
+        return VigilanceFatigue(asymptote=cfg.asymptote, scale=cfg.scale, basis=cfg.basis)
+    if kind == "circadian":
+        return CircadianFatigue(
+            amplitude=cfg.amplitude,
+            mean=cfg.mean,
+            period=cfg.period,
+            acrophase=cfg.acrophase,
+        )
+    raise ValueError(f"unknown fatigue curve: {kind}")
+
+
+def build_fatigue(cfg: FatigueConfig | None) -> FatigueCurve | None:
+    """Build the fatigue curve. ``None`` (or ``kind: none``) → readers never tire."""
+    if cfg is None or cfg.kind == "none":
+        return None
+    if cfg.kind == "composite":
+        from hai_sim.fatigue.curves import CompositeFatigue
+
+        if not cfg.parts:
+            raise ValueError(
+                "fatigue.kind=composite requires fatigue.parts, e.g. "
+                "[vigilance, circadian] — the two clocks a night shift runs on"
+            )
+        return CompositeFatigue(
+            [_one_fatigue_curve(cfg, part) for part in cfg.parts], combine=cfg.combine
+        )
+    return _one_fatigue_curve(cfg, cfg.kind)
+
+
+def build_arrivals(
+    cfg: ArrivalConfig | None, arrival_rate: float, rng: np.random.Generator
+) -> ArrivalProcess:
+    """Build the arrival process; unconfigured → homogeneous Poisson at ``arrival_rate``."""
+    from hai_sim.arrivals.processes import (
+        DeterministicArrival,
+        NHPPArrival,
+        PiecewiseConstantRate,
+        PoissonArrival,
+    )
+
+    if cfg is None or cfg.kind == "poisson":
+        return PoissonArrival(rate=arrival_rate, rng=rng)
+    if cfg.kind == "deterministic":
+        return DeterministicArrival(rate=arrival_rate)
+    if cfg.kind == "nhpp":
+        if not cfg.rates:
+            raise ValueError(
+                "arrivals.kind=nhpp requires arrivals.rates: one rate per slot. For the "
+                "day-of-week stratification §4.9 calls necessary, that is 168 hourly "
+                "rates with period 168."
+            )
+        rate = PiecewiseConstantRate(cfg.rates, period=cfg.period)
+        return NHPPArrival(rate, rng=rng)
+    raise ValueError(f"unknown arrivals.kind: {cfg.kind}")
 
 
 def build_capability(
@@ -173,6 +351,10 @@ def build_capability(
             specificity=cfg.specificity,
             service_time_mu=cfg.service_time_mu,
             service_time_sigma=cfg.service_time_sigma,
+            difficulty_slope=cfg.difficulty_slope,
+            fatigue_slope=cfg.fatigue_slope,
+            floor=cfg.floor,
+            service_time_model=build_service_time(cfg.service_time, rng),
         )
     if cfg.kind == "random_mock":
         return RandomMockDoctor(
@@ -344,7 +526,11 @@ def build_patient_generator(
     cfg: PatientGenConfig,
     schema: LabelSchema,
     rng: np.random.Generator,
+    arrival_rng: np.random.Generator | None = None,
 ) -> Iterable[tuple[float, Patient]]:
+    """Build the patient stream: *who* arrives (this function) driven by *when* they
+    arrive (an `ArrivalProcess`, built here from ``cfg.arrivals``)."""
+    arrivals = build_arrivals(cfg.arrivals, cfg.arrival_rate, arrival_rng or rng)
     if cfg.kind == "poisson":
         if cfg.gt_source != "native":
             raise ValueError(
@@ -353,7 +539,7 @@ def build_patient_generator(
             )
         return PoissonPatientGenerator(
             schema=schema,
-            arrival_rate=cfg.arrival_rate,
+            arrivals=arrivals,
             n_patients=cfg.n_patients,
             prevalence=cfg.prevalence,
             image_shape=cfg.image_shape,
@@ -369,7 +555,7 @@ def build_patient_generator(
         )
         return DatasetPatientGenerator(
             mock,
-            arrival_rate=cfg.arrival_rate,
+            arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
             sample_mode=cfg.sample_mode,
@@ -379,7 +565,7 @@ def build_patient_generator(
         xrv = XRVDataset(build_xrv_dataset(cfg), schema, name=cfg.dataset)
         return DatasetPatientGenerator(
             xrv,
-            arrival_rate=cfg.arrival_rate,
+            arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
             sample_mode=cfg.sample_mode,
@@ -399,7 +585,7 @@ def build_patient_generator(
         return CachedPatientGenerator(
             cache=cache,
             schema=schema,
-            arrival_rate=cfg.arrival_rate,
+            arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
             sample_mode=cfg.sample_mode,
@@ -408,19 +594,64 @@ def build_patient_generator(
 
 
 def build_rngs(seed: int) -> dict[str, np.random.Generator]:
-    """Independent substreams so swapping one module doesn't perturb others."""
+    """Independent substreams so swapping one module doesn't perturb others.
+
+    ``arrival`` is deliberately separate from ``patient``: *when* someone arrives and
+    *which image* they carry must vary independently, or a comparison of two arrival
+    processes would also be a comparison of two different patient sequences and could
+    not be interpreted. Spawning is prefix-stable, so the first four substreams are
+    unchanged from before this one existed — image sampling is bit-identical, only
+    arrival times move.
+    """
     seed_seq = np.random.SeedSequence(seed)
-    children = seed_seq.spawn(5)
+    children = seed_seq.spawn(6)
     return {
         "patient": np.random.default_rng(children[0]),
         "ai": np.random.default_rng(children[1]),
         "doctor": np.random.default_rng(children[2]),
         "sort": np.random.default_rng(children[3]),
-        "_reserved": np.random.default_rng(children[4]),
+        "arrival": np.random.default_rng(children[4]),
+        "_reserved": np.random.default_rng(children[5]),
     }
 
 
-def build_from_scenario(scenario: ScenarioConfig):
+@dataclass(frozen=True)
+class BuiltScenario:
+    """Everything a `SimulationEngine` needs, assembled from one validated config.
+
+    A dataclass rather than a tuple because the signal plane made the tuple long enough
+    that positional unpacking became a liability — adding a seam should not silently
+    shift what everyone else's third element means.
+    """
+
+    schema: LabelSchema
+    generator: Iterable[tuple[float, Patient]]
+    ai: DiagnosticActor
+    doctor: DiagnosticActor
+    sort: SortStrategy
+    severity: SeverityModel | None
+    n_ai_workers: int
+    n_doctor_workers: int
+    difficulty: DifficultyModel | None = None
+    fatigue: FatigueCurve | None = None
+
+    def __iter__(self) -> Iterator[Any]:
+        """Unpack as the original 8-tuple, so existing call sites keep working."""
+        return iter(
+            (
+                self.schema,
+                self.generator,
+                self.ai,
+                self.doctor,
+                self.sort,
+                self.severity,
+                self.n_ai_workers,
+                self.n_doctor_workers,
+            )
+        )
+
+
+def build_from_scenario(scenario: ScenarioConfig) -> BuiltScenario:
     """Returns (schema, generator, ai, doctor, sort, severity, n_ai_workers, n_doctor_workers).
 
     ``schema`` is the ACTIVE schema the run scores on: the base schema, or its
@@ -440,7 +671,7 @@ def build_from_scenario(scenario: ScenarioConfig):
     active_schema = projection.active
 
     base_generator = build_patient_generator(
-        scenario.patient_generator, base_schema, rngs["patient"]
+        scenario.patient_generator, base_schema, rngs["patient"], rngs["arrival"]
     )
     base_ai = build_ai(
         scenario.ai,
@@ -457,15 +688,19 @@ def build_from_scenario(scenario: ScenarioConfig):
     doctor = build_persona(scenario.persona, active_schema, rngs["doctor"])
     sort = build_sort(scenario.sort, rngs["sort"])
     severity = build_severity(scenario.severity, active_schema)
-    return (
-        active_schema,
-        generator,
-        ai,
-        doctor,
-        sort,
-        severity,
-        scenario.n_ai_workers,
-        scenario.n_doctor_workers,
+    return BuiltScenario(
+        schema=active_schema,
+        generator=generator,
+        ai=ai,
+        doctor=doctor,
+        sort=sort,
+        severity=severity,
+        n_ai_workers=scenario.n_ai_workers,
+        n_doctor_workers=scenario.n_doctor_workers,
+        # Seeded from the scenario so a Beta draw is the same image's difficulty across
+        # replications — the property the study layer's paired contrasts rest on.
+        difficulty=build_difficulty(scenario.difficulty, seed=scenario.seed),
+        fatigue=build_fatigue(scenario.fatigue),
     )
 
 
