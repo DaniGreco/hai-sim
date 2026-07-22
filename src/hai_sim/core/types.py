@@ -7,6 +7,7 @@ Multi-label by default: every per-patient output is a vector of length
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
@@ -162,9 +163,6 @@ class ModelOutput:
 class PatientContext:
     """Optional metadata an actor may use to modulate its decision.
 
-    Deliberately small. It grows when a module needs a new input — case difficulty and
-    reader fatigue are the two expected next additions (``../TESI.md`` §8.1).
-
     ``ground_truth`` is a *simulation device*, not clinical information: it is
     injected by the engine only into the context handed to the doctor stage so
     that *simulated* readers (e.g. ``FixedAccuracyDoctor``) can corrupt the true
@@ -177,6 +175,31 @@ class PatientContext:
     dataset item (stable across runs). Keeping them apart is what lets telemetry
     be joined back to the image — and what lets a cache-backed actor look up the
     predictions for the image the patient is carrying.
+
+    ``signals`` is the **signal plane**: the delivery channel for per-read scalars
+    computed by the engine between the two stations and handed to the doctor. It
+    exists because the interesting modulators of a reader are not properties of
+    the patient record — they are computed, and they have several competing
+    implementations each. Well-known keys:
+
+    - ``difficulty`` — how hard this case is to read, from a `DifficultyModel`.
+      The latent ``delta`` of ``../TESI.md`` §8.1, and the only route by which a
+      simulated reader's error can be made to correlate with the AI's.
+    - ``fatigue`` — how worn the reader is *at the moment it picks this patient
+      up*, from a `FatigueCurve` over the station's `ReaderState`. A property of
+      the reader and the clock, not of the case, which is why it is stamped per
+      read rather than carried by the patient.
+    - ``severity`` — the clinical weight from a `SeverityModel`, mirrored here so
+      a reader can consult it (it is also a first-class telemetry field).
+
+    Consumers must treat every key as optional: a scenario that configures no
+    difficulty model simply leaves it out, and a reader written against it has to
+    keep working. The whole bag reaches the telemetry under the ``sig.*``
+    namespace, so any of it can condition a metric.
+
+    Excluded from equality and hashing on purpose: signals are *derived from* a
+    case-and-reader pairing, not part of the case's identity, and keeping a
+    mutable mapping out of ``__hash__`` keeps the context usable as a dict key.
     """
 
     patient_id: int
@@ -186,6 +209,65 @@ class PatientContext:
     priority: int = 0
     ground_truth: tuple[int, ...] | None = None
     example_id: str | None = None
+    signals: Mapping[str, float] = field(default_factory=dict, compare=False)
+
+    def signal(self, key: str, default: float = 0.0) -> float:
+        """Read one signal, or ``default`` when this run does not produce it.
+
+        Always use this rather than indexing ``signals``: which signals exist is a
+        scenario choice, so a reader that hard-indexes breaks the moment someone
+        runs it without a difficulty model configured.
+        """
+        value = self.signals.get(key)
+        return default if value is None else float(value)
+
+
+@dataclass(frozen=True)
+class ReaderState:
+    """What a reading station has done so far — the substrate a `FatigueCurve` reads.
+
+    Owned and advanced by the engine (one instance per worker), never by the actor:
+    two doctors working the same queue tire independently, and an actor that counted
+    its own reads would conflate them. Immutable; the engine replaces it after each
+    completed read.
+
+    Three different clocks, deliberately kept apart because different fatigue
+    literatures use different ones:
+
+    - ``clock`` — absolute simulation time. What a **circadian** curve needs.
+    - ``time_on_shift`` — elapsed time since this worker started, derived from
+      ``clock - shift_start``. What a **time-on-task** curve needs.
+    - ``busy_time`` — time actually spent reading, so ``busy_time /
+      time_on_shift`` is the worker's utilisation. What a curve driven by
+      *workload* rather than by the clock needs.
+
+    ``cases_read`` is the fourth, and the one the radiology literature usually
+    reports against (accuracy after N studies).
+    """
+
+    cases_read: int = 0
+    clock: float = 0.0
+    shift_start: float = 0.0
+    busy_time: float = 0.0
+
+    @property
+    def time_on_shift(self) -> float:
+        return max(0.0, self.clock - self.shift_start)
+
+    @property
+    def utilisation(self) -> float:
+        """Fraction of the shift spent reading; 0.0 before any time has passed."""
+        elapsed = self.time_on_shift
+        return self.busy_time / elapsed if elapsed > 0.0 else 0.0
+
+    def advanced(self, *, now: float, service_time: float) -> ReaderState:
+        """Return the state after one completed read of length ``service_time``."""
+        return ReaderState(
+            cases_read=self.cases_read + 1,
+            clock=now,
+            shift_start=self.shift_start,
+            busy_time=self.busy_time + service_time,
+        )
 
 
 @dataclass(frozen=True)

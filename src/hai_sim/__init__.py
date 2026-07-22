@@ -40,14 +40,37 @@ THE SEAMS — where you plug your own thing in
 Every one of these is a Protocol in ``core/protocols.py``: implement the methods and it
 fits, no inheritance needed.
 
-    DiagnosticActor     an AI model, or a doctor — anything that reads images
-    SortStrategy        the triage rule: what order the doctor works the queue in
-    IntegrationPolicy   how much the doctor trusts the AI, and under what conditions
-    UQMethod            how per-prediction uncertainty is derived
-    SeverityModel       a per-patient clinical-weight signal
+    ArrivalProcess      when patients arrive — kept apart from which patient arrives
     Dataset             where images and ground truth come from
+    DiagnosticActor     an AI model, or a doctor — anything that reads images
+    UQMethod            how per-prediction uncertainty is derived
+    Calibrator          whether that probability can be believed
+    SortStrategy        the triage rule: what order the doctor works the queue in
+    SeverityModel       how much this case matters clinically
+    DifficultyModel     how easy this case is to get wrong
+    FatigueCurve        how worn the reading station is, right now
+    ServiceTimeModel    how long one read takes
+    IntegrationPolicy   how much the doctor trusts the AI, and under what conditions
     KPIBundle           a metric — including one written in your own file
     Grouping            a conditioning axis (per severity band, per pathology, ...)
+
+A seam is worth having when you can name three implementations you would actually run
+*and compare in the same study*. That test is why a cost model is not on this list — a
+cost matrix is already a KPIBundle — and why station topology is not either: there is
+only one arrangement under test here.
+
+THE SIGNAL PLANE — what the engine computes between the two stations
+--------------------------------------------------------------------
+Severity, difficulty and fatigue are not produced by either reader. The engine computes
+them after the AI has spoken and hands them to the doctor in ``context.signals``, and to
+the telemetry as ``sig.*`` so any metric can be conditioned on them.
+
+Difficulty is the one that matters most. A simulated reader that flips labels at a fixed
+rate draws its errors from a coin that has never seen the image, so its mistakes are
+independent of the AI's *by construction* — no scenario can make them otherwise. Wire a
+difficulty model to the AI's own uncertainty and give the reader a ``difficulty_slope``,
+and the two start failing on the same cases. That correlation is the quantity the whole
+complementarity argument turns on, and it is a knob only once this plane exists.
 
 WHERE TO START
 --------------
@@ -67,6 +90,10 @@ leaves the patient sequence untouched. Two variants at the same seed therefore m
 same patients in the same order, and comparing them seed by seed cancels the sampling
 noise instead of averaging over it. Without that property, comparing two runs would
 mostly measure luck.
+
+Arrivals get their own stream, separate from patient sampling, for the same reason: a
+comparison of two arrival processes must be *only* that. If the image sequence moved
+too, any difference in outcome would confound the schedule with the case mix.
 """
 
 __version__ = "0.0.1"

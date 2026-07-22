@@ -7,27 +7,43 @@ you want the default ``name``/``service_time`` behaviour for free, subclass
 
 Where each seam sits in the run, which is what makes them independently swappable:
 
-    Dataset ─→ [ DiagnosticActor: the AI ] ─→ SortStrategy ─→ [ DiagnosticActor: the
-                        │  UQMethod              (triage)        doctor ] ─→ KPIBundle
-                        │  SeverityModel                          │ IntegrationPolicy   │
-                        └──────────────────────────────────────────┘         Grouping ──┘
+    ArrivalProcess ─→ Dataset ─→ [ DiagnosticActor: the AI ] ─→ SortStrategy ─→
+       (when)         (who)          │  UQMethod + Calibrator     (triage)
+                                     │  SeverityModel                    │
+                                     │  DifficultyModel  ─── signals ────┤
+                                     │  FatigueCurve     ─── signals ────┤
+                                     └──────────────────────────→ [ DiagnosticActor:
+                                                    ServiceTimeModel   the doctor ]
+                                                    IntegrationPolicy      │
+                                                            KPIBundle · Grouping ──→
 
 `DiagnosticActor` is deliberately one contract for **both** readers. A model and a
 doctor differ in what they do, not in what they are asked for, and sharing the contract
 is what lets a study put either of them at either station — or compare a doctor against
 the model on identical terms.
 
-Contracts defined here: `DiagnosticActor` (reads images) · `IntegrationPolicy` (how much
+**Simulation plane** — `DiagnosticActor` (reads images) · `IntegrationPolicy` (how much
 the doctor trusts the model) · `SortStrategy` (what order the queue is worked in) ·
-`UQMethod` (where the uncertainty number comes from) · `SeverityModel` (per-patient
-clinical weight) · `Dataset` (images and ground truth) · and three for offline
-validation (`SaliencyProvider`, `LocalizationDataset`, `LocalizationMetric`).
+`UQMethod` (where the uncertainty number comes from) · `Calibrator` (whether that
+probability can be believed) · `SeverityModel` (per-patient clinical weight) ·
+`DifficultyModel` (how hard this case is) · `FatigueCurve` (how worn the reader is) ·
+`ServiceTimeModel` (how long a read takes) · `ArrivalProcess` (when patients arrive) ·
+`Dataset` (images and ground truth).
+
+**Validation plane** — `SaliencyProvider`, `LocalizationDataset`, `LocalizationMetric`.
 
 Two more live next to what they serve, in `hai_sim.metrics`: `KPIBundle` (a metric) and
 `Grouping` (a conditioning axis).
 
+*When does something here deserve a Protocol?* When you can name three implementations
+you would actually run **and compare in the same study**. Every contract below clears
+that bar; a cost model does not, because a cost matrix is already expressible as a
+`KPIBundle`, and station topology does not, because there is only ever one arrangement
+under test here (AI in series, before the doctor).
+
 Acronyms: AI = artificial intelligence (the automated reader) · UQ = uncertainty
-quantification · KPI = key performance indicator. Full list in ``GLOSSARY.md``.
+quantification · KPI = key performance indicator · NHPP = non-homogeneous Poisson
+process. Full list in ``GLOSSARY.md``.
 """
 
 from __future__ import annotations
@@ -44,6 +60,7 @@ from hai_sim.core.types import (
     ModelOutput,
     Patient,
     PatientContext,
+    ReaderState,
 )
 
 if TYPE_CHECKING:
@@ -163,6 +180,133 @@ class SeverityModel(Protocol):
         ai_output: ModelOutput | None,
         context: PatientContext,
     ) -> float | np.ndarray: ...
+
+
+@runtime_checkable
+class DifficultyModel(Protocol):
+    """How hard this case is to read — the latent ``delta`` of ``../TESI.md`` §8.1.
+
+    Same shape as `SeverityModel` and a *different quantity*: severity is how much
+    it matters clinically, difficulty is how easy it is to get wrong. They are
+    orthogonal — a large pneumothorax is severe and easy, a subtle nodule is mild
+    and hard — so they travel as two signals, never one.
+
+    Difficulty is the only route by which a *simulated* reader's errors can be made
+    to correlate with the AI's. Without it a reader that flips labels at a fixed
+    rate errs independently of the image by construction, which pins the human-AI
+    error correlation ``rho`` at zero no matter what a scenario asks for. That is
+    why this seam exists and why several implementations matter: the framework
+    should not privilege one definition of "hard case".
+
+    Runs after AI inference, so an implementation may read the model's predictive
+    uncertainty and thereby *induce* the coupling from real data rather than impose
+    it from a prior — the escape route named in §10, hole 2. Result reaches the
+    doctor through ``PatientContext.signals["difficulty"]`` and the telemetry as
+    ``sig.difficulty``, whether or not any reader consults it.
+
+    Returns a scalar, or a per-label array when a case is hard for one finding and
+    easy for another.
+    """
+
+    name: str
+
+    def score(
+        self,
+        *,
+        patient: Patient,
+        ai_output: ModelOutput | None,
+        context: PatientContext,
+    ) -> float | np.ndarray: ...
+
+
+@runtime_checkable
+class Calibrator(Protocol):
+    """Maps raw model probabilities to calibrated ones — probabilities in, out.
+
+    A model that assigns 0.95 to cases that are positive 4% of the time is not
+    wrong about the *ranking*, only about the *number*; discrimination and
+    calibration are independent, and both models measured so far are badly
+    over-confident. Any rule that combines the doctor's belief with the AI's on a
+    common scale — the log-odds fusion above all — is only as sound as that number,
+    which is why this is a first-class seam rather than a preprocessing detail.
+
+    Applied to the ``(n_members, n_labels)`` stack **before** fusion, so the
+    uncertainty the `UQMethod` derives describes the probabilities the run actually
+    uses. Calibrating after fusion would leave the two disagreeing.
+
+    Implementations must be NaN-preserving: a label no ensemble member covers stays
+    NaN rather than being mapped to a fabricated value.
+    """
+
+    name: str
+
+    def calibrate(self, probs: np.ndarray) -> np.ndarray: ...
+
+
+@runtime_checkable
+class FatigueCurve(Protocol):
+    """How worn a reading station is, given what it has done — 0.0 fresh, 1.0 spent.
+
+    Reads a `ReaderState` (cases read, time on shift, utilisation, wall clock) and
+    returns a level in ``[0, 1]``. What the level *does* is a separate concern: it
+    reaches the reader as ``PatientContext.signals["fatigue"]``, where a service-time
+    model can stretch the read and a reader can degrade its own accuracy.
+
+    This seam is not optional polish — ``../TESI.md`` §10 declares that no analytic
+    fatigue curve exists for radiology (only isolated pre/post points) and that a
+    **sensitivity analysis over the shape of the curve is mandatory**. A mandatory
+    sensitivity analysis over shapes is precisely a demand that the shape be
+    swappable.
+    """
+
+    name: str
+
+    def level(self, state: ReaderState) -> float: ...
+
+
+@runtime_checkable
+class ServiceTimeModel(Protocol):
+    """How long one read occupies a station — the thing that creates the queue.
+
+    Split out of the actor because reading time is where three separate open
+    questions meet: whether AI assistance speeds a reader up or costs them
+    verification time (``../TESI.md`` §9, sign unresolved, "resolvable only by
+    sensitivity analysis"), whether acute fatigue slows reading as well as degrading
+    accuracy (§6.7, flagged unresolved), and what an empirical reading-time
+    distribution looks like. All three are answered by swapping this, not by editing
+    the doctor.
+
+    An actor without one keeps its own built-in timing, so this is additive.
+    """
+
+    name: str
+
+    def sample(
+        self,
+        images: Sequence[Image],
+        context: PatientContext | None = None,
+    ) -> float: ...
+
+
+@runtime_checkable
+class ArrivalProcess(Protocol):
+    """When the next patient arrives — separated from *which* patient arrives.
+
+    ``next_delay(now)`` returns the gap until the next arrival given the current
+    arrival-clock time. Time-dependence is the whole point of the argument: a
+    homogeneous process ignores it, while a non-homogeneous Poisson process (NHPP)
+    needs it to know which hour's rate applies.
+
+    Splitting *when* from *who* is what lets the same dataset stream be driven by a
+    flat rate, a 24x7 piecewise-constant rate, or a deterministic metronome without
+    touching the generator that samples images. ``../TESI.md`` §6.5 already names
+    three of those and makes the choice conditional on a Kolmogorov-Smirnov test —
+    a decision that has to be *testable*, i.e. swappable.
+    """
+
+    name: str
+
+    def next_delay(self, now: float) -> float: ...
 
 
 @runtime_checkable

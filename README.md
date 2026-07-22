@@ -762,16 +762,26 @@ vs precision (FP).**
 
 ### The contract — `src/hai_sim/core/protocols.py`
 
-Nine `@runtime_checkable` Protocols. `BaseDiagnosticActor` (`core/base.py`) is the only ABC,
-and inheriting it is optional.
+Fourteen `@runtime_checkable` Protocols. `BaseDiagnosticActor` (`core/base.py`) is the only
+ABC, and inheriting it is optional.
+
+A seam earns its place when you can name three implementations you would actually run
+**and compare in the same study**. That rule is why there is no `CostModel` (a cost matrix
+is already a `KPIBundle`) and no workflow-topology seam (only one arrangement is under
+test: the AI in series, before the doctor).
 
 | Protocol | Method | Implementations |
 |---|---|---|
 | `DiagnosticActor` | `diagnose(images, *, context, ai_hint) → ModelOutput` | `RandomMockAI`, `TorchXRayVisionAI`, `CachedEnsembleAI`, `RandomMockDoctor`, `FixedAccuracyDoctor`, `AssistedDoctor`, `ProjectedActor` |
 | `IntegrationPolicy` | `combine(doctor_out, ai_hint, context)` | `LinearPoolPolicy`, `ConfidenceGatedPoolPolicy`, `LogOddsFusionPolicy` |
 | `SortStrategy` | `priority(output, patient) → float` | `RandomSort`, `UncertaintyDescSort` |
-| `UQMethod` | `estimate(member_probs) → (probs, unc, extra)` | `EntropyUQ`, `EnsembleUQ` |
+| `UQMethod` | `estimate(member_probs) → (probs, unc, extra)` | `EntropyUQ`, `EnsembleUQ`, `CalibratedUQ` |
+| `Calibrator` | `calibrate(probs) → probs` | `IdentityCalibrator`, `TemperatureScaling`, `PlattCalibrator`, `IsotonicCalibrator` |
+| `ArrivalProcess` | `next_delay(now) → float` | `PoissonArrival`, `DeterministicArrival`, `NHPPArrival` (+ `PiecewiseConstantRate`) |
 | `SeverityModel` | `score(*, patient, ai_output, context)` | `ConstantSeverity`, `ActivationSeverity`, `ImageQualitySeverity`, `EmbeddingSeverity` |
+| `DifficultyModel` | `score(*, patient, ai_output, context)` | `ConstantDifficulty`, `PriorDifficulty`, `UncertaintyDifficulty`, `ImageQualityDifficulty`, `TableDifficulty` |
+| `FatigueCurve` | `level(state) → float` | `NoFatigue`, `LinearFatigue`, `VigilanceFatigue`, `CircadianFatigue`, `CompositeFatigue` |
+| `ServiceTimeModel` | `sample(images, context) → float` | `ConstantServiceTime`, `LognormalServiceTime`, `ScaledServiceTime`, `FatigueModulatedServiceTime` |
 | `Dataset` | `__len__` / `__getitem__` + `capabilities` | `MockDataset`, `XRVDataset` |
 | `SaliencyProvider` | `heatmap(image, label_index)` | `GradCAMSaliency` (all-NaN = not localizable) |
 | `LocalizationDataset` | | `ChestXDetDataset` |

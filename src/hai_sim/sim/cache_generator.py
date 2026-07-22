@@ -16,9 +16,11 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from hai_sim.core.types import Image, Patient, PatientContext
+from hai_sim.sim.patient_generator import resolve_arrivals
 
 if TYPE_CHECKING:
     from hai_sim.analysis.inference_cache import InferenceCache
+    from hai_sim.core.protocols import ArrivalProcess
     from hai_sim.core.types import LabelSchema
 
 SampleMode = Literal["sequential", "random"]
@@ -31,12 +33,13 @@ class CachedPatientGenerator:
         self,
         cache: InferenceCache,
         schema: LabelSchema,
-        arrival_rate: float,
-        n_patients: int,
+        arrival_rate: float | None = None,
+        n_patients: int = 1,
         rng: np.random.Generator | None = None,
         sample_mode: SampleMode = "sequential",
+        arrivals: ArrivalProcess | None = None,
     ) -> None:
-        if arrival_rate <= 0:
+        if arrival_rate is not None and arrival_rate <= 0:
             raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
         if n_patients <= 0:
             raise ValueError(f"n_patients must be > 0, got {n_patients}")
@@ -52,6 +55,7 @@ class CachedPatientGenerator:
         self.n_patients = n_patients
         self.rng = rng if rng is not None else np.random.default_rng()
         self.sample_mode: SampleMode = sample_mode
+        self.arrivals = resolve_arrivals(arrivals, arrival_rate, self.rng)
 
     def _index_stream(self) -> list[int]:
         n = self.cache.n_images
@@ -60,6 +64,7 @@ class CachedPatientGenerator:
         return [i % n for i in range(self.n_patients)]
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
+        now = 0.0
         for pid, idx in enumerate(self._index_stream()):
             gt = tuple(int(x) for x in np.asarray(self.cache.ground_truth[idx]).ravel())
             image: Image = np.zeros((1, 1), dtype=np.uint8)  # unused: AI cached, reader reads GT
@@ -70,5 +75,6 @@ class CachedPatientGenerator:
                 arrival_time=0.0,
                 example_id=str(self.cache.image_ids[idx]),
             )
-            delay = float(self.rng.exponential(1.0 / self.arrival_rate))
+            delay = float(self.arrivals.next_delay(now))
+            now += delay
             yield delay, Patient(id=pid, images=(image,), ground_truth=gt, context=context)

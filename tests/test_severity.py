@@ -191,7 +191,7 @@ def test_build_from_scenario_returns_severity_slot():
 
 def test_build_from_scenario_no_severity_slot_is_none():
     sc = ScenarioConfig.model_validate(_scenario_dict(None))
-    assert build_from_scenario(sc)[5] is None
+    assert build_from_scenario(sc).severity is None
 
 
 def test_build_severity_criticality_length_validated():

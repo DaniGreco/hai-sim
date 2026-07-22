@@ -40,9 +40,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    schema, generator, ai, doctor, sort_strategy, severity_model, n_ai, n_doc = (
-        build_from_scenario(scenario)
-    )
+    built = build_from_scenario(scenario)
+    schema, ai, doctor = built.schema, built.ai, built.doctor
+    sort_strategy, severity_model = built.sort, built.severity
 
     console.print(
         f"[bold]scenario[/bold]: {scenario.name}  "
@@ -57,13 +57,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     t0 = time.time()
     engine = SimulationEngine(
-        patient_generator=generator,
+        patient_generator=built.generator,
         ai=ai,
         doctor=doctor,
         sort_strategy=sort_strategy,
         severity_model=severity_model,
-        n_ai_workers=n_ai,
-        n_doctor_workers=n_doc,
+        difficulty_model=built.difficulty,
+        fatigue_curve=built.fatigue,
+        n_ai_workers=built.n_ai_workers,
+        n_doctor_workers=built.n_doctor_workers,
     )
     result = engine.run()
     wall = time.time() - t0

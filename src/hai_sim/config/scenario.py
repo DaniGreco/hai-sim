@@ -13,6 +13,31 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CalibrationConfig(_Strict):
+    """Post-hoc calibration of the AI's probabilities. See `hai_sim.uq.calibration`.
+
+    ``temperature`` is the standard first choice (Guo et al. 2017): one parameter,
+    monotone, so it changes the numbers without touching any ranking. ``platt`` adds an
+    intercept, which is what a model biased toward calling findings present needs.
+    ``isotonic`` fits any monotone shape and overfits small samples happily.
+
+    Parameters are *fitted*, not guessed: use ``scripts/fit_calibration.py`` against an
+    inference cache and paste the result here. Fit on data the study does not score, and
+    remember calibration belongs to (model + readout + prompt + population), not to a
+    model in the abstract.
+    """
+
+    kind: Literal["identity", "temperature", "platt", "isotonic"] = "identity"
+    # temperature: scalar, or one value per label (len must equal the schema).
+    temperature: float | tuple[float, ...] = 1.0
+    # platt: sigmoid(a * logit(p) + b)
+    a: float = 1.0
+    b: float = 0.0
+    # isotonic: fitted knots, x ascending in [0, 1]
+    knots_x: tuple[float, ...] = ()
+    knots_y: tuple[float, ...] = ()
+
+
 class AIModelConfig(_Strict):
     kind: Literal["random_mock", "torchxrv", "cached", "medgemma"] = "random_mock"
     service_time: float = 0.05
@@ -51,6 +76,34 @@ class AIModelConfig(_Strict):
     prompt_set: Literal["single", "triple"] = "single"
     both_polarities: bool = False
     dtype: str = "auto"
+    # Optional post-hoc probability calibration, applied to member probabilities before
+    # they are fused. Omit → raw model output, which for both backends measured so far
+    # is badly over-confident (§8.2, §8.4).
+    calibration: CalibrationConfig | None = None
+
+
+class ServiceTimeConfig(_Strict):
+    """How long one read takes. See `hai_sim.fatigue.service` for why this is a seam.
+
+    ``lognormal`` (default) is the conventional right-skewed shape. The two wrappers
+    compose on top of it:
+
+    - ``scale`` multiplies by a constant — the knob for §9's unresolved question of
+      whether AI assistance speeds a reader up (``factor < 1``, Seah 2021 measured
+      81 s → 56 s) or costs them verification time (``factor > 1``). Sweep it; the
+      literature does not settle it.
+    - ``fatigue_slope`` stretches the read in proportion to the ``sig.fatigue`` signal,
+      which is the time dimension §6.7 records as missing from the doctor model.
+
+    Both may be set at once: the scale is applied to the fatigue-modulated draw.
+    """
+
+    kind: Literal["lognormal", "constant"] = "lognormal"
+    mu: float = 2.5
+    sigma: float = Field(default=0.4, ge=0.0)
+    value: float = Field(default=1.0, ge=0.0)
+    factor: float = Field(default=1.0, ge=0.0)
+    fatigue_slope: float = Field(default=0.0, ge=0.0)
 
 
 class CapabilityConfig(_Strict):
@@ -72,6 +125,16 @@ class CapabilityConfig(_Strict):
     # wired with the real-data work (raises for now).
     source: Literal["fixed", "reader"] = "fixed"
     reader_id: str | None = None
+    # How much of its accuracy this reader loses at difficulty 1.0 / fatigue 1.0.
+    # Both default to 0, so a persona is case-blind unless a scenario says otherwise —
+    # and a case-blind reader errs independently of the AI by construction, which is
+    # what pins the human-AI error correlation at zero (../TESI.md §8.1).
+    difficulty_slope: float = Field(default=0.0, ge=0.0)
+    fatigue_slope: float = Field(default=0.0, ge=0.0)
+    # Accuracy floor: degradation stops at a coin flip rather than inverting.
+    floor: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Optional swappable reading-time model; omit → the lognormal above.
+    service_time: ServiceTimeConfig | None = None
 
 
 class TrustConfig(_Strict):
@@ -136,6 +199,103 @@ class SeverityConfig(_Strict):
     embedding_reduce: Literal["l2_norm", "mean"] = "l2_norm"
 
 
+class DifficultyConfig(_Strict):
+    """Optional per-case difficulty model. Omit the block → no difficulty computed.
+
+    The latent ``delta`` of ``../TESI.md`` §8.1, and the only route by which a simulated
+    reader's errors can correlate with the AI's. §10 declares that radiology has no
+    canonical difficulty model and that the ``Beta(2, 5)`` prior is an assumption; the
+    response is to make it a configuration line and report the sensitivity.
+
+    - ``constant``      — the null model. Run it to show an effect vanishes without
+                          difficulty.
+    - ``prior``         — a fresh ``Beta(a, b)`` per case, keyed by image so it is
+                          stable across replications. Unrelated to the image, hence the
+                          ``rho = 0`` control.
+    - ``uncertainty``   — the AI's own predictive uncertainty: the coupling is then
+                          *induced* from real model behaviour instead of imposed.
+                          ``source`` may be ``uncertainty`` (whatever the run's UQ
+                          selected) or a named measure (``mutual_information`` =
+                          epistemic, ``mean_entropy`` = aleatoric), which needs
+                          ``ai.uq: ensemble`` to exist at all.
+    - ``image_quality`` — blur/contrast only; the acquisition share of difficulty.
+    - ``table``         — a CSV of ``example_id,difficulty``. This is how inter-reader
+                          disagreement and any future learned complexity model plug in,
+                          without new library code.
+    """
+
+    kind: Literal["constant", "prior", "uncertainty", "image_quality", "table"] = "prior"
+    # constant
+    value: float = Field(default=0.5, ge=0.0, le=1.0)
+    # prior: Beta(a, b) — Beta(2, 5) is §8.1's default and an explicit assumption
+    a: float = Field(default=2.0, gt=0.0)
+    b: float = Field(default=5.0, gt=0.0)
+    # uncertainty
+    source: str = "uncertainty"
+    aggregator: Literal["mean", "max", "none"] = "mean"
+    scale: float | None = None
+    # image_quality
+    quality_metric: Literal["laplacian_var", "intensity_std"] = "laplacian_var"
+    reference: float | None = None
+    # table
+    path: str | None = None
+    id_column: str = "example_id"
+    value_column: str = "difficulty"
+    default: float = Field(default=0.5, ge=0.0, le=1.0)
+    strict: bool = False
+
+
+class FatigueConfig(_Strict):
+    """Optional reader fatigue curve. Omit the block → readers never tire.
+
+    ``../TESI.md`` §10 records that radiology has no analytic fatigue curve — only
+    isolated pre/post points — and concludes that **a sensitivity analysis over the
+    shape is mandatory**. Hence four shapes rather than one, and a ``composite`` that
+    combines them, since a night shift is circadian *and* time-on-task.
+
+    ⚠️ Time has no units: parameters are in simulation time units and the defaults
+    assume one unit = one hour. Say which in any write-up.
+    """
+
+    kind: Literal["none", "linear", "vigilance", "circadian", "composite"] = "none"
+    basis: Literal["cases", "time_on_shift", "busy_time", "utilisation"] = "cases"
+    # linear
+    per_unit: float = Field(default=0.01, ge=0.0)
+    cap: float = Field(default=1.0, ge=0.0, le=1.0)
+    # vigilance: asymptote * (1 - exp(-x / scale))
+    asymptote: float = Field(default=1.0, ge=0.0, le=1.0)
+    scale: float = Field(default=40.0, gt=0.0)
+    # circadian: mean + amplitude * cos(2*pi*(clock - acrophase) / period)
+    amplitude: float = Field(default=0.3, ge=0.0)
+    mean: float = Field(default=0.3)
+    period: float = Field(default=24.0, gt=0.0)
+    acrophase: float = 5.0
+    # composite: which of the above to combine, and how
+    parts: tuple[Literal["linear", "vigilance", "circadian"], ...] = ()
+    combine: Literal["max", "sum", "mean"] = "max"
+
+
+class ArrivalConfig(_Strict):
+    """How arrival times are generated. Omit → homogeneous Poisson at ``arrival_rate``.
+
+    ``../TESI.md`` §6.5 makes the escalation conditional on a test rather than on
+    taste: start homogeneous, move to a non-homogeneous Poisson process (NHPP) with a
+    piecewise-constant rate, and go further only if a conditional Kolmogorov-Smirnov
+    test rejects. §4.9 explains the caution — much of the reported burstiness in
+    hospital arrivals is an artefact of pooling hours across weeks of differing
+    intensity, so an overdispersed default would bake in a known artefact.
+
+    For ``nhpp``, ``rates`` is one rate per slot and ``period`` the length of the cycle;
+    168 hourly rates over a period of 168 gives the day-of-week stratification §4.9
+    calls necessary rather than optional.
+    """
+
+    kind: Literal["poisson", "deterministic", "nhpp"] = "poisson"
+    # nhpp: piecewise-constant rate table repeating with `period`
+    rates: tuple[float, ...] = ()
+    period: float | None = None
+
+
 class LabelViewConfig(_Strict):
     """Projects the model's native labels to the active study label set.
 
@@ -154,6 +314,11 @@ class PatientGenConfig(_Strict):
     kind: Literal["poisson", "mock_dataset", "xrv_dataset", "inference_cache"] = "poisson"
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
+    # *When* patients arrive, separated from *which* patient arrives. Omit → a
+    # homogeneous Poisson process at `arrival_rate`, the §6.5 baseline. Note that load
+    # is not background: order effects only exist under saturation, so a triage study
+    # is a study of what this block produces.
+    arrivals: ArrivalConfig | None = None
     # inference_cache params: replay a prebuilt inference cache as the patient stream.
     cache_stem: str | None = None
     # poisson / mock_dataset params (synthetic)
@@ -211,6 +376,11 @@ class ScenarioConfig(_Strict):
     persona: str | PersonaConfig
     sort: SortConfig
     severity: SeverityConfig | None = None
+    # The signal plane: per-read scalars the engine computes between the two stations
+    # and hands to the doctor. Both are optional and both reach the telemetry as
+    # ``sig.*`` whether or not any reader consults them.
+    difficulty: DifficultyConfig | None = None
+    fatigue: FatigueConfig | None = None
     # Which swappable KPI bundles to compute for this run's end-to-end test. Each entry
     # is a registered name or a reference to your own bundle, e.g.
     # "configs/examples/custom_metrics.py:CostBundle".

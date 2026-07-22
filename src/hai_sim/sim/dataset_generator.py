@@ -19,9 +19,10 @@ import numpy as np
 
 from hai_sim.core.types import DatasetExample, Patient, PatientContext
 from hai_sim.data.xrv import XRVDataset
+from hai_sim.sim.patient_generator import resolve_arrivals
 
 if TYPE_CHECKING:
-    from hai_sim.core.protocols import Dataset
+    from hai_sim.core.protocols import ArrivalProcess, Dataset
     from hai_sim.core.types import LabelSchema
 
 SampleMode = Literal["sequential", "random"]
@@ -33,13 +34,14 @@ class DatasetPatientGenerator:
     def __init__(
         self,
         dataset: Dataset,
-        arrival_rate: float,
-        n_patients: int,
+        arrival_rate: float | None = None,
+        n_patients: int = 1,
         rng: np.random.Generator | None = None,
         sample_mode: SampleMode = "sequential",
         gt_source: str = "native",
+        arrivals: ArrivalProcess | None = None,
     ) -> None:
-        if arrival_rate <= 0:
+        if arrival_rate is not None and arrival_rate <= 0:
             raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
         if n_patients <= 0:
             raise ValueError(f"n_patients must be > 0, got {n_patients}")
@@ -57,6 +59,7 @@ class DatasetPatientGenerator:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.sample_mode: SampleMode = sample_mode
         self.gt_source = gt_source
+        self.arrivals = resolve_arrivals(arrivals, arrival_rate, self.rng)
 
     def _index_stream(self) -> list[int]:
         n = len(self.dataset)
@@ -73,10 +76,12 @@ class DatasetPatientGenerator:
         raise ValueError(f"cannot resolve gt_source {self.gt_source!r} for this example")
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
+        now = 0.0
         for pid, idx in enumerate(self._index_stream()):
             example = self.dataset[idx]
             gt = self._resolve_gt(example)
-            delay = float(self.rng.exponential(1.0 / self.arrival_rate))
+            delay = float(self.arrivals.next_delay(now))
+            now += delay
             meta = example.metadata
             context = PatientContext(
                 patient_id=pid,
