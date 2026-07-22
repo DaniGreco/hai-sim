@@ -8,13 +8,16 @@ notebook, or a script) inherits the same behaviour rather than reimplementing it
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from hai_sim.ui.results import (
+    Artifact,
     common_metrics,
     config_diff,
     contrast_rows,
+    describe,
     discover,
     factor_names,
     flatten_config,
@@ -124,7 +127,9 @@ def test_labels_split_name_from_timestamp(out_dir):
     study = next(a for a in discover(out_dir) if a.kind == "study")
     assert study.name == "s"
     assert study.stamp == "20260722-101500"
-    assert "s" in study.label and "20260722" in study.label
+    # The label carries the name, what the study contains, and a scannable time —
+    # not the raw stamp, which nobody reads as a date.
+    assert study.label == "s  ·  personax2  ·  07-22 10:15"
 
 
 def test_a_hand_named_file_keeps_its_whole_stem_as_the_name(out_dir, tmp_path):
@@ -267,6 +272,138 @@ def test_common_metrics_is_the_intersection(out_dir, tmp_path):
     found = discover(out_dir)
     runs = [a for a in found if a.kind == "run"]
     assert common_metrics(runs) == ["system.throughput"]
+
+
+# --- labels: what is in the artefact, not when it ran ------------------------
+
+
+def _artifact(kind: str, payload: dict, name: str = "x", stamp: str = "") -> Artifact:
+    return Artifact(path=Path(f"{name}.json"), kind=kind, name=name, stamp=stamp, payload=payload)
+
+
+def test_study_label_names_the_factors_and_their_levels():
+    """The question a directory of thirty files raises is 'what is this?', and a name
+    plus a timestamp answers 'when did it run?' instead."""
+    art = _artifact(
+        "study",
+        {"study": {"factors": {"persona": ["a", "b", "c"]}, "replications": [1, 2]}},
+        name="grid",
+    )
+    assert describe(art) == "personax3 · 2 seeds"
+    assert art.label.startswith("grid  ·  personax3")
+
+
+def test_study_label_shortens_a_dotted_factor_path():
+    """Two segments: one is ambiguous (half the blocks have a `kind`), three is too long."""
+    art = _artifact(
+        "study", {"study": {"factors": {"persona.capability.difficulty_slope": [0, 1]}}}
+    )
+    assert describe(art) == "capability.difficulty_slopex2"
+
+
+def test_study_label_says_what_the_baseline_is():
+    """Without a baseline there are no paired contrasts, so its presence changes what
+    the artefact can answer — not merely how it was configured."""
+    art = _artifact(
+        "study",
+        {"study": {"factors": {"persona": ["a", "b"]}, "baseline": {"persona": "a"}}},
+    )
+    assert "vs a" in describe(art)
+
+
+def test_study_label_summarises_when_there_are_too_many_factors_to_list():
+    art = _artifact(
+        "study",
+        {"study": {"factors": {"a": [1, 2], "b": [1, 2, 3], "c": [1, 2]}}},
+    )
+    assert describe(art) == "3 factors, 12 cells"
+
+
+def test_study_label_omits_a_single_replication():
+    """One seed is the default and says nothing; listing it would be noise on every line."""
+    art = _artifact("study", {"study": {"factors": {"p": [1, 2]}, "replications": [0]}})
+    assert "seed" not in describe(art)
+
+
+def test_run_label_carries_size_backend_persona_and_triage():
+    """Enough to tell the smoke run from the thousand-patient one without opening it."""
+    art = _artifact(
+        "run",
+        {
+            "scenario": {
+                "patient_generator": {"n_patients": 400},
+                "ai": {"kind": "cached"},
+                "persona": "solo_senior",
+                "sort": {"kind": "uncertainty_desc"},
+            },
+            "kpis": {},
+        },
+    )
+    assert describe(art) == "400 pt · cached · solo_senior · uncertainty_desc"
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ({}, ""),
+        ({"difficulty_model": "none", "fatigue_curve": "none"}, ""),
+        ({"difficulty_model": "prior:beta(2,5)"}, "+diff"),
+        ({"difficulty_model": "prior:beta(2,5)", "fatigue_curve": "linear:0.01/cases"}, "+diff +fatigue"),
+    ],
+)
+def test_run_label_flags_only_the_signal_modules_actually_configured(metadata, expected):
+    """Two runs identical apart from a difficulty model are not comparable in the way
+    their shared name suggests, so the flags earn their space — and their absence."""
+    art = _artifact("run", {"scenario": {}, "kpis": {}, "metadata": metadata})
+    assert describe(art) == expected
+
+
+def test_an_inline_persona_is_rendered_by_its_trust_policy():
+    """`inline` alone tells the reader nothing; how it treats the AI is the point."""
+    art = _artifact(
+        "run",
+        {
+            "scenario": {"persona": {"sees_ai": True, "trust": {"kind": "log_odds_fusion"}}},
+            "kpis": {},
+        },
+    )
+    assert describe(art) == "inline/log_odds_fusion"
+
+
+def test_a_persona_that_never_sees_the_ai_is_marked_as_solo():
+    art = _artifact("run", {"scenario": {"persona": {"name": "x", "sees_ai": False}}, "kpis": {}})
+    assert describe(art) == "x/solo"
+
+
+def test_a_persona_already_named_solo_is_not_marked_twice():
+    art = _artifact(
+        "run", {"scenario": {"persona": {"name": "solo_x", "sees_ai": False}}, "kpis": {}}
+    )
+    assert describe(art) == "solo_x"
+
+
+def test_pretty_stamp_drops_the_year_and_the_seconds():
+    """A picker line is scanned, not parsed; the path remains the identity."""
+    assert _artifact("run", {}, stamp="20260721-162226").pretty_stamp == "07-21 16:22"
+
+
+def test_pretty_stamp_passes_an_unparseable_stamp_through():
+    assert _artifact("run", {}, stamp="").pretty_stamp == ""
+    assert _artifact("run", {}, stamp="weird").pretty_stamp == "weird"
+
+
+def test_an_artefact_missing_everything_still_labels_without_crashing():
+    """Old artefacts predate fields that exist now, and they must stay browsable —
+    a picker that raised on the oldest run would hide exactly the history one wants."""
+    for kind in ("study", "run"):
+        art = _artifact(kind, {}, name="ancient", stamp="20250101-000000")
+        assert art.label == "ancient  ·  01-01 00:00"
+
+
+def test_real_artefacts_all_produce_a_readable_label(out_dir):
+    for artifact in discover(out_dir):
+        assert artifact.name in artifact.label
+        assert len(artifact.label) < 160, "a picker line has to fit on one row"
 
 
 def test_the_browser_never_writes_into_the_directory_it_reads(out_dir):

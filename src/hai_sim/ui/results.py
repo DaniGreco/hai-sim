@@ -44,9 +44,31 @@ class Artifact:
     payload: Mapping[str, Any] = field(repr=False)
 
     @property
+    def pretty_stamp(self) -> str:
+        """``20260721-162226`` -> ``07-21 16:22``.
+
+        The year is dropped and the seconds with it: a picker line is scanned, not
+        parsed, and what disambiguates two entries is almost always the day and the
+        hour. `path` remains the identity.
+        """
+        date, _, clock = self.stamp.partition("-")
+        if len(date) != 8 or len(clock) < 4:
+            return self.stamp
+        return f"{date[4:6]}-{date[6:8]} {clock[:2]}:{clock[2:4]}"
+
+    @property
     def label(self) -> str:
-        """What the picker shows: recognisable at a glance, unique on disk."""
-        return f"{self.name}  ({self.stamp})"
+        """What the picker shows: **what is in this artefact**, not just when it ran.
+
+        A name and a timestamp identify a file; they do not tell you whether it is the
+        smoke run or the thousand-patient one, which persona it used, or what it swept.
+        Everything needed for that is already in the payload, so the picker has no
+        excuse for making you open a file to find out what it is.
+        """
+        parts = [self.name, describe(self)]
+        if self.pretty_stamp:
+            parts.append(self.pretty_stamp)
+        return "  ·  ".join(p for p in parts if p)
 
     @property
     def scenario(self) -> Mapping[str, Any]:
@@ -60,6 +82,106 @@ class Artifact:
             return dict(base) if isinstance(base, Mapping) else {"base": base}
         scenario = self.payload.get("scenario", {})
         return dict(scenario) if isinstance(scenario, Mapping) else {}
+
+
+# --- saying what an artefact is ---------------------------------------------
+# Everything below reads the payload only. It exists so a picker line answers "what is
+# this?" instead of "when did it run?", which is the question a directory of thirty
+# similarly-named files actually raises.
+
+_MAX_LISTED_FACTORS = 2
+
+
+def _short_path(dotted: str) -> str:
+    """``persona.capability.difficulty_slope`` -> ``capability.difficulty_slope``.
+
+    The last two segments: one is often ambiguous (half the blocks have a ``kind``),
+    three is too long for a picker line.
+    """
+    parts = dotted.split(".")
+    return ".".join(parts[-2:]) if len(parts) > 1 else dotted
+
+
+def _persona_name(persona: Any) -> str:
+    """A persona is a library name or an inline block; both must render."""
+    if isinstance(persona, str):
+        return persona
+    if isinstance(persona, Mapping):
+        name = str(persona.get("name") or "inline")
+        # Whether the doctor sees the AI, and on what terms, is the most consequential
+        # thing about a persona — and an inline one need not say so in its name, so
+        # "inline" alone would tell the reader nothing.
+        if persona.get("sees_ai") is False:
+            return name if name.startswith("solo") else f"{name}/solo"
+        trust = persona.get("trust")
+        if isinstance(trust, Mapping) and trust.get("kind"):
+            return f"{name}/{trust['kind']}"
+        return name
+    return "?"
+
+
+def _describe_study(artifact: Artifact) -> str:
+    study = artifact.payload.get("study", {})
+    if not isinstance(study, Mapping):
+        return ""
+    bits: list[str] = []
+    factors = study.get("factors", {})
+    if isinstance(factors, Mapping) and factors:
+        if len(factors) <= _MAX_LISTED_FACTORS:
+            bits.append(
+                ", ".join(f"{_short_path(k)}x{len(v)}" for k, v in factors.items())
+            )
+        else:
+            cells = 1
+            for levels in factors.values():
+                cells *= max(1, len(levels))
+            bits.append(f"{len(factors)} factors, {cells} cells")
+    reps = study.get("replications") or []
+    if len(reps) > 1:
+        bits.append(f"{len(reps)} seeds")
+    baseline = study.get("baseline")
+    if isinstance(baseline, Mapping) and baseline:
+        # Without a baseline there are no paired contrasts, so its presence changes
+        # what the artefact can answer, not merely how it was configured.
+        bits.append("vs " + ", ".join(str(v) for v in baseline.values()))
+    return " · ".join(bits)
+
+
+def _describe_run(artifact: Artifact) -> str:
+    scenario = artifact.scenario
+    bits: list[str] = []
+    generator = scenario.get("patient_generator")
+    if isinstance(generator, Mapping) and generator.get("n_patients"):
+        bits.append(f"{generator['n_patients']} pt")
+    ai = scenario.get("ai")
+    if isinstance(ai, Mapping) and ai.get("kind"):
+        bits.append(str(ai["kind"]))
+    if "persona" in scenario:
+        bits.append(_persona_name(scenario["persona"]))
+    sort = scenario.get("sort")
+    if isinstance(sort, Mapping) and sort.get("kind"):
+        bits.append(str(sort["kind"]))
+    # Which optional modules were configured. Two runs identical apart from a difficulty
+    # model are not comparable in the way their shared name suggests, so the flags earn
+    # their space.
+    meta = artifact.payload.get("metadata", {})
+    flags = [
+        short
+        for key, short in (
+            ("difficulty_model", "diff"),
+            ("fatigue_curve", "fatigue"),
+            ("severity_model", "sev"),
+        )
+        if isinstance(meta, Mapping) and meta.get(key) not in (None, "none", "")
+    ]
+    if flags:
+        bits.append("+" + " +".join(flags))
+    return " · ".join(bits)
+
+
+def describe(artifact: Artifact) -> str:
+    """One line saying what is *in* an artefact — its content, not its filename."""
+    return _describe_study(artifact) if artifact.kind == "study" else _describe_run(artifact)
 
 
 def _classify(payload: Mapping[str, Any]) -> str | None:
