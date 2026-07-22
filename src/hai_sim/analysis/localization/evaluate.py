@@ -6,17 +6,20 @@ threshold, the member aggregation, or the split, and the whole
 `ComponentValidationReport` recomputes in seconds — the same way `measures_from_cache`
 re-derives every uncertainty measure from cached probabilities.
 
-- **labels**: the ensemble prediction is the nan-mean of the per-member
-  probabilities thresholded at ``threshold``; confusion is scored vs the expert
-  ``ground_truth`` (``-1`` entries skipped).
-- **localization**: each instance's per-member Grad-CAM is reconstructed from the
-  cached feature maps + head weights (`cam.cam_from_features`), aggregated
-  (``mean``/``max``), upsampled to the mask resolution, and scored by each metric.
-  Instances whose label no ensemble member covers are skipped entirely (every
-  metric, not just the overlap ones), so the pointing-game denominator never
-  silently includes findings the model cannot localize — matching what the live
-  `LocalizationValidator` now does (it skips the all-NaN saliency map of a
-  non-localizable label).
+- `per_instance_localization` reconstructs each localized finding's Grad-CAM from the
+  cached feature maps + head weights (`cam.cam_from_features`), aggregates the members
+  (``mean``/``max``), upsamples to the mask resolution and scores it against the expert
+  mask — returning **one record per finding**, the raw material for both aggregation and
+  cross-analyses such as localization-versus-uncertainty.
+- `evaluate_from_cache` groups those into the per-pathology + pooled
+  `ComponentValidationReport`, and adds the label block: the ensemble prediction is the
+  nan-mean of the per-member probabilities thresholded at ``threshold``, scored against
+  the expert ``ground_truth`` (``-1`` entries skipped).
+
+Instances whose label no ensemble member covers are skipped entirely (every metric, not
+just the overlap ones), so the pointing-game denominator never silently includes findings
+the model cannot localize — matching what the live `LocalizationValidator` does (it skips
+the all-NaN saliency map of a non-localizable label).
 
 Fidelity note: by default this path matches the live validator exactly — it scores at
 ``cache.mask_resolution`` (default 224) from float32 feature maps, the same geometry and
@@ -44,26 +47,31 @@ if TYPE_CHECKING:
     from hai_sim.core.protocols import LocalizationMetric
 
 
-def evaluate_from_cache(
+def _ensemble_predicted(cache: LocalizationCache, threshold: float) -> np.ndarray:
+    """``(N, L)`` int: ensemble mean probability thresholded (uncovered -> 0)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)  # all-NaN member columns
+        probs = np.nanmean(cache.member_probs, axis=1)  # (N, L)
+    predicted: np.ndarray = (np.nan_to_num(probs, nan=0.0) >= threshold).astype(int)
+    return predicted
+
+
+def per_instance_localization(
     cache: LocalizationCache,
     *,
     metrics: Sequence[LocalizationMetric] | None = None,
     threshold: float = 0.5,
     member_aggregation: str = "mean",
     split: str | None = None,
-    model_name: str = "cached",
-) -> ComponentValidationReport:
-    """Derive a `ComponentValidationReport` from a cache without touching the model."""
+) -> tuple[np.ndarray, list[dict[str, Any]]]:
+    """One record per localized finding: its Grad-CAM scored against the expert mask.
+
+    Returns ``(predicted, records)`` where ``predicted`` is the ``(N, L)`` label
+    matrix and each record is ``{image_row, label, label_name, predicted, scores}``.
+    """
     metric_list = tuple(metrics) if metrics is not None else default_metrics()
-    metric_names = [m.name for m in metric_list]
-    labels = cache.pathologies
     resolution = cache.mask_resolution
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)  # all-NaN member columns
-        probs = np.nanmean(cache.member_probs, axis=1)  # (N, L) ensemble mean prob
-    predicted = (np.nan_to_num(probs, nan=0.0) >= threshold).astype(int)  # (N, L)
-
+    predicted = _ensemble_predicted(cache, threshold)
     split_arr = np.asarray(cache.split)
     selected = np.ones(cache.n_images, dtype=bool) if split is None else (split_arr == split)
     aggregate = np.max if member_aggregation == "max" else np.mean
@@ -74,17 +82,12 @@ def evaluate_from_cache(
     for k in range(cache.n_instances):
         instances_by_image[int(cache.inst_image[k])].append(k)
 
-    loc_by_image: dict[int, list[dict[str, Any]]] = {}
+    records: list[dict[str, Any]] = []
     for image_row, instance_ks in instances_by_image.items():
         if not selected[image_row]:
             continue
-        member_a: list[np.ndarray] = []
-        member_pos: list[np.ndarray] = []
-        for m in range(cache.n_members):
-            a = np.asarray(cache.feature_maps[image_row, m], dtype=np.float32)
-            member_a.append(a)
-            member_pos.append((a > 0).mean(axis=(1, 2)))
-
+        member_a = [np.asarray(cache.feature_maps[image_row, m], dtype=np.float32) for m in range(cache.n_members)]
+        member_pos = [(a > 0).mean(axis=(1, 2)) for a in member_a]
         for k in instance_ks:
             label = int(cache.inst_label[k])
             member_cams = [
@@ -93,14 +96,41 @@ def evaluate_from_cache(
                 if bool(cache.member_covers[m, label])
             ]
             if not member_cams:
-                continue  # no member covers this label -> not localizable, skip entirely
+                continue  # no member covers this label -> not localizable, skip
             cam = bilinear_upsample(aggregate(member_cams, axis=0), resolution)
             mask = np.asarray(cache.inst_mask[k], dtype=bool)
-            scores = {mtr.name: float(mtr.score(cam, mask)) for mtr in metric_list}
-            loc_by_image.setdefault(image_row, []).append(
-                {"label": label, "predicted": int(predicted[image_row, label]), "scores": scores}
+            records.append(
+                {
+                    "image_row": image_row,
+                    "label": label,
+                    "label_name": cache.pathologies[label],
+                    "predicted": int(predicted[image_row, label]),
+                    "scores": {m.name: float(m.score(cam, mask)) for m in metric_list},
+                }
             )
+    return predicted, records
 
+
+def report_from_instances(
+    cache: LocalizationCache,
+    predicted: np.ndarray,
+    instances: list[dict[str, Any]],
+    *,
+    metric_names: list[str],
+    split: str | None = None,
+    model_name: str = "cached",
+    member_aggregation: str = "mean",
+    threshold: float = 0.5,
+) -> ComponentValidationReport:
+    """Group per-instance records into a `ComponentValidationReport` (shared by the
+    CLI evaluator and the dashboard, so both compute the Grad-CAMs only once)."""
+    loc_by_image: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for rec in instances:
+        loc_by_image[rec["image_row"]].append(
+            {"label": rec["label"], "predicted": rec["predicted"], "scores": rec["scores"]}
+        )
+    split_arr = np.asarray(cache.split)
+    selected = np.ones(cache.n_images, dtype=bool) if split is None else (split_arr == split)
     records: list[dict[str, Any]] = []
     for image_row in range(cache.n_images):
         if not selected[image_row]:
@@ -112,13 +142,42 @@ def evaluate_from_cache(
                 "loc": loc_by_image.get(image_row, []),
             }
         )
-
     return assemble_report(
         records,
-        labels,
+        cache.pathologies,
         metric_names,
         model=model_name,
         dataset=cache.dataset,
         saliency=f"grad_cam({member_aggregation})",
         decision_threshold=threshold,
+    )
+
+
+def evaluate_from_cache(
+    cache: LocalizationCache,
+    *,
+    metrics: Sequence[LocalizationMetric] | None = None,
+    threshold: float = 0.5,
+    member_aggregation: str = "mean",
+    split: str | None = None,
+    model_name: str = "cached",
+) -> ComponentValidationReport:
+    """Derive a `ComponentValidationReport` from a cache without touching the model."""
+    metric_list = tuple(metrics) if metrics is not None else default_metrics()
+    predicted, instances = per_instance_localization(
+        cache,
+        metrics=metric_list,
+        threshold=threshold,
+        member_aggregation=member_aggregation,
+        split=split,
+    )
+    return report_from_instances(
+        cache,
+        predicted,
+        instances,
+        metric_names=[m.name for m in metric_list],
+        split=split,
+        model_name=model_name,
+        member_aggregation=member_aggregation,
+        threshold=threshold,
     )
