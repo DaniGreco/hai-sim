@@ -794,6 +794,33 @@ Two more Protocols live in `metrics/`:
 | `KPIBundle` (`metrics/registry.py`) | `compute(records) → Any` | `SystemBundle`, `ActorsBundle`, `TeamBundle`, `JointTableBundle` — **plus anything you reference from a scenario as `file.py:Attribute`** |
 | `Grouping` (`metrics/slicing.py`) | `split(records) → [RecordSlice]` | `ValueGrouping`, `LabelGrouping` |
 
+### Browsing results — `hai-sim ui`
+
+```bash
+uv pip install -e ".[ui]"
+hai-sim ui                     # http://localhost:8501, reads out/
+hai-sim ui --out-dir out/other --port 8600
+```
+
+A Streamlit page over whatever is already in the output directory. It **reads only**:
+it never simulates, and it never writes into a run's output. Four tabs, each answering
+something the terminal answers badly:
+
+| Tab | Question |
+|---|---|
+| **Explore** | what did this sweep do? — pick a metric and two factors, get a chart |
+| **Contrasts** | did the arm actually beat the baseline? — paired deltas with intervals, read as *does it clear zero* |
+| **Signals** | what did the signal plane produce? — per-read distributions of `sig.difficulty`, `sig.fatigue`, `load.*` |
+| **Compare** | two runs disagree — *what was different about them?* — a configuration diff beside the metric deltas |
+
+Artefacts are classified by their **content**, not their filename, so a renamed or
+hand-named file still shows up; unreadable JSON in the directory is skipped rather than
+being allowed to stop the page.
+
+The split is deliberate: `ui/results.py` holds every reshaping decision, has no
+Streamlit import and is covered by the normal test suite; `ui/app.py` is widgets and
+layout only. A future front end reuses the first and replaces the second.
+
 ### Module map — `src/hai_sim/`
 
 ```

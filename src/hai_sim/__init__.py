@@ -75,9 +75,15 @@ complementarity argument turns on, and it is a knob only once this plane exists.
 WHERE TO START
 --------------
     hai-sim run configs/examples/v0_smoke_hybrid.yaml     a complete run in one second
+    hai-sim ui                                            browse what previous runs left
     GLOSSARY.md                                           every acronym, defined once
     README.md                                             every knob and every metric
     ../TESI.md                                            why any of it is arranged so
+
+``hai-sim ui`` opens a result browser (optional ``[ui]`` extra). It **reads only** — it
+never simulates and never writes into a run's output. A result is reproducible because a
+YAML and a seed produced it, so the browser's job is to show that file next to its
+numbers, not to become a way of getting numbers without one.
 
 Reading the code in pipeline order: ``sim/patient_generator.py`` → ``models/`` →
 ``sort/`` → ``doctors/`` → ``metrics/``, with ``sim/engine.py`` as the spine that runs
