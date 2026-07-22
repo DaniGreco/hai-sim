@@ -34,6 +34,11 @@ models = [
     "torchxrayvision>=1.2",
     "scikit-image>=0.22",
     "kagglehub>=0.3",
+    # MedGemma (generative vision-language reader). 4.50 is the floor its model card
+    # states; the weights themselves are gated and must be accepted on Hugging Face.
+    "transformers>=4.50",
+    "accelerate>=0.30",
+    "pillow>=10.0",
 ]
 # Offline analysis / plotting (inference cache → error-capture curves).
 analysis = [
@@ -74,6 +79,7 @@ module = [
     "torch.*",
     "torchvision.*",
     "torchxrayvision.*",
+    "transformers.*",
     "skimage.*",
     "kagglehub.*",
     "matplotlib.*",

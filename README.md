@@ -274,9 +274,68 @@ the dataset-agnostic path without torch:
 
 ```yaml
 ai:
-  kind: random_mock | torchxrv | cached    # default random_mock
+  kind: random_mock | torchxrv | medgemma | cached   # default random_mock
   service_time: 0.05                       # float >= 0, SIM-time per inference (not wall-clock)
 ```
+
+| kind | what it is |
+|---|---|
+| `random_mock` | guesses; for wiring tests only |
+| `torchxrv` | a pre-trained convolutional classifier, one weight set or a Deep Ensemble |
+| `medgemma` | a **generative** medical vision-language model — see below |
+| `cached` | replays an `InferenceCache` built by either real backend |
+
+#### `kind: medgemma` — a generative model as the reader
+
+MedGemma emits *text*, not a probability per pathology, so a **readout** elicits one.
+Which readout you pick is a modelling choice, not a parsing detail:
+
+```yaml
+ai:
+  kind: medgemma
+  model_id: google/medgemma-1.5-4b-it   # 1.5 exists only at 4B
+  readout: independent_question          # the default; see the table below
+  prompt_set: single                     # | triple — paraphrases become ensemble members
+  uq: entropy                            # `ensemble` only makes sense with prompt_set: triple
+  dtype: auto                            # float32 on CPU; bfloat16 emulation is slow off-GPU
+```
+
+| readout | how the number is obtained | verdict |
+|---|---|---|
+| `independent_question` **(default)** | one question per pathology, each branching off a *shared* reading of the image, so no answer can see another | **use this** |
+| `teacher_forced_logprob` | one forced yes/no checklist covering every pathology | **superseded — do not produce results with it**, see below |
+| `generated_json` | parses the confidences the model writes down | a number the model found plausible to emit, *not* a probability it holds — a deliberate contrast, useful to quantify the difference |
+
+⚠️ **Why the checklist was abandoned, measured rather than assumed.** A checklist is one
+sequence, so the answer at position *k* is conditioned on the answers forced before it.
+On real NIH chest X-rays that dependence dominated the image: forcing all-yes versus
+all-no moved the mean answer from **0.875 to 0.099** (mean absolute gap 0.78 on a 0–1
+scale), the gap correlated **+0.48 with position**, and position 0 — the only slot with
+nothing before it — came out **identical** under both fillers. Averaging the two
+polarities does not rescue it: the midpoint of two artefacts is not a measurement.
+
+`independent_question` removes the dependence by construction. The cost objection is
+answered by sharing work rather than by tolerating contamination: encoding the image
+(896×896 → 256 tokens) and the instruction is nearly all the compute and is identical for
+every question, so the backend runs that prefix **once** and rewinds its key-value cache
+between questions. Eighteen independent questions cost roughly one and a half passes.
+
+**Resolution is per-model.** `patient_generator.resize` defaults to 224 (what the
+DenseNet was trained at); the MedGemma example sets **896** (what MedGemma encodes at).
+Serving one model the other's resolution measures it outside its training distribution,
+so a comparison of *capability* gives each backend its own — and a write-up should say
+that is what it did.
+
+`prompt_set: triple` asks the same image three ways and treats the answers as ensemble
+members, so `EnsembleUQ` splits aleatoric from epistemic exactly as it does for a Deep
+Ensemble — the generative analogue of member disagreement, at 3× the inference cost.
+
+⚠️ **Gated, and slow on CPU.** Accept the Health AI Developer Foundations terms on
+Hugging Face and `huggingface-cli login` first. One forward pass of the 4B model takes
+tens of seconds on a CPU, so **build a cache once and replay it** rather than running
+this backend inside a simulation — see `configs/examples/v2_medgemma_nih.yaml`. A
+MedGemma cache is an ordinary `InferenceCache`, so every study and metric works on it
+unchanged.
 
 `service_time` is the *simulated* cost of one inference. It does not change predictions —
 only queueing dynamics.
@@ -779,13 +838,41 @@ every pathology. Binary entropy in nats.
 
 | script | purpose |
 |---|---|
-| `build_inference_cache.py` | run the ensemble once over a dataset → per-member probabilities (checkpointed, resumable) |
+| `build_inference_cache.py` | run **any** real backend once over a dataset → per-member probabilities (checkpointed, resumable). The scenario's `ai.kind` picks the backend |
+| `compare_models.py` | **compare several AI readers on the same images** — see below |
 | `build_localization_cache.py` | forward-only feature maps (~2.8 GB fp32) for offline Grad-CAM |
 | `calibrate.py` | per-pathology thresholds (recall-target and cost-weighted), held-out evaluation |
 | `compare_aggregator.py` | mean vs max triage collapse |
 | `compare_single_vs_ensemble.py` | single model vs Deep Ensemble |
 | `plot_dashboard.py` | the RQ1 figures |
 | `download_nih_sample.py` / `download_chestxdet.py` / `download_reader_labels.py` | data |
+
+#### Comparing models of different natures
+
+`scripts/compare_models.py` puts several caches side by side, matched image by image and
+pathology by pathology, and renders four figures that a single accuracy number cannot
+separate. A convolutional ensemble and a generative model sit in the same figure.
+
+```bash
+# one ensemble member against the ensemble it belongs to (needs only the NIH cache)
+python scripts/compare_models.py \
+    --cache "data/cache/nih_ensemble#0" --name "DenseNet (NIH)" \
+    --cache "data/cache/nih_ensemble"   --name "Deep Ensemble (5)"
+```
+
+Append `#i` (or `#i,j`) to a stem to use only those members, which is how one cache
+supplies more than one model.
+
+| figure | the question it answers |
+|---|---|
+| `discrimination.png` | per-pathology AUROC — does it *rank* positives above negatives? |
+| `calibration.png` | of the cases it called 0.8, were ~80% positive? Independent of ranking, and where a generative model is expected to look worst |
+| `error_overlap.png` | **do two models fail on the same cases?** Composition plus Cohen's κ. A pair only beats its members where their mistakes differ, so this is the substrate of the whole complementarity argument (`../TESI.md` §5) — measured rather than assumed |
+| `error_capture.png` | does the model's own uncertainty rank its errors to the front? The premise triage rests on |
+
+On the current NIH cache the calibration figure already reports both the single model and
+the 5-member ensemble at ECE ≈ 0.26 — badly over-confident — which is the empirical form
+of the calibration debt `../TESI.md` §8.2 flags as blocking for log-odds fusion.
 
 ---
 

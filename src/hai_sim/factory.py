@@ -105,6 +105,37 @@ def build_ai(
             device=cfg.device,
             emit_embedding=emit_embedding,
         )
+    if cfg.kind == "medgemma":
+        from hai_sim.models.medgemma import MedGemmaAI
+        from hai_sim.models.readout import (
+            GeneratedJsonReadout,
+            IndependentQuestionReadout,
+            LabelReadout,
+            TeacherForcedLogprobReadout,
+        )
+        from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
+
+        readout: LabelReadout
+        if cfg.readout == "generated_json":
+            readout = GeneratedJsonReadout()
+        elif cfg.readout == "teacher_forced_logprob":
+            readout = TeacherForcedLogprobReadout(both_polarities=cfg.both_polarities)
+        else:
+            readout = IndependentQuestionReadout()
+        # One prompt yields one member, so member disagreement does not exist and only
+        # entropy of the model's own probability is available; several prompts do.
+        uq = EnsembleUQ(measure=cfg.ensemble_measure) if cfg.uq == "ensemble" else EntropyUQ()
+        return MedGemmaAI(
+            schema=schema,
+            model_id=cfg.model_id,
+            readout=readout,
+            prompt_set=cfg.prompt_set,
+            uq=uq,
+            decision_threshold=cfg.decision_threshold,
+            service_time=cfg.service_time,
+            device=cfg.device,
+            dtype=cfg.dtype,
+        )
     if cfg.kind == "cached":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.models.cached import CachedEnsembleAI
@@ -280,8 +311,12 @@ def build_xrv_dataset(cfg: PatientGenConfig) -> Any:
 
     if cfg.imgpath is None:
         raise ValueError("patient_generator.imgpath is required for kind=xrv_dataset")
+    # Resolution is a per-model property, not a dataset constant: the DenseNet was
+    # trained at 224, MedGemma encodes at 896. Serving 224 to both would compare them on
+    # pixels one of them never saw in training, so each backend gets its own resolution
+    # and the scenario says which.
     transform = torchvision.transforms.Compose(
-        [xrv.datasets.XRayCenterCrop(), xrv.datasets.XRayResizer(224)]
+        [xrv.datasets.XRayCenterCrop(), xrv.datasets.XRayResizer(cfg.resize)]
     )
     common = {"imgpath": cfg.imgpath, "transform": transform}
     if cfg.dataset == "nih":

@@ -23,10 +23,13 @@ from pathlib import Path
 
 import numpy as np
 
-from hai_sim.analysis.inference_cache import InferenceCache, build_inference_cache
+from hai_sim.analysis.inference_cache import (
+    CacheableModel,
+    InferenceCache,
+    build_inference_cache,
+)
 from hai_sim.config.scenario import load_scenario
-from hai_sim.factory import build_label_schema, build_xrv_dataset
-from hai_sim.models.torchxrv import TorchXRayVisionAI
+from hai_sim.factory import build_ai, build_label_schema, build_xrv_dataset
 
 
 def _select_indices(n_dataset: int, limit: int, sample: str, seed: int) -> list[int]:
@@ -80,16 +83,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     dataset = build_xrv_dataset(pg)
     device = args.device or scenario.ai.device
-    print(f"loading ensemble {scenario.ai.weights} on {device} ...", flush=True)
-    model = TorchXRayVisionAI(schema=schema, weights=scenario.ai.weights, device=device)
+    # Any backend that can score an image several times over: a Deep Ensemble's weight
+    # sets, or a generative model's prompt paraphrases. Built through the factory so the
+    # scenario's `ai.kind` is the only thing that decides which one, exactly as in a run.
+    ai_cfg = scenario.ai.model_copy(update={"device": device})
+    print(f"loading AI backend (kind={ai_cfg.kind}) on {device} ...", flush=True)
+    model = build_ai(ai_cfg, schema, np.random.default_rng(scenario.seed))
+    if not isinstance(model, CacheableModel):
+        print(
+            f"[error] ai.kind={ai_cfg.kind} cannot be cached: it exposes no member "
+            "probabilities. Use torchxrv or medgemma."
+        )
+        return 2
 
     seed = args.seed if args.seed is not None else scenario.seed
     target = _select_indices(len(dataset), args.limit, args.sample, seed)
     out_stem = Path(args.out)
     # Composition signature: dataset indices are only meaningful for this exact
     # filtering, so a differently-filtered cache must never be resumed into.
+    # Resolution is part of it because it changes what the model was shown, not just how
+    # many images there were: silently extending a 224-pixel cache with 896-pixel rows
+    # would leave one cache holding two different experiments.
     fingerprint = (
-        f"{pg.dataset}|views={','.join(pg.views)}|unique={pg.unique_patients}|ndata={len(dataset)}"
+        f"{pg.dataset}|views={','.join(pg.views)}|unique={pg.unique_patients}"
+        f"|resize={pg.resize}|ndata={len(dataset)}"
     )
 
     # Resume: reuse a compatible cache at the same stem unless --fresh was passed.
@@ -97,14 +114,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.fresh and out_stem.with_suffix(".npz").exists():
         prior = InferenceCache.load(out_stem)
         if (
-            prior.weights != tuple(model.weight_list)
+            prior.weights != tuple(model.member_names)
             or prior.pathologies != tuple(schema.labels)
             or prior.dataset != pg.dataset
             or (prior.dataset_fingerprint and prior.dataset_fingerprint != fingerprint)
         ):
             print(
                 f"[error] existing cache {out_stem}.npz is incompatible "
-                f"(weights/pathologies/dataset/views differ).\n"
+                f"(members/pathologies/dataset/views/resolution differ).\n"
                 f"  existing: {prior.dataset_fingerprint!r}\n"
                 f"  current : {fingerprint!r}\n"
                 "  Use --fresh or a different --out."

@@ -101,6 +101,16 @@ Ordered by what you meet first when reading the pipeline, not alphabetically.
 
 | Term | Meaning |
 |---|---|
+| **MedGemma** | A medical vision-language model (Google): an image encoder bolted to a Gemma language model, trained on medical images and text. It answers in prose, which is why it needs a *readout*. Version 1.5 exists only at 4 billion parameters; the 27B is the earlier MedGemma 1, so comparing them varies generation as well as size. |
+| **Vision-language model** | A model that takes an image and text together and produces text. Compare a **classifier**, which produces one number per class and nothing else. |
+| **Readout** | How a probability per pathology is extracted from a model that emits text. Not a parsing detail — different readouts elicit genuinely different quantities from the same model. |
+| **Teacher forcing** | Feeding a model the answer you want it to have written and asking what probability it assigned there, instead of letting it generate. One forward pass, and an answer for every question — but everything forced earlier in the sequence conditions everything after it, which is why the checklist readout was abandoned. |
+| **Key-value (KV) cache** | What a language model remembers about the tokens it has already read, so it need not re-read them. Reusing it across several questions about the same image is what makes asking them one at a time affordable; **rewinding** it between questions is what keeps the answers independent. |
+| **Shared prefix** | The part of a prompt identical across many queries — here the image plus the instruction, which is nearly all the compute. Run once, reused by every question. |
+| **Logit / log-probability** | The model's raw score for a token before, and after, normalising into a probability. Reading logits is how a yes/no answer becomes a number. |
+| **Prompt ensemble** | Asking the same image several differently-worded questions and treating the answers as ensemble members. Where the wordings agree the model is genuinely sure; where a paraphrase flips the answer it is not. The generative stand-in for a Deep Ensemble. |
+| **ECE** — expected calibration error | Average gap between stated probability and observed frequency, weighted by how many cases fall in each band. 0 = perfectly calibrated. |
+| **κ (kappa)** — Cohen's kappa | Agreement between two judgements, corrected for the agreement expected by chance. Used here on two models' *error* indicators: κ near 0 = they fail on unrelated cases (so pairing them can help), κ high = they fail together (so it cannot). |
 | **Grad-CAM / CAM** — (gradient-weighted) class activation map | A heatmap of where in the image a network looked when predicting a label. Used to check the model attends to the right anatomy. |
 | **IoU / Dice** | Two ways to score overlap between a predicted region and an expert's outline. IoU = intersection / union; Dice = 2·intersection / (sum of areas). |
 | **Pointing game** | A laxer localization check: does the heatmap's hottest point fall inside the expert's outline at all? |

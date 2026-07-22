@@ -14,7 +14,7 @@ class _Strict(BaseModel):
 
 
 class AIModelConfig(_Strict):
-    kind: Literal["random_mock", "torchxrv", "cached"] = "random_mock"
+    kind: Literal["random_mock", "torchxrv", "cached", "medgemma"] = "random_mock"
     service_time: float = 0.05
     # cached params: replay an inference cache (real ensemble predictions, no re-inference).
     # Reuses uq / ensemble_measure / decision_threshold below.
@@ -32,6 +32,25 @@ class AIModelConfig(_Strict):
     ] = "mutual_information"
     decision_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     device: str = "cpu"
+    # medgemma params — a generative vision-language model as the AI reader.
+    # `readout` is how a probability is elicited from a model that emits text:
+    #   independent_question   → one question per pathology off a shared reading of the
+    #                            image. THE DEFAULT: the alternatives below let the
+    #                            answers contaminate each other.
+    #   teacher_forced_logprob → one forced checklist. Superseded — measured to be
+    #                            dominated by its own filler (see readout.py). Diagnostic
+    #                            only; do not produce results with it.
+    #   generated_json         → parse the confidences the model writes down (NOT the
+    #                            same quantity; kept as a deliberate contrast)
+    # `prompt_set` names a set of paraphrases used as ensemble members: `single` is one
+    # pass, `triple` gives member disagreement for an epistemic estimate at 3x the cost.
+    model_id: str = "google/medgemma-1.5-4b-it"
+    readout: Literal[
+        "independent_question", "teacher_forced_logprob", "generated_json"
+    ] = "independent_question"
+    prompt_set: Literal["single", "triple"] = "single"
+    both_polarities: bool = False
+    dtype: str = "auto"
 
 
 class CapabilityConfig(_Strict):
@@ -156,6 +175,12 @@ class PatientGenConfig(_Strict):
     views: tuple[str, ...] = ("PA",)
     # Keep one image per patient (xrv default) → statistically independent samples.
     unique_patients: bool = True
+    # Square side the images are resized to after centre-cropping. **This is a per-model
+    # property, not a dataset constant**: the TorchXRayVision DenseNet was trained at 224,
+    # MedGemma encodes at 896. Feeding one model the other's resolution measures it
+    # outside its training distribution, so a comparison of *capability* gives each
+    # backend its own value and says so.
+    resize: int = Field(default=224, gt=0)
 
 
 class KPIGroupConfig(_Strict):
