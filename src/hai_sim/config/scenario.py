@@ -39,8 +39,20 @@ class CalibrationConfig(_Strict):
 
 
 class AIModelConfig(_Strict):
-    kind: Literal["random_mock", "torchxrv", "cached", "medgemma"] = "random_mock"
+    kind: Literal["random_mock", "torchxrv", "cached", "medgemma", "fixed_accuracy"] = (
+        "random_mock"
+    )
     service_time: float = 0.05
+    # fixed_accuracy params: a synthetic signal-detection AI whose skill is a dial, for the
+    # "AI performs well — is it trusted?" study (§3, RQ3). Give `d_prime` to set skill
+    # directly (the natural quality-sweep axis) or a `sensitivity`/`specificity` operating
+    # point; `prior` is the base rate its calibrated belief assumes. Needs the patient
+    # generator's `embed_truth` so the synthetic reader can see the case it is scoring.
+    d_prime: float | tuple[float, ...] | None = None
+    criterion: float | tuple[float, ...] | None = None
+    sensitivity: float | tuple[float, ...] = 0.9
+    specificity: float | tuple[float, ...] = 0.9
+    prior: float | tuple[float, ...] = 0.5
     # cached params: replay an inference cache (real ensemble predictions, no re-inference).
     # Reuses uq / ensemble_measure / decision_threshold below.
     cache_stem: str | None = None
@@ -109,12 +121,20 @@ class ServiceTimeConfig(_Strict):
 class CapabilityConfig(_Strict):
     """A persona's capability = the reader's own, AI-unaided diagnostic ability."""
 
-    kind: Literal["fixed_accuracy", "random_mock"] = "fixed_accuracy"
+    kind: Literal["fixed_accuracy", "random_mock", "sdt"] = "fixed_accuracy"
     service_time_mu: float = 2.5
     service_time_sigma: float = 0.4
-    # fixed_accuracy params (scalar applied to all labels, or per-label vector)
+    # fixed_accuracy / sdt params (scalar applied to all labels, or per-label vector).
+    # `fixed_accuracy` keeps or flips each label on a fixed-bias coin; `sdt` is the
+    # signal-detection observer of §8.1, whose belief varies case by case (so an
+    # integration policy becomes a curve, not a step). For `sdt`, capability is set either
+    # by `d_prime` (the SDT-native skill axis) or by the sens/spec operating point below,
+    # and `prior` is the base rate its belief is calibrated to.
     sensitivity: float | tuple[float, ...] = 0.9
     specificity: float | tuple[float, ...] = 0.9
+    d_prime: float | tuple[float, ...] | None = None
+    criterion: float | tuple[float, ...] | None = None
+    prior: float | tuple[float, ...] = 0.5
     # random_mock params
     alpha_conf: float = 5.0
     beta_conf: float = 2.0
@@ -324,6 +344,10 @@ class PatientGenConfig(_Strict):
     # poisson / mock_dataset params (synthetic)
     prevalence: float | tuple[float, ...] = 0.2
     image_shape: tuple[int, ...] = (1, 1)
+    # poisson only: write the case's true label vector into the "image" so a synthetic AI
+    # (ai.kind=fixed_accuracy) can read the case it scores without the engine handing the
+    # AI stage a ground truth a real model must never see.
+    embed_truth: bool = False
     # mock_dataset params: size of the synthetic Dataset pool (n_patients are drawn from it)
     n_examples: int = Field(default=100, gt=0)
     # xrv_dataset params
@@ -369,7 +393,7 @@ class KPIGroupConfig(_Strict):
 class ScenarioConfig(_Strict):
     name: str = "unnamed"
     seed: int = 0
-    label_schema: Literal["default_v0", "chexpert", "xrv"] = "default_v0"
+    label_schema: Literal["default_v0", "single", "chexpert", "xrv"] = "default_v0"
     label_view: LabelViewConfig | None = None
     patient_generator: PatientGenConfig
     ai: AIModelConfig

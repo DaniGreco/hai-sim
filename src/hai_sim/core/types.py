@@ -46,6 +46,17 @@ class LabelSchema:
         return cls(labels=("L0", "L1", "L2", "L3", "L4"))
 
     @classmethod
+    def single(cls) -> LabelSchema:
+        """One label — the single-target study frame of ``../TESI.md`` §9.
+
+        A synthetic single-finding task, aligned with classical signal detection theory
+        (one binary target) and the cleanest frame for a trust study, where a
+        multi-label doctor only muddies whether the AI was heeded on *this* call. Named
+        ``Finding`` rather than a real pathology because it is a controlled abstraction,
+        not a clinical claim."""
+        return cls(labels=("Finding",))
+
+    @classmethod
     def chexpert(cls) -> LabelSchema:
         return cls(
             labels=(
