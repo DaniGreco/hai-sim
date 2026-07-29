@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+QualityMetric = Literal["laplacian_var", "intensity_std"]
+"""Image-quality proxy shared by the severity and difficulty image-quality models."""
 
 
 class _Strict(BaseModel):
@@ -214,7 +217,7 @@ class SeverityConfig(_Strict):
     aggregator: Literal["mean", "max", "sum"] = "max"
     mode: Literal["scalar", "vector"] = "scalar"
     # image_quality
-    quality_metric: Literal["laplacian_var", "intensity_std"] = "laplacian_var"
+    quality_metric: QualityMetric = "laplacian_var"
     # embedding
     embedding_reduce: Literal["l2_norm", "mean"] = "l2_norm"
 
@@ -255,7 +258,7 @@ class DifficultyConfig(_Strict):
     aggregator: Literal["mean", "max", "none"] = "mean"
     scale: float | None = None
     # image_quality
-    quality_metric: Literal["laplacian_var", "intensity_std"] = "laplacian_var"
+    quality_metric: QualityMetric = "laplacian_var"
     reference: float | None = None
     # table
     path: str | None = None
@@ -413,15 +416,8 @@ class ScenarioConfig(_Strict):
     # Optional conditioning axes: every selected bundle is computed once per subgroup
     # (per severity band, per load regime, per pathology, ...). Several axes cross.
     kpi_groups: tuple[KPIGroupConfig, ...] = ()
-    n_ai_workers: int = 1
-    n_doctor_workers: int = 1
-
-    @field_validator("n_ai_workers", "n_doctor_workers")
-    @classmethod
-    def _positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("must be >= 1")
-        return v
+    n_ai_workers: int = Field(default=1, ge=1)
+    n_doctor_workers: int = Field(default=1, ge=1)
 
 
 def load_scenario(path: Path) -> ScenarioConfig:

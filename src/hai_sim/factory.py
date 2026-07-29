@@ -637,14 +637,13 @@ def build_rngs(seed: int) -> dict[str, np.random.Generator]:
     arrival times move.
     """
     seed_seq = np.random.SeedSequence(seed)
-    children = seed_seq.spawn(6)
+    children = seed_seq.spawn(5)
     return {
         "patient": np.random.default_rng(children[0]),
         "ai": np.random.default_rng(children[1]),
         "doctor": np.random.default_rng(children[2]),
         "sort": np.random.default_rng(children[3]),
         "arrival": np.random.default_rng(children[4]),
-        "_reserved": np.random.default_rng(children[5]),
     }
 
 

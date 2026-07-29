@@ -133,9 +133,6 @@ def _module_name(module: object | None) -> str:
 @dataclass
 class SimulationResult:
     collector: MetricsCollector
-    sort_name: str
-    ai_name: str
-    doctor_name: str
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -311,9 +308,6 @@ class SimulationEngine:
 
         return SimulationResult(
             collector=collector,
-            sort_name=self.sort_strategy.name,
-            ai_name=self.ai.name,
-            doctor_name=self.doctor.name,
             metadata={
                 "sim_end_time": env.now,
                 "n_ai_workers": self.n_ai_workers,
