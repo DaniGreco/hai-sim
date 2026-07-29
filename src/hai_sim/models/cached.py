@@ -14,12 +14,13 @@ telemetry keeps the real image identity rather than a run-local counter.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.models._finalize import model_output_from_uq
 from hai_sim.uq.methods import EntropyUQ
 
 if TYPE_CHECKING:
@@ -76,21 +77,9 @@ class CachedEnsembleAI(BaseDiagnosticActor):
                 "AI and patient generator must load the same cache"
             )
         member_probs = np.asarray(self.cache.member_probs[idx], dtype=float)  # (M, L)
-        probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
-        probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
-        uncertainty = np.nan_to_num(np.asarray(uncertainty, dtype=float), nan=0.0)
-        labels = (probs >= self.decision_threshold).astype(int)
-        extra: dict[str, Any] = {
-            "uq_method": self.uq.name,
-            "cache_index": idx,
-            "image_id": context.example_id,
-            **uq_extra,
-        }
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in labels),
-                confidence=tuple(float(x) for x in probs),
-            ),
-            uncertainty=tuple(float(x) for x in uncertainty),
-            extra=extra,
+        return model_output_from_uq(
+            self.uq,
+            member_probs,
+            self.decision_threshold,
+            extra={"cache_index": idx, "image_id": context.example_id},
         )

@@ -7,7 +7,7 @@ Multi-label by default: every per-patient output is a vector of length
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
 
@@ -168,6 +168,34 @@ class ModelOutput:
                 f"uncertainty (n={len(self.uncertainty)}) must match diagnosis "
                 f"labels (n={len(self.diagnosis.labels)})"
             )
+
+    @classmethod
+    def from_arrays(
+        cls,
+        labels: Sequence[int] | np.ndarray,
+        confidence: Sequence[float] | np.ndarray,
+        uncertainty: Sequence[float] | np.ndarray,
+        *,
+        extra: dict[str, Any] | None = None,
+        embedding: np.ndarray | None = None,
+    ) -> ModelOutput:
+        """Build a `ModelOutput` from raw per-label arrays.
+
+        The single home of the ``tuple(int(...))`` / ``tuple(float(...))`` coercion
+        every actor performed by hand: an int-valued label vector, a float confidence
+        vector and a float uncertainty vector, in the canonical immutable form. Keeping
+        it here means the model and doctor wrappers share one int/float contract instead
+        of restating it at each construction site.
+        """
+        return cls(
+            diagnosis=Diagnosis(
+                labels=tuple(int(x) for x in labels),
+                confidence=tuple(float(x) for x in confidence),
+            ),
+            uncertainty=tuple(float(x) for x in uncertainty),
+            extra=extra if extra is not None else {},
+            embedding=embedding,
+        )
 
 
 @dataclass(frozen=True)

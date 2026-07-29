@@ -32,7 +32,7 @@ import numpy as np
 
 from hai_sim import sdt
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
 from hai_sim.uq.methods import binary_entropy
 
 
@@ -62,8 +62,8 @@ class FixedAccuracyAI(BaseDiagnosticActor):
         self.rng = rng if rng is not None else np.random.default_rng()
         self.d_prime, self.criterion, self.prior = sdt.resolve_observer(
             schema.n,
-            d_prime=tuple(d_prime) if isinstance(d_prime, Sequence) else d_prime,
-            criterion=tuple(criterion) if isinstance(criterion, Sequence) else criterion,
+            d_prime=d_prime,
+            criterion=criterion,
             sensitivity=sensitivity,
             specificity=specificity,
             prior=prior,
@@ -91,11 +91,6 @@ class FixedAccuracyAI(BaseDiagnosticActor):
             prior=self.prior,
             rng=self.rng,
         )
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in call),
-                confidence=tuple(float(x) for x in belief),
-            ),
-            uncertainty=tuple(float(x) for x in binary_entropy(belief)),
-            extra={"_synthetic_ai": True},
+        return ModelOutput.from_arrays(
+            call, belief, binary_entropy(belief), extra={"_synthetic_ai": True}
         )

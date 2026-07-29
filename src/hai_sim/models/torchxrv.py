@@ -23,7 +23,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.models._finalize import model_output_from_uq
 from hai_sim.uq.methods import EntropyUQ
 
 if TYPE_CHECKING:
@@ -288,19 +289,6 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
             embedding = pool_embedding_from_feature_maps(feature_maps)
         else:
             member_probs = self.member_probabilities(images[0])
-        probs, uncertainty, uq_extra = self.uq.estimate(member_probs)
-        # A pathology no member covers comes back NaN → emit a benign negative.
-        probs = np.nan_to_num(np.asarray(probs, dtype=float), nan=0.0)
-        uncertainty = np.nan_to_num(np.asarray(uncertainty, dtype=float), nan=0.0)
-        labels = (probs >= self.decision_threshold).astype(int)
-
-        extra: dict[str, Any] = {"uq_method": self.uq.name, **uq_extra}
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in labels),
-                confidence=tuple(float(x) for x in probs),
-            ),
-            uncertainty=tuple(float(x) for x in uncertainty),
-            extra=extra,
-            embedding=embedding,
+        return model_output_from_uq(
+            self.uq, member_probs, self.decision_threshold, embedding=embedding
         )
