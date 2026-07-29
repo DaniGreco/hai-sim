@@ -620,7 +620,10 @@ def compute_report(
     actor_cache: dict[str, ActorKPIs] = {}
     for name in names:
         bundle = resolve_bundle(name)
-        if isinstance(bundle, (ActorsBundle, TeamBundle)):
+        # Exact-type check, not isinstance: only the built-ins accept the private
+        # ``_actor_cache`` kwarg, so a custom bundle that happens to subclass one of them
+        # (against the registry's no-inheritance contract) still takes the plain path.
+        if type(bundle) in (ActorsBundle, TeamBundle):
             report[bundle.name] = bundle.compute(records, _actor_cache=actor_cache)
         else:
             report[bundle.name] = bundle.compute(records)
