@@ -234,6 +234,24 @@ def _labels_for(record: PatientRecord, actor: Actor) -> tuple[int, ...]:
     raise ValueError(actor)
 
 
+_Cell = Literal["tp", "fp", "fn", "tn"]
+
+
+def _cell(pred: int, gt: int) -> _Cell | None:
+    """Confusion cell for one (prediction, ground-truth) pair.
+
+    ``None`` when the entry is unannotated (``gt == -1``) — every scorer skips those
+    rather than counting them as absent, because real CXR datasets only label a subset of
+    the model's pathologies. The single home of the TP/FP/FN/TN rule, shared by the
+    per-label counts and the joint contingency table.
+    """
+    if gt not in (0, 1):
+        return None
+    if pred == 1:
+        return "tp" if gt == 1 else "fp"
+    return "fn" if gt == 1 else "tn"
+
+
 def _per_label_counts(
     records: Sequence[PatientRecord], actor: Actor
 ) -> tuple[list[int], list[int], list[int], list[int]]:
@@ -249,22 +267,13 @@ def _per_label_counts(
     fp = [0] * n_labels  # predicted 1, truth 0 — false alarm
     fn = [0] * n_labels  # predicted 0, truth 1 — missed (clinically dangerous)
     tn = [0] * n_labels  # predicted 0, truth 0 — correctly cleared
+    buckets = {"tp": tp, "fp": fp, "fn": fn, "tn": tn}
     for r in records:
         pred = _labels_for(r, actor)
         for i, (p, g) in enumerate(zip(pred, r.ground_truth, strict=True)):
-            if g not in (0, 1):
-                # g == -1 → label not annotated in this dataset for this patient.
-                # Real CXR datasets (NIH, CheXpert) only label a subset of the
-                # model's pathologies, so we can't score these entries: skip them.
-                continue
-            if p == 1 and g == 1:
-                tp[i] += 1
-            elif p == 1 and g == 0:
-                fp[i] += 1
-            elif p == 0 and g == 1:
-                fn[i] += 1
-            else:
-                tn[i] += 1
+            cell = _cell(p, g)  # None on unannotated (g == -1) entries → skipped
+            if cell is not None:
+                buckets[cell][i] += 1
     return tp, fp, fn, tn
 
 
@@ -275,13 +284,69 @@ def _safe_div(a: float, b: float) -> float:
     return a / b if b > 0 else 0.0
 
 
-def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
-    """Compute the full `ActorKPIs` block for one actor on one run."""
+def _mean_gap(times: Sequence[float]) -> float | None:
+    """Mean gap between consecutive (already-sorted) event times.
+
+    ``None`` when there are fewer than two events, so there is no gap to measure — the
+    convention MTTF/MTTFN report when the actor errs at most once.
+    """
+    if len(times) < 2:
+        return None
+    gaps = [b - a for a, b in itertools.pairwise(times)]
+    return sum(gaps) / len(gaps)
+
+
+def _reliability_metrics(
+    records: Sequence[PatientRecord], actor: Actor
+) -> tuple[float | None, float | None, float | None]:
+    """The error-timeline block: ``(ttfe, mttf, mttfn)`` over a run's records.
+
+    ``ts_doctor_end`` is a patient's event time — the moment the verdict exists. A patient
+    joins ``error_times`` if the actor mispredicted at least one annotated label (a
+    Hamming-style error), and ``fn_times`` if it missed at least one present finding. Both
+    are sorted so consecutive gaps are well-defined; records are not assumed pre-ordered.
+    """
+    error_times: list[float] = []
+    fn_times: list[float] = []
+    for r in records:
+        pred = _labels_for(r, actor)
+        # Only labeled entries (g in {0,1}) count; g == -1 is "not annotated".
+        is_error = any(
+            p != g for p, g in zip(pred, r.ground_truth, strict=True) if g in (0, 1)
+        )
+        is_fn = any(p == 0 and g == 1 for p, g in zip(pred, r.ground_truth, strict=True))
+        if is_error:
+            error_times.append(r.ts_doctor_end)
+        if is_fn:
+            fn_times.append(r.ts_doctor_end)
+    error_times.sort()
+    fn_times.sort()
+    ttfe = error_times[0] if error_times else None
+    return ttfe, _mean_gap(error_times), _mean_gap(fn_times)
+
+
+def _actor_kpis(
+    records: Sequence[PatientRecord],
+    actor: Actor,
+    cache: dict[str, ActorKPIs] | None = None,
+) -> ActorKPIs:
+    """Compute the full `ActorKPIs` block for one actor on one run.
+
+    ``cache`` memoises per actor within a single report: `ActorsBundle` and `TeamBundle`
+    both need the same three actors, so `compute_report` hands them one shared dict and
+    the work is done once instead of twice. The cache is per-report (a fresh local dict),
+    so it can never return a stale actor from a different run.
+    """
+    if cache is not None and actor in cache:
+        return cache[actor]
     tp, fp, fn, tn = _per_label_counts(records, actor)
     if not tp:
         # No records at all → return a neutral KPI object so downstream code can
         # always assume the dataclass shape.
-        return ActorKPIs(0.0, 0.0, 0.0, 0.0, 0, 0, None, None, None)
+        result = ActorKPIs(0.0, 0.0, 0.0, 0.0, 0, 0, None, None, None)
+        if cache is not None:
+            cache[actor] = result
+        return result
     n_labels = len(tp)
 
     # Per-label precision / recall / F1, then macro-average.
@@ -300,49 +365,9 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
     total = sum(tp) + sum(fp) + sum(fn) + sum(tn)
     accuracy = _safe_div(sum(tp) + sum(tn), total)
 
-    # Build the error timeline. `ts_doctor_end` is the moment the verdict is known.
-    # A patient contributes to `error_times` if the actor mispredicted AT LEAST ONE label
-    # for that patient (hamming-style error: any mismatch counts). FN events are scored
-    # separately because they're the clinically expensive ones.
-    error_times: list[float] = []
-    fn_times: list[float] = []
-    for r in records:
-        pred = _labels_for(r, actor)
-        # Only labeled entries (g in {0,1}) count; g == -1 is "not annotated".
-        is_error = any(
-            p != g for p, g in zip(pred, r.ground_truth, strict=True) if g in (0, 1)
-        )
-        is_fn = any(p == 0 and g == 1 for p, g in zip(pred, r.ground_truth, strict=True))
-        if is_error:
-            error_times.append(r.ts_doctor_end)
-        if is_fn:
-            fn_times.append(r.ts_doctor_end)
-    # Sort by simulated time so consecutive gaps in the next step are well-defined.
-    # In practice records are already roughly time-ordered but we don't assume it.
-    error_times.sort()
-    fn_times.sort()
+    ttfe, mttf, mttfn = _reliability_metrics(records, actor)
 
-    # TTFE = Time To First Error. The simulated timestamp of the earliest mistake.
-    # `None` when the actor was flawless on this run.
-    ttfe = error_times[0] if error_times else None
-
-    # MTTF = Mean Time To Failure. Mean gap between consecutive error events.
-    # Reliability-engineering staple: large MTTF -> errors well spread; small -> bursty.
-    # Needs >= 2 events to have at least one gap.
-    mttf: float | None = None
-    if len(error_times) >= 2:
-        gaps = [b - a for a, b in itertools.pairwise(error_times)]
-        mttf = sum(gaps) / len(gaps)
-
-    # mean-time-to-FN. Same shape as MTTF but restricted to false-negative events
-    # (missed pathologies). Operationally the most important reliability KPI for
-    # radiology, since missing disease is much worse than overcalling it.
-    mttfn: float | None = None
-    if len(fn_times) >= 2:
-        gaps = [b - a for a, b in itertools.pairwise(fn_times)]
-        mttfn = sum(gaps) / len(gaps)
-
-    return ActorKPIs(
+    result = ActorKPIs(
         f1_macro=sum(f1s) / n_labels,
         precision_macro=sum(precisions) / n_labels,
         recall_macro=sum(recalls) / n_labels,
@@ -353,6 +378,9 @@ def _actor_kpis(records: Sequence[PatientRecord], actor: Actor) -> ActorKPIs:
         mttf=mttf,
         mttfn=mttfn,
     )
+    if cache is not None:
+        cache[actor] = result
+    return result
 
 
 def _team_kpis(
@@ -490,14 +518,11 @@ class JointTable:
 
 
 def _bump(conf: dict[str, int], pred: int, gt: int) -> None:
-    if pred == 1 and gt == 1:
-        conf["tp"] += 1
-    elif pred == 1 and gt == 0:
-        conf["fp"] += 1
-    elif pred == 0 and gt == 1:
-        conf["fn"] += 1
-    else:
-        conf["tn"] += 1
+    # The caller has already skipped unannotated entries, so `_cell` never returns None
+    # here; the guard keeps `_bump` correct if it is ever fed a raw entry.
+    cell = _cell(pred, gt)
+    if cell is not None:
+        conf[cell] += 1
 
 
 def _joint_table(records: Sequence[PatientRecord]) -> JointTable:
@@ -535,21 +560,31 @@ class SystemBundle:
 class ActorsBundle:
     name = "actors"
 
-    def compute(self, records: Sequence[PatientRecord]) -> dict[str, ActorKPIs]:
+    def compute(
+        self,
+        records: Sequence[PatientRecord],
+        *,
+        _actor_cache: dict[str, ActorKPIs] | None = None,
+    ) -> dict[str, ActorKPIs]:
         return {
-            "ai": _actor_kpis(records, "ai"),
-            "doctor": _actor_kpis(records, "doctor"),
-            "hybrid": _actor_kpis(records, "hybrid"),
+            "ai": _actor_kpis(records, "ai", _actor_cache),
+            "doctor": _actor_kpis(records, "doctor", _actor_cache),
+            "hybrid": _actor_kpis(records, "hybrid", _actor_cache),
         }
 
 
 class TeamBundle:
     name = "team"
 
-    def compute(self, records: Sequence[PatientRecord]) -> TeamKPIs:
-        ai_k = _actor_kpis(records, "ai")
-        doctor_k = _actor_kpis(records, "doctor")
-        hybrid_k = _actor_kpis(records, "hybrid")
+    def compute(
+        self,
+        records: Sequence[PatientRecord],
+        *,
+        _actor_cache: dict[str, ActorKPIs] | None = None,
+    ) -> TeamKPIs:
+        ai_k = _actor_kpis(records, "ai", _actor_cache)
+        doctor_k = _actor_kpis(records, "doctor", _actor_cache)
+        hybrid_k = _actor_kpis(records, "hybrid", _actor_cache)
         return _team_kpis(records, ai_k, doctor_k, hybrid_k)
 
 
@@ -579,9 +614,16 @@ def compute_report(
     """
     names = tuple(bundle_names) if bundle_names is not None else DEFAULT_KPI_BUNDLES
     report: dict[str, Any] = {}
+    # `actors` and `team` both need the same three per-actor ActorKPIs; share one
+    # per-report cache so they are computed once, not twice. The cache is a fresh local
+    # dict scoped to this call, and custom bundles keep the plain compute(records) contract.
+    actor_cache: dict[str, ActorKPIs] = {}
     for name in names:
         bundle = resolve_bundle(name)
-        report[bundle.name] = bundle.compute(records)
+        if isinstance(bundle, (ActorsBundle, TeamBundle)):
+            report[bundle.name] = bundle.compute(records, _actor_cache=actor_cache)
+        else:
+            report[bundle.name] = bundle.compute(records)
     return report
 
 
