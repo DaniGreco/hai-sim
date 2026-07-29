@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -31,14 +32,36 @@ from hai_sim.study import (
 console = Console()
 
 
+def _prepare_out(out_dir: str) -> Path:
+    """Resolve and create the output directory."""
+    path = Path(out_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _write_json(path: Path, obj: Any) -> None:
+    """Write ``obj`` as indented JSON, stringifying anything not natively serializable."""
+    path.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
+
+
+def _make_progress(label: str) -> Callable[[int, int], None]:
+    """A ``'  <label> done/total'`` printer that fires ~20 times across the run."""
+
+    def progress(done: int, total: int) -> None:
+        step = max(1, total // 20)
+        if done % step == 0 or done == total:
+            console.print(f"  {label} {done}/{total}", highlight=False)
+
+    return progress
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     scenario_path = Path(args.scenario)
     if not scenario_path.exists():
         console.print(f"[red]scenario not found: {scenario_path}[/red]")
         return 2
     scenario = load_scenario(scenario_path)
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _prepare_out(args.out_dir)
 
     built = build_from_scenario(scenario)
     schema, ai, doctor = built.schema, built.ai, built.doctor
@@ -94,7 +117,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     if grouped is not None:
         summary["kpis_by_group"] = {g: _serialize_report(r) for g, r in grouped.items()}
-    json_path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    _write_json(json_path, summary)
 
     _print_kpi_table(scenario.name, report)
     if grouped is not None:
@@ -110,8 +133,7 @@ def cmd_study(args: argparse.Namespace) -> int:
         console.print(f"[red]study not found: {study_path}[/red]")
         return 2
     study = load_study(study_path)
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _prepare_out(args.out_dir)
 
     from hai_sim.study import expand_runs
 
@@ -121,10 +143,7 @@ def cmd_study(args: argparse.Namespace) -> int:
         f"factors={list(study.factors)}  reps={len(study.replications)}  runs={n_runs}"
     )
 
-    def progress(done: int, total: int) -> None:
-        step = max(1, total // 20)
-        if done % step == 0 or done == total:
-            console.print(f"  run {done}/{total}", highlight=False)
+    progress = _make_progress("run")
 
     t0 = time.time()
     result = run_study(study, progress)
@@ -434,15 +453,14 @@ def _validate_from_cache(args: argparse.Namespace, out_dir: Path) -> int:
         f"split={args.split or 'all'}"
     )
     report_path = out_dir / f"{name}_thr{args.threshold:g}_{args.aggregation}_report.json"
-    report_path.write_text(json.dumps(report.to_dict(), indent=2, default=str), encoding="utf-8")
+    _write_json(report_path, report.to_dict())
     _print_validation(name, report)
     console.print(f"[green]report -> {report_path}[/green]")
     return 0
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _prepare_out(args.out_dir)
 
     if args.from_cache:
         return _validate_from_cache(args, out_dir)
@@ -472,10 +490,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     )
     records_path = out_dir / f"{scenario.name}_records.json"
 
-    def progress(done: int, total: int) -> None:
-        step = max(1, total // 20)
-        if done % step == 0 or done == total:
-            console.print(f"  processed {done}/{total}", highlight=False)
+    progress = _make_progress("processed")
 
     t0 = time.time()
     report = validator.run(
@@ -487,7 +502,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     wall = time.time() - t0
 
     report_path = out_dir / f"{scenario.name}_report.json"
-    report_path.write_text(json.dumps(report.to_dict(), indent=2, default=str), encoding="utf-8")
+    _write_json(report_path, report.to_dict())
     _print_validation(scenario.name, report)
     console.print(f"[green]report  -> {report_path}[/green]")
     console.print(f"[green]records -> {records_path}[/green]  ({wall:.1f}s)")
