@@ -35,7 +35,8 @@ import numpy as np
 
 from hai_sim import sdt
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.doctors._shared import lognormal_service_time, signal_penalty
 from hai_sim.uq.methods import binary_entropy
 
 
@@ -69,8 +70,8 @@ class SDTDoctor(BaseDiagnosticActor):
         self.rng = rng if rng is not None else np.random.default_rng()
         self.d_prime, self.criterion, self.prior = sdt.resolve_observer(
             schema.n,
-            d_prime=tuple(d_prime) if isinstance(d_prime, Sequence) else d_prime,
-            criterion=tuple(criterion) if isinstance(criterion, Sequence) else criterion,
+            d_prime=d_prime,
+            criterion=criterion,
             sensitivity=sensitivity,
             specificity=specificity,
             prior=prior,
@@ -114,24 +115,15 @@ class SDTDoctor(BaseDiagnosticActor):
             # it from an outcome: a run where a difficulty model is configured but this
             # stays 0 has a reader that ignores the signal.
             extra["dprime_penalty"] = penalty
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in call),
-                confidence=tuple(float(x) for x in belief),
-            ),
-            uncertainty=tuple(float(x) for x in binary_entropy(belief)),
-            extra=extra,
+        return ModelOutput.from_arrays(
+            call, belief, binary_entropy(belief), extra=extra
         )
 
     def _effective_dprime(
         self, context: PatientContext | None
     ) -> tuple[np.ndarray | None, float]:
         """Lower ``d'`` by the signal plane's difficulty and fatigue, holding criterion."""
-        if context is None or (self.difficulty_slope == 0.0 and self.fatigue_slope == 0.0):
-            return None, 0.0
-        penalty = self.difficulty_slope * context.signal(
-            "difficulty", 0.0
-        ) + self.fatigue_slope * context.signal("fatigue", 0.0)
+        penalty = signal_penalty(context, self.difficulty_slope, self.fatigue_slope)
         if penalty <= 0.0:
             return None, 0.0
         # Discriminability floors at 0 (chance): a reader that read *worse than noise* on
@@ -143,6 +135,11 @@ class SDTDoctor(BaseDiagnosticActor):
         images: Sequence[Image],
         context: PatientContext | None = None,
     ) -> float:
-        if self.service_time_model is not None:
-            return float(self.service_time_model.sample(images, context))  # type: ignore[attr-defined]
-        return float(self.rng.lognormal(self.service_time_mu, self.service_time_sigma))
+        return lognormal_service_time(
+            self.rng,
+            self.service_time_mu,
+            self.service_time_sigma,
+            model=self.service_time_model,
+            images=images,
+            context=context,
+        )

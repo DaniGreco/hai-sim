@@ -34,7 +34,8 @@ from collections.abc import Sequence
 import numpy as np
 
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.doctors._shared import lognormal_service_time, signal_penalty
 
 
 def _binary_entropy(p: float) -> float:
@@ -156,24 +157,13 @@ class FixedAccuracyDoctor(BaseDiagnosticActor):
             # inferring it from an outcome. A run where this stays 0 has a difficulty
             # model configured but a reader that ignores it.
             extra["accuracy_penalty"] = penalty
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(labels),
-                confidence=tuple(confidence),
-            ),
-            uncertainty=tuple(uncertainty),
-            extra=extra,
-        )
+        return ModelOutput.from_arrays(labels, confidence, uncertainty, extra=extra)
 
     def _effective_accuracy(
         self, context: PatientContext | None
     ) -> tuple[np.ndarray, np.ndarray, float]:
         """Apply the signal plane's difficulty and fatigue to this read's accuracy."""
-        if context is None or (self.difficulty_slope == 0.0 and self.fatigue_slope == 0.0):
-            return self.sensitivity, self.specificity, 0.0
-        penalty = self.difficulty_slope * context.signal(
-            "difficulty", 0.0
-        ) + self.fatigue_slope * context.signal("fatigue", 0.0)
+        penalty = signal_penalty(context, self.difficulty_slope, self.fatigue_slope)
         if penalty <= 0.0:
             return self.sensitivity, self.specificity, 0.0
         return (
@@ -187,6 +177,11 @@ class FixedAccuracyDoctor(BaseDiagnosticActor):
         images: Sequence[Image],
         context: PatientContext | None = None,
     ) -> float:
-        if self.service_time_model is not None:
-            return float(self.service_time_model.sample(images, context))  # type: ignore[attr-defined]
-        return float(self.rng.lognormal(self.service_time_mu, self.service_time_sigma))
+        return lognormal_service_time(
+            self.rng,
+            self.service_time_mu,
+            self.service_time_sigma,
+            model=self.service_time_model,
+            images=images,
+            context=context,
+        )

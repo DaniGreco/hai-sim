@@ -38,19 +38,11 @@ from statistics import NormalDist
 
 import numpy as np
 
+from hai_sim._numerics import logit as _logit
+from hai_sim._numerics import sigmoid as _sigmoid
+
 _ND = NormalDist()
 _EPS = 1e-6
-
-
-def _logit(p: np.ndarray) -> np.ndarray:
-    p = np.clip(p, _EPS, 1.0 - _EPS)
-    out: np.ndarray = np.log(p / (1.0 - p))
-    return out
-
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    out: np.ndarray = 1.0 / (1.0 + np.exp(-x))
-    return out
 
 
 def _z(p: float) -> float:
