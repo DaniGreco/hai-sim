@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 from hai_sim.analysis.inference_cache import InferenceCache
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from hai_sim.config.scenario import AIModelConfig, PatientGenConfig
 
@@ -219,3 +219,105 @@ def inspect_cell(
     return CellStatus(
         spec, stem, exists=True, conflict=conflict, present_ids=present_ids(cache)
     )
+
+
+# --- resolving a whole study's cells, and the build policy -------------------
+
+
+@dataclass(frozen=True)
+class MatrixPlan:
+    """Every cell a study needs, resolved against disk, plus the ids it requested.
+
+    This is the study-governed view: the run declares its model and dataset, the plan
+    says for each atomic cell whether it is a hit, a partial (some ids cached), a miss,
+    or a conflict — so the `cache_mode` policy can decide to serve, complete or build.
+    """
+
+    dataset_id: str
+    requested_ids: tuple[str, ...]
+    cells: tuple[CellStatus, ...]
+
+    @property
+    def conflicts(self) -> list[CellStatus]:
+        return [c for c in self.cells if c.conflict is not None]
+
+    @property
+    def incomplete(self) -> list[CellStatus]:
+        """Cells that do not yet cover every requested id (missing or wholly absent)."""
+        return [c for c in self.cells if c.missing(self.requested_ids)]
+
+    @property
+    def is_complete(self) -> bool:
+        return not self.incomplete and not self.conflicts
+
+
+def resolve_matrix(
+    cells: Iterable[CellSpec],
+    dataset_id_: str,
+    dataset_fingerprint: str,
+    requested_ids: Iterable[str],
+    root: Path = DEFAULT_CACHE_ROOT,
+) -> MatrixPlan:
+    """Resolve every cell of a study against disk for the requested image ids."""
+    reqs = tuple(dict.fromkeys(requested_ids))  # de-duplicate, keep order
+    statuses = tuple(
+        inspect_cell(c, dataset_id_, dataset_fingerprint, root) for c in cells
+    )
+    return MatrixPlan(dataset_id_, reqs, statuses)
+
+
+def plan_summary(plan: MatrixPlan) -> str:
+    """A human-readable per-cell status table, for `report` and error messages."""
+    lines = [
+        f"cache matrix for dataset {plan.dataset_id!r} "
+        f"({len(plan.requested_ids)} images requested):"
+    ]
+    for st in plan.cells:
+        miss = st.missing(plan.requested_ids)
+        if st.conflict is not None:
+            state = f"CONFLICT ({st.conflict})"
+        elif not st.exists:
+            state = f"miss (build {len(miss)})"
+        elif miss:
+            state = f"partial ({len(st.present_ids)} cached, build {len(miss)})"
+        else:
+            state = f"hit ({len(st.present_ids)} cached)"
+        lines.append(f"  {st.spec.alias:<18} {state}  -> {st.stem}")
+    return "\n".join(lines)
+
+
+def apply_cache_mode(
+    plan: MatrixPlan,
+    mode: str,
+    fill: Callable[[CellSpec], None] | None = None,
+) -> MatrixPlan:
+    """Enforce the study's cache policy against a resolved plan.
+
+    A **conflict** always raises, whatever the mode — two experiments must never share a
+    file. Otherwise:
+
+    - ``require`` — replay only: raise if anything is missing (the safe default, so a
+      study on a laptop never silently kicks off a multi-day build).
+    - ``fill`` — build the gaps by calling ``fill`` once per incomplete cell (this is
+      where torch lives; run it on the GPU server).
+    - ``report`` — do nothing; the caller prints `plan_summary` and stops.
+    """
+    if plan.conflicts:
+        raise ValueError("cache matrix has conflicting cells:\n" + plan_summary(plan))
+    if mode == "report":
+        return plan
+    if mode == "require":
+        if plan.incomplete:
+            raise ValueError(
+                "cache_mode 'require' but the cache matrix is incomplete. Build the gaps "
+                "(cache_mode: fill on the GPU server, or the materialize command):\n"
+                + plan_summary(plan)
+            )
+        return plan
+    if mode == "fill":
+        if fill is None:
+            raise ValueError("cache_mode 'fill' needs a fill callback")
+        for st in plan.incomplete:
+            fill(st.spec)
+        return plan
+    raise ValueError(f"unknown cache_mode: {mode!r} (use require / fill / report)")

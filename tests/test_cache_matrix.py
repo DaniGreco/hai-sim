@@ -8,10 +8,13 @@ import numpy as np
 import pytest
 
 from hai_sim.analysis.cache_matrix import (
+    apply_cache_mode,
     cells_for_ai,
     dataset_cell_fingerprint,
     dataset_id,
     inspect_cell,
+    plan_summary,
+    resolve_matrix,
 )
 from hai_sim.analysis.inference_cache import InferenceCache
 from hai_sim.config.scenario import AIModelConfig, PatientGenConfig
@@ -178,3 +181,58 @@ def test_inspect_dataset_conflict(tmp_path) -> None:
     )
     st = inspect_cell(cell, "nih", "xrv:nih|resize=224", root=tmp_path)
     assert st.conflict is not None and "dataset identity" in st.conflict
+
+
+# --- resolve a whole study's cells + the cache_mode policy --------------------
+
+DFP = "xrv:nih|resize=224"
+
+
+def _pair_cells():
+    return cells_for_ai(_xrv(("densenet121-res224-chex", "densenet121-res224-pc")))
+
+
+def test_resolve_reports_incomplete(tmp_path) -> None:
+    chex, pc = _pair_cells()
+    _save_cell(chex.stem("nih", tmp_path), ids=["a", "b"], model_fp=chex.fingerprint, dataset_fp=DFP)
+    # pc has no file on disk -> a miss
+    plan = resolve_matrix([chex, pc], "nih", DFP, ["a", "b"], root=tmp_path)
+    assert not plan.is_complete
+    assert [c.spec.alias for c in plan.incomplete] == ["pc"]
+    with pytest.raises(ValueError, match="incomplete"):
+        apply_cache_mode(plan, "require")
+
+
+def test_require_passes_when_complete(tmp_path) -> None:
+    cells = _pair_cells()
+    for c in cells:
+        _save_cell(c.stem("nih", tmp_path), ids=["a", "b"], model_fp=c.fingerprint, dataset_fp=DFP)
+    plan = resolve_matrix(cells, "nih", DFP, ["a", "b"], root=tmp_path)
+    assert plan.is_complete
+    assert apply_cache_mode(plan, "require") is plan
+
+
+def test_fill_calls_back_for_incomplete_cells_only(tmp_path) -> None:
+    chex, pc = _pair_cells()
+    _save_cell(chex.stem("nih", tmp_path), ids=["a", "b"], model_fp=chex.fingerprint, dataset_fp=DFP)
+    plan = resolve_matrix([chex, pc], "nih", DFP, ["a", "b"], root=tmp_path)
+    filled: list[str] = []
+    apply_cache_mode(plan, "fill", fill=lambda spec: filled.append(spec.alias))
+    assert filled == ["pc"]
+
+
+def test_report_never_raises_and_summarizes(tmp_path) -> None:
+    (cell,) = cells_for_ai(_xrv("densenet121-res224-chex"))
+    plan = resolve_matrix([cell], "nih", DFP, ["a", "b"], root=tmp_path)  # nothing on disk
+    assert apply_cache_mode(plan, "report") is plan
+    assert "miss" in plan_summary(plan)
+
+
+def test_conflict_raises_in_every_mode(tmp_path) -> None:
+    (cell,) = cells_for_ai(_xrv("densenet121-res224-chex"))
+    _save_cell(cell.stem("nih", tmp_path), ids=["a"], model_fp="torchxrv|OTHER", dataset_fp=DFP)
+    plan = resolve_matrix([cell], "nih", DFP, ["a"], root=tmp_path)
+    assert plan.conflicts
+    for mode in ("require", "fill", "report"):
+        with pytest.raises(ValueError, match="conflict"):
+            apply_cache_mode(plan, mode, fill=lambda _s: None)
