@@ -310,8 +310,34 @@ class LabelViewConfig(_Strict):
     combine: Literal["noisy_or", "max"] = "noisy_or"
 
 
+class LabelSourceConfig(_Strict):
+    """One named label source attached to an image set (``kind: image_folder``).
+
+    A CSV of per-image labels in a declared source ``space``, mapped into the model
+    schema by ``map``. Several may be attached to the same images; the run's
+    ``patient_generator.gt_source`` picks which one is the scoring ground truth, and
+    the rest ride along for a paired-contrast study that swaps the believed truth.
+
+    - ``space`` — the label space the CSV columns live in (a `build_label_schema`
+      name such as ``vindr`` or ``xrv``); its labels are the columns read.
+    - ``map`` — how that space aligns to the model schema: a registered name
+      (``vindr14->xrv``), an inline ``{source_label: target_label(s)}`` mapping (the
+      escape hatch — a value may be a list to split one finding across several), or
+      omitted for the by-name identity when the CSV is already in the model schema.
+    """
+
+    name: str
+    kind: Literal["csv"] = "csv"
+    path: str
+    space: str = "xrv"
+    map: str | dict[str, str | list[str]] | None = None
+    id_column: str = "example_id"
+
+
 class PatientGenConfig(_Strict):
-    kind: Literal["poisson", "mock_dataset", "xrv_dataset", "inference_cache"] = "poisson"
+    kind: Literal[
+        "poisson", "mock_dataset", "xrv_dataset", "inference_cache", "image_folder"
+    ] = "poisson"
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
     # *When* patients arrive, separated from *which* patient arrives. Omit → a
@@ -329,11 +355,16 @@ class PatientGenConfig(_Strict):
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
     # Ground truth is owned by the dataset: selecting a dataset selects its GT.
-    # 'native' = the dataset's own labels. Alternative sources (e.g. NIH adjudicated
-    # consensus, per-reader reads) are a dataset sub-knob wired with the real-data work.
+    # 'native' = the dataset's own labels. For kind=image_folder, gt_source instead
+    # names one of `label_sources` below ('native' = the first of them).
     gt_source: str = "native"
     imgpath: str | None = None
     csvpath: str | None = None
+    # image_folder params: pixels from `imgpath`/*`image_ext`, labels from one or more
+    # CSV `label_sources` mapped into the model schema. The generic "images +
+    # annotation CSVs" dataset (VinDr, ...); see `LabelSourceConfig`.
+    label_sources: tuple[LabelSourceConfig, ...] = ()
+    image_ext: str = ".png"
     sample_mode: Literal["sequential", "random"] = "sequential"
     # View filtering (applied for dataset=nih). Default ("PA",) matches xrv's own
     # default; use ("PA", "AP") to include antero-posterior (portable/ICU) frontals.
