@@ -34,6 +34,7 @@ from hai_sim.config.scenario import (
     DifficultyConfig,
     FatigueConfig,
     KPIGroupConfig,
+    LabelSourceConfig,
     PatientGenConfig,
     PersonaConfig,
     ScenarioConfig,
@@ -86,6 +87,8 @@ def build_label_schema(name: str) -> LabelSchema:
         return LabelSchema.chexpert()
     if name == "xrv":
         return LabelSchema.xrv()
+    if name == "vindr":
+        return LabelSchema.vindr()
     raise ValueError(f"unknown label_schema: {name}")
 
 
@@ -522,6 +525,66 @@ def build_xrv_dataset(cfg: PatientGenConfig) -> Any:
     return ds
 
 
+def build_label_source(cfg: LabelSourceConfig, model_schema: LabelSchema) -> Any:
+    """Build one named `LabelSource` from a CSV in its own space, mapped to the model.
+
+    The source label space (``cfg.space``) names the CSV's columns; ``cfg.map``
+    aligns that space to ``model_schema`` (a registered map, an inline mapping, or the
+    by-name identity). See `hai_sim.labels.resolve_label_map`.
+    """
+    from hai_sim.data.sources import CsvLabelSource
+    from hai_sim.labels import resolve_label_map
+
+    if cfg.kind != "csv":
+        raise ValueError(f"unknown label source kind: {cfg.kind}")
+    source_schema = build_label_schema(cfg.space)
+    label_map = resolve_label_map(cfg.map, source_schema, model_schema)
+    return CsvLabelSource(cfg.path, label_map, id_column=cfg.id_column, name=cfg.name)
+
+
+def _xrv_preprocess(resize: int) -> Any:
+    """Preprocess a raw [0, 255] grayscale array into the TorchXRayVision input format.
+
+    An image folder holds ordinary PNGs; the DenseNet expects xrv's normalised
+    ``[-1024, 1024]`` single-channel tensor, centre-cropped and resized. This mirrors
+    exactly what `build_xrv_dataset` hands the model, so a folder-fed run and an
+    xrv-dataset-fed run present the model with the same pixels.
+    """
+    import torchvision
+    import torchxrayvision as xrv
+
+    transform = torchvision.transforms.Compose(
+        [xrv.datasets.XRayCenterCrop(), xrv.datasets.XRayResizer(resize)]
+    )
+
+    def preprocess(image: np.ndarray) -> np.ndarray:
+        norm = xrv.datasets.normalize(image, maxval=255, reshape=True)
+        return transform(norm)
+
+    return preprocess
+
+
+def build_image_folder_dataset(cfg: PatientGenConfig, schema: LabelSchema) -> Any:
+    """Construct an `ImageFolderDataset`: a folder of images + mapped label CSVs."""
+    from hai_sim.data.folder import ImageFolderDataset
+
+    if cfg.imgpath is None:
+        raise ValueError("patient_generator.imgpath is required for kind=image_folder")
+    if not cfg.label_sources:
+        raise ValueError(
+            "patient_generator.kind=image_folder requires at least one entry in "
+            "label_sources — an image folder has no intrinsic ground truth."
+        )
+    sources = [build_label_source(s, schema) for s in cfg.label_sources]
+    return ImageFolderDataset(
+        cfg.imgpath,
+        schema,
+        sources,
+        preprocess=_xrv_preprocess(cfg.resize),
+        extension=cfg.image_ext,
+    )
+
+
 def build_patient_generator(
     cfg: PatientGenConfig,
     schema: LabelSchema,
@@ -565,6 +628,15 @@ def build_patient_generator(
         xrv = XRVDataset(build_xrv_dataset(cfg), schema, name=cfg.dataset)
         return DatasetPatientGenerator(
             xrv,
+            arrivals=arrivals,
+            n_patients=cfg.n_patients,
+            rng=rng,
+            sample_mode=cfg.sample_mode,
+            gt_source=cfg.gt_source,
+        )
+    if cfg.kind == "image_folder":
+        return DatasetPatientGenerator(
+            build_image_folder_dataset(cfg, schema),
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,

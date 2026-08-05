@@ -27,7 +27,7 @@ import numpy as np
 from hai_sim.core.types import Diagnosis, LabelSchema, ModelOutput
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
     from hai_sim.core.protocols import DiagnosticActor
     from hai_sim.core.types import Image, Patient, PatientContext
@@ -164,3 +164,143 @@ def project_generator(
     """Yield the generator's patients with ground truth projected to the active schema."""
     for delay, patient in generator:
         yield delay, replace(patient, ground_truth=projection.project_gt(patient.ground_truth))
+
+
+# --- Cross-schema label mapping ---------------------------------------------
+# `LabelProjection` above stays *within* one schema (subset / collapse, by name). A
+# `LabelMap` crosses two: it is how a dataset written in its own vocabulary becomes
+# ground truth in the model's schema, declared in a config line rather than pre-baked
+# into the CSV offline.
+
+
+@dataclass(frozen=True)
+class LabelMap:
+    """Aligns a *source* label space to a *target* (model) label space, by name.
+
+    Where a `LabelProjection` subsets within one schema, a `LabelMap` crosses two:
+    it **renames** ("Pleural effusion" -> "Effusion"), **splits** one source finding
+    across several target labels ("Nodule/Mass" -> Nodule + Mass), **drops** source
+    labels with no target, and leaves target labels no source covers as ``-1`` (not
+    annotated). That is what turns VinDr's 14-finding vocabulary into a ground-truth
+    vector in the 18-pathology ``xrv`` space without silently pre-aligning the CSV —
+    the alignment is a configuration line and shows up in a scenario's diff.
+
+    ``contributors[j]`` is the tuple of source indices feeding target label ``j``
+    (usually zero or one). Combination is noisy-or on the ``{1, 0, -1}`` convention:
+    a target is ``1`` if any contributing source is ``1``, ``0`` if all annotated
+    contributors are ``0``, and ``-1`` when no contributor annotated it.
+    """
+
+    source: LabelSchema
+    target: LabelSchema
+    contributors: tuple[tuple[int, ...], ...]
+
+    def map_gt(self, source_gt: Sequence[int]) -> tuple[int, ...]:
+        """Map a source-schema ``{1, 0, -1}`` vector into the target schema."""
+        src = np.asarray(source_gt, dtype=int)
+        if src.size != self.source.n:
+            raise ValueError(
+                f"source_gt has {src.size} entries, expected {self.source.n} "
+                f"(source schema {self.source.labels})"
+            )
+        out: list[int] = []
+        for feeders in self.contributors:
+            if not feeders:
+                out.append(-1)
+                continue
+            annotated = [v for v in (int(src[i]) for i in feeders) if v != -1]
+            if not annotated:
+                out.append(-1)
+            elif any(v == 1 for v in annotated):
+                out.append(1)
+            else:
+                out.append(0)
+        return tuple(out)
+
+
+def build_label_map(
+    mapping: Mapping[str, str | Sequence[str]],
+    source: LabelSchema,
+    target: LabelSchema,
+) -> LabelMap:
+    """Build a `LabelMap` from a ``{source_label: target_label(s)}`` mapping.
+
+    Every key must name a label in ``source`` and every value one (or several) in
+    ``target``; a typo fails fast rather than silently dropping a finding. Source
+    labels absent from the mapping are dropped; target labels no mapping reaches
+    stay ``-1``.
+    """
+    contributors: list[list[int]] = [[] for _ in range(target.n)]
+    for src_label, tgt in mapping.items():
+        if src_label not in source.labels:
+            raise ValueError(
+                f"label map key {src_label!r} is not in the source schema {source.labels}"
+            )
+        s_idx = source.labels.index(src_label)
+        tgt_labels = [tgt] if isinstance(tgt, str) else list(tgt)
+        for t_label in tgt_labels:
+            if t_label not in target.labels:
+                raise ValueError(
+                    f"label map sends {src_label!r} to {t_label!r}, not in the target "
+                    f"schema {target.labels}"
+                )
+            contributors[target.labels.index(t_label)].append(s_idx)
+    return LabelMap(source, target, tuple(tuple(c) for c in contributors))
+
+
+def identity_label_map(source: LabelSchema, target: LabelSchema) -> LabelMap:
+    """The by-name identity: each source label maps to the same-named target label.
+
+    Requires every source label to exist in the target; use it when a CSV is already
+    written in (a subset of) the model's own schema, so no rename is needed.
+    """
+    missing = [name for name in source.labels if name not in target.labels]
+    if missing:
+        raise ValueError(
+            f"identity label map needs every source label in the target schema; "
+            f"missing {missing}. Give an explicit map instead."
+        )
+    return build_label_map({name: name for name in source.labels}, source, target)
+
+
+# Named, curated mappings — the registry doctrine of `metrics.registry`, one rung
+# simpler: a name resolves to a mapping table, built against whatever source/target
+# the scenario asks for (so a wrong target schema fails fast at build time).
+MAP_TABLES: dict[str, dict[str, str | list[str]]] = {
+    "vindr14->xrv": {
+        "Atelectasis": "Atelectasis",
+        "Cardiomegaly": "Cardiomegaly",
+        "Consolidation": "Consolidation",
+        "Infiltration": "Infiltration",
+        "Lung Opacity": "Lung Opacity",
+        "Nodule/Mass": ["Nodule", "Mass"],
+        "Pleural effusion": "Effusion",
+        "Pleural thickening": "Pleural_Thickening",
+        "Pneumothorax": "Pneumothorax",
+        "Pulmonary fibrosis": "Fibrosis",
+    },
+}
+
+
+def resolve_label_map(
+    spec: str | Mapping[str, str | Sequence[str]] | None,
+    source: LabelSchema,
+    target: LabelSchema,
+) -> LabelMap:
+    """Resolve a config ``map:`` to a `LabelMap`.
+
+    ``None`` -> the by-name identity (a CSV already in the model schema). A ``str``
+    -> a curated table in `MAP_TABLES`. A mapping -> that inline mapping: the escape
+    hatch for a one-off alignment that does not deserve a registered name.
+    """
+    if spec is None:
+        return identity_label_map(source, target)
+    if isinstance(spec, str):
+        table = MAP_TABLES.get(spec)
+        if table is None:
+            raise ValueError(
+                f"unknown label map {spec!r}; registered: {tuple(sorted(MAP_TABLES))}. "
+                "Pass an inline {source_label: target_label} mapping for a one-off."
+            )
+        return build_label_map(table, source, target)
+    return build_label_map(spec, source, target)

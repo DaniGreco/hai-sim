@@ -73,6 +73,8 @@ class DatasetPatientGenerator:
             return example.ground_truth
         if self.gt_source.startswith("reader:") and example.reader_labels is not None:
             return example.reader_labels[self.gt_source.split(":", 1)[1]]
+        if example.label_sources is not None and self.gt_source in example.label_sources:
+            return example.label_sources[self.gt_source]
         raise ValueError(f"cannot resolve gt_source {self.gt_source!r} for this example")
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:

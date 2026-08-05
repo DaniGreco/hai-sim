@@ -96,6 +96,35 @@ class LabelSchema:
             )
         )
 
+    @classmethod
+    def vindr(cls) -> LabelSchema:
+        """The 14 findings of the VinDr-CXR / VinBigData competition, in class-id order.
+
+        A *source* label space, not a model one: no model here predicts in it. It exists
+        so a VinDr label CSV can be read in its own vocabulary and then mapped into the
+        model schema (`xrv`) by a `LabelMap`, rather than being silently pre-aligned. Four
+        of these have no `xrv` counterpart (Aortic enlargement, Calcification, ILD, Other
+        lesion) and are simply dropped by the map; the rest rename or split into it.
+        """
+        return cls(
+            labels=(
+                "Aortic enlargement",
+                "Atelectasis",
+                "Calcification",
+                "Cardiomegaly",
+                "Consolidation",
+                "ILD",
+                "Infiltration",
+                "Lung Opacity",
+                "Nodule/Mass",
+                "Other lesion",
+                "Pleural effusion",
+                "Pleural thickening",
+                "Pneumothorax",
+                "Pulmonary fibrosis",
+            )
+        )
+
 
 @dataclass(frozen=True)
 class Diagnosis:
@@ -339,11 +368,19 @@ class DatasetCapabilities:
 class DatasetExample:
     """One dataset item: image + native ground truth, plus optional provisions.
 
-    ``masks`` / ``reader_labels`` / ``metadata`` are populated only when the
-    dataset advertises the matching capability; consumers check
+    ``masks`` / ``reader_labels`` / ``label_sources`` / ``metadata`` are populated
+    only when the dataset advertises the matching capability; consumers check
     `DatasetCapabilities` before relying on them. ``ground_truth`` uses the
     ``{1, 0, -1}`` convention (``-1`` = not annotated), aligned to the dataset
     schema. ``reader_labels`` maps a reader id to that reader's label vector.
+
+    ``label_sources`` is the general form: a name → label-vector map for the
+    several *alternative* ground-truth sources one image can carry (e.g. a
+    dataset's own labels, an adjudicated consensus, a mapped external CSV), each
+    already aligned to the model schema. It is what lets ``gt_source`` select
+    which annotations a run believes, and ``reader_labels`` is its per-reader
+    special case. A dataset advertises the available names in
+    ``DatasetCapabilities.gt_sources``.
     """
 
     example_id: str
@@ -351,4 +388,5 @@ class DatasetExample:
     ground_truth: tuple[int, ...]
     masks: tuple[np.ndarray | None, ...] | None = None
     reader_labels: dict[str, tuple[int, ...]] | None = None
+    label_sources: dict[str, tuple[int, ...]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
