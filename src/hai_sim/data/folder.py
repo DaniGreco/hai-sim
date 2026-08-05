@@ -81,6 +81,12 @@ class ImageFolderDataset:
     def __len__(self) -> int:
         return len(self._paths)
 
+    @property
+    def example_ids(self) -> list[str]:
+        """The image ids (file stems) in index order — resolved without loading pixels,
+        so a cache builder can map requested ids to indices cheaply."""
+        return [p.stem for p in self._paths]
+
     def __getitem__(self, index: int) -> DatasetExample:
         path = self._paths[index]
         example_id = path.stem

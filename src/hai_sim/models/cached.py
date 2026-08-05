@@ -83,3 +83,86 @@ class CachedEnsembleAI(BaseDiagnosticActor):
             self.decision_threshold,
             extra={"cache_index": idx, "image_id": context.example_id},
         )
+
+
+class CompositeCachedAI(BaseDiagnosticActor):
+    """Serve an ensemble from *several* single-model caches, composed by image id.
+
+    The cache matrix stores one file per atomic model (`hai_sim.analysis.cache_matrix`);
+    the ensemble is assembled here at replay time — each member's probabilities are
+    looked up by image id and stacked along the member axis, then run through the same
+    swappable `UQMethod` a live multi-weight `TorchXRayVisionAI` would use, reproducing
+    its `ModelOutput` exactly. Dropping or adding a member is a change of *which caches
+    are passed in*, never a rebuild — which is what made dropping the leaky NIH member a
+    one-line decision.
+
+    Only images every member covers can be served, so the actor is defined over the
+    **intersection** of the members' ids (a study run under ``cache_mode: require`` has
+    already guaranteed that intersection contains everything it will ask for).
+    """
+
+    def __init__(
+        self,
+        caches: Sequence[InferenceCache],
+        schema: LabelSchema,
+        uq: UQMethod | None = None,
+        decision_threshold: float = 0.5,
+        service_time: float = 0.05,
+        name: str | None = None,
+    ) -> None:
+        if not caches:
+            raise ValueError("CompositeCachedAI needs at least one member cache")
+        for c in caches:
+            if tuple(c.pathologies) != schema.labels:
+                raise ValueError(
+                    "a member cache's pathologies do not match the active LabelSchema; "
+                    "use label_schema: xrv"
+                )
+        later = [set(c.image_ids) for c in caches[1:]]
+        common = [img for img in caches[0].image_ids if all(img in s for s in later)]
+        if not common:
+            raise ValueError("member caches share no common image id to compose")
+        blocks: list[np.ndarray] = []
+        for c in caches:
+            pos = {img: r for r, img in enumerate(c.image_ids)}
+            rows = [pos[img] for img in common]
+            blocks.append(np.asarray(c.member_probs, dtype=float)[rows])  # (N, M_c, L)
+        probs = np.concatenate(blocks, axis=1)  # (N, sum M_c, L)
+
+        n_members = int(probs.shape[1])
+        resolved = name or f"CompositeCachedAI({n_members} members / {len(caches)} caches)"
+        super().__init__(name=resolved, service_time=service_time)
+        self.schema = schema
+        self.uq: UQMethod = uq if uq is not None else EntropyUQ()
+        self.decision_threshold = decision_threshold
+        self._probs = probs
+        self._row: dict[str, int] = {img: r for r, img in enumerate(common)}
+
+    @property
+    def covered_ids(self) -> frozenset[str]:
+        return frozenset(self._row)
+
+    def diagnose(
+        self,
+        images: Sequence[Image],
+        *,
+        context: PatientContext | None = None,
+        ai_hint: ModelOutput | None = None,
+    ) -> ModelOutput:
+        if context is None or context.example_id is None:
+            raise ValueError(
+                "CompositeCachedAI needs a PatientContext carrying the image id in "
+                "example_id (a dataset patient generator sets it)"
+            )
+        idx = self._row.get(context.example_id)
+        if idx is None:
+            raise ValueError(
+                f"image id {context.example_id!r} is not covered by every composed cache"
+            )
+        member_probs = self._probs[idx]  # (M_total, L)
+        return model_output_from_uq(
+            self.uq,
+            member_probs,
+            self.decision_threshold,
+            extra={"image_id": context.example_id, "n_members": int(member_probs.shape[0])},
+        )

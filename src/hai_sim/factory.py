@@ -221,6 +221,71 @@ def build_ai(
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
 
 
+def build_cached_ai(
+    cfg: AIModelConfig,
+    pg: PatientGenConfig,
+    schema: LabelSchema,
+    *,
+    dataset: Any,
+    indices: Sequence[int],
+) -> DiagnosticActor:
+    """Transparent cache-matrix replay: resolve a study's cells, enforce ``cache_mode``,
+    then serve the ensemble from the composed member caches — no live inference.
+
+    The study declares its real model (``ai.kind: torchxrv`` / ``medgemma``) and its
+    dataset; this addresses one cache per atomic model as
+    ``<cache_root>/<dataset>__<model>``, completes or requires them per ``cache_mode``,
+    and composes them into a `CompositeCachedAI`. The decision threshold and UQ are
+    applied here (downstream of the cache), so sweeping them reuses the same files.
+    """
+    from pathlib import Path
+
+    from hai_sim.analysis.cache_build import _id_at, materialize_cell
+    from hai_sim.analysis.cache_matrix import (
+        CellSpec,
+        apply_cache_mode,
+        cells_for_ai,
+        dataset_cell_fingerprint,
+        dataset_id,
+        plan_summary,
+        resolve_matrix,
+    )
+    from hai_sim.analysis.inference_cache import InferenceCache
+    from hai_sim.models.cached import CompositeCachedAI
+
+    cells = cells_for_ai(cfg)
+    ds_id = dataset_id(pg)
+    ds_fp = dataset_cell_fingerprint(pg)
+    root = Path(cfg.cache_root)
+    id_of = _id_at(dataset)
+    requested_ids = [id_of(int(i)) for i in indices]
+    plan = resolve_matrix(cells, ds_id, ds_fp, requested_ids, root)
+
+    if cfg.cache_mode in ("report", "fill"):
+        print(plan_summary(plan))
+    if cfg.cache_mode == "report":
+        raise ValueError(
+            "cache_mode: report — the plan above was printed; set 'require' (replay) or "
+            "'fill' (build the gaps) to run the study."
+        )
+
+    def fill(spec: CellSpec) -> None:
+        materialize_cell(
+            spec, pg, schema, indices=indices, root=root, device=cfg.device, dataset=dataset
+        )
+
+    apply_cache_mode(plan, cfg.cache_mode, fill)
+
+    caches = [InferenceCache.load(cell.stem(ds_id, root)) for cell in cells]
+    return CompositeCachedAI(
+        caches,
+        schema,
+        uq=_build_uq(cfg),
+        decision_threshold=cfg.decision_threshold,
+        service_time=cfg.service_time,
+    )
+
+
 def build_service_time(
     cfg: ServiceTimeConfig | None, rng: np.random.Generator
 ) -> Any | None:
@@ -617,6 +682,24 @@ def build_image_folder_dataset(cfg: PatientGenConfig, schema: LabelSchema) -> An
     )
 
 
+def build_cacheable_dataset(cfg: PatientGenConfig, schema: LabelSchema) -> Any:
+    """The dataset object an inference-cache builder iterates, for either cacheable kind.
+
+    ``xrv_dataset`` → the raw TorchXRayVision dataset (dict items); ``image_folder`` →
+    an `ImageFolderDataset` (DatasetExample items). `build_inference_cache` handles both,
+    so this is the single place the cache builder / matrix materializer resolves a
+    dataset from config regardless of its kind.
+    """
+    if cfg.kind == "xrv_dataset":
+        return build_xrv_dataset(cfg)
+    if cfg.kind == "image_folder":
+        return build_image_folder_dataset(cfg, schema)
+    raise ValueError(
+        f"patient_generator.kind={cfg.kind!r} is not cacheable; use xrv_dataset or "
+        "image_folder"
+    )
+
+
 def build_patient_generator(
     cfg: PatientGenConfig,
     schema: LabelSchema,
@@ -777,12 +860,37 @@ def build_from_scenario(scenario: ScenarioConfig) -> BuiltScenario:
     base_generator = build_patient_generator(
         scenario.patient_generator, base_schema, rngs["patient"], rngs["arrival"]
     )
-    base_ai = build_ai(
-        scenario.ai,
-        base_schema,
-        rngs["ai"],
-        emit_embedding=_severity_needs_embedding(scenario.severity),
-    )
+    base_ai: DiagnosticActor
+    # Only the real backends are cacheable; mock / synthetic / manual-cached kinds (and any
+    # cache_mode: off) always build the live actor, so the cache layer is invisible to them.
+    cacheable = scenario.ai.kind in ("torchxrv", "medgemma")
+    if scenario.ai.cache_mode == "off" or not cacheable:
+        base_ai = build_ai(
+            scenario.ai,
+            base_schema,
+            rngs["ai"],
+            emit_embedding=_severity_needs_embedding(scenario.severity),
+        )
+    else:
+        # Transparent cache matrix: the study declares the real model, and its inference
+        # is served from (or built into) per-model caches keyed by image id.
+        if _severity_needs_embedding(scenario.severity):
+            raise ValueError(
+                "severity: embedding reads the model's feature vector, which a cache does "
+                "not store; set ai.cache_mode: off for feature-space severity."
+            )
+        if not isinstance(base_generator, DatasetPatientGenerator):
+            raise ValueError(
+                "ai.cache_mode needs a dataset-backed patient_generator (xrv_dataset or "
+                "image_folder), so the study's image ids are known."
+            )
+        base_ai = build_cached_ai(
+            scenario.ai,
+            scenario.patient_generator,
+            base_schema,
+            dataset=base_generator.dataset,
+            indices=base_generator.planned_indices(),
+        )
     generator: Iterable[tuple[float, Patient]] = base_generator
     ai: DiagnosticActor = base_ai
     if not projection.is_identity:

@@ -59,6 +59,15 @@ class AIModelConfig(_Strict):
     # cached params: replay an inference cache (real ensemble predictions, no re-inference).
     # Reuses uq / ensemble_measure / decision_threshold below.
     cache_stem: str | None = None
+    # Cache matrix — transparent memoization of torchxrv/medgemma inference, addressed per
+    # atomic model as `<cache_root>/<dataset>__<model>` (see `hai_sim.analysis.cache_matrix`).
+    # Only torchxrv/medgemma are cacheable; every other AI kind (and validation, which builds
+    # the model directly) always runs live regardless of this field. `require` (default) =
+    # replay the cells, error if one is missing; `fill` = build missing cells inline (on the
+    # GPU server); `report` = print the plan and stop; `off` = skip the cache and run the live
+    # model (a quick smoke, or feature-space severity which the cache does not store).
+    cache_mode: Literal["off", "require", "fill", "report"] = "require"
+    cache_root: str = "data/cache"
     # random_mock params
     alpha_conf: float = 2.0
     beta_conf: float = 2.0
@@ -381,6 +390,11 @@ class PatientGenConfig(_Strict):
     n_examples: int = Field(default=100, gt=0)
     # xrv_dataset params
     dataset: Literal["nih", "rsna", "chexpert"] = "nih"
+    # Stable identifier for this dataset in the cache matrix (the `<dataset>` half of a
+    # cache stem `<dataset>__<model>`, see `hai_sim.analysis.cache_matrix`). Defaults to
+    # `dataset` for kind=xrv_dataset and to the image folder's parent directory name for
+    # kind=image_folder — set it explicitly when neither is meaningful (e.g. `vindr`).
+    dataset_id: str | None = None
     # Ground truth is owned by the dataset: selecting a dataset selects its GT.
     # 'native' = the dataset's own labels. For kind=image_folder, gt_source instead
     # names one of `label_sources` below ('native' = the first of them).

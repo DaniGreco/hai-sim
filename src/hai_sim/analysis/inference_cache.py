@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from hai_sim.core.types import DatasetExample
+
 if TYPE_CHECKING:
     from hai_sim.core.types import LabelSchema
 
@@ -79,9 +81,16 @@ class InferenceCache:
     """Batch size used during inference; 1 ⇒ ``inference_seconds`` is true latency."""
 
     dataset_fingerprint: str = ""
-    """Composition signature (dataset | views | unique_patients | dataset length).
-    Guards resume: a cache built over a differently-filtered dataset must not be
-    silently extended, because dataset indices would point at different images."""
+    """Identity of what the model saw: dataset | views | unique_patients | resize.
+    Guards resume: a cache built over a differently-filtered/-preprocessed dataset must
+    not be silently extended. The image *count* is deliberately absent — a cell is an
+    accumulating pool keyed by image id (`hai_sim.analysis.cache_matrix`), so a study
+    completes only the ids it lacks rather than being pinned to one fixed-N sample."""
+
+    model_fingerprint: str = ""
+    """Exact identity of the model config that produced the probabilities (weights for
+    xrv; model_id + prompt_set + readout for MedGemma). The decision threshold, UQ
+    measure and calibration are applied downstream, so they are NOT part of it."""
 
     @property
     def n_images(self) -> int:
@@ -123,6 +132,7 @@ class InferenceCache:
             "pathologies": list(self.pathologies),
             "dataset": self.dataset,
             "dataset_fingerprint": self.dataset_fingerprint,
+            "model_fingerprint": self.model_fingerprint,
             "batch_size": self.batch_size,
             "inference_seconds_per_image": {
                 "mean": float(np.mean(self.inference_seconds)) if self.n_images else 0.0,
@@ -160,14 +170,24 @@ class InferenceCache:
             dataset=str(manifest["dataset"]),
             batch_size=int(manifest["batch_size"]),
             dataset_fingerprint=str(manifest.get("dataset_fingerprint", "")),
+            model_fingerprint=str(manifest.get("model_fingerprint", "")),
         )
 
 
 def _ground_truth_row(lab: np.ndarray) -> np.ndarray:
-    """Map a dataset label vector (with NaN) to the ``{1, 0, -1}`` convention."""
+    """Map a dataset label vector to the ``{1, 0, -1}`` convention.
+
+    Handles both conventions the builder is fed: a raw TorchXRayVision vector
+    (``0`` / ``1`` / ``NaN`` = not annotated) and a `DatasetExample` vector already in
+    ``{1, 0, -1}`` (``-1`` = not annotated). Both ``NaN`` and an existing ``-1`` map to
+    ``-1``, so a "not annotated" label is never silently turned into an annotated
+    negative — the M\\D labels of ``../TESI.md`` §6.4-bis must stay unknown, not zero.
+    """
     lab = np.asarray(lab, dtype=float).ravel()
-    out = np.where(np.isnan(lab), -1, (lab >= 0.5).astype(np.int8))
-    return out.astype(np.int8)
+    out = np.full(lab.shape, -1, dtype=np.int8)
+    annotated = ~np.isnan(lab) & (lab != -1)
+    out[annotated] = (lab[annotated] >= 0.5).astype(np.int8)
+    return out
 
 
 def _image_id(dataset: Any, idx: int) -> str:
@@ -178,6 +198,27 @@ def _image_id(dataset: Any, idx: int) -> str:
             if col in getattr(csv, "columns", ()):
                 return str(csv.iloc[idx][col])
     return str(idx)
+
+
+def _extract_item(item: Any, dataset: Any, idx: int) -> tuple[np.ndarray, np.ndarray, str]:
+    """Normalize one dataset item to (model-ready image, label vector, image id).
+
+    Supports the two dataset shapes a cache is built over: a raw TorchXRayVision
+    dataset (a ``dict`` with ``img`` / ``lab``, id read from its csv), and any framework
+    `Dataset` yielding a `DatasetExample` (image / ground_truth / example_id) — which is
+    what lets one builder cache both an xrv dataset and an `ImageFolderDataset` (VinDr).
+    """
+    if isinstance(item, DatasetExample):
+        return (
+            np.asarray(item.image, dtype=np.float32),
+            np.asarray(item.ground_truth, dtype=float),
+            item.example_id,
+        )
+    return (
+        np.asarray(item["img"], dtype=np.float32),
+        np.asarray(item["lab"], dtype=float),
+        _image_id(dataset, idx),
+    )
 
 
 @runtime_checkable
@@ -217,6 +258,7 @@ def build_inference_cache(
     on_checkpoint: Callable[[InferenceCache], None] | None = None,
     prior: InferenceCache | None = None,
     dataset_fingerprint: str = "",
+    model_fingerprint: str = "",
 ) -> InferenceCache:
     """Run the ensemble over ``indices`` and collect raw probabilities + timing.
 
@@ -265,14 +307,15 @@ def build_inference_cache(
             dataset=dataset_name,
             batch_size=batch_size,
             dataset_fingerprint=dataset_fingerprint,
+            model_fingerprint=model_fingerprint,
         )
 
     processed = 0
     last_ckpt = 0
     for start in range(0, n_total, batch_size):
         batch_idx = list(indices[start : start + batch_size])
-        items = [dataset[i] for i in batch_idx]
-        imgs = [np.asarray(it["img"], dtype=np.float32) for it in items]
+        extracted = [_extract_item(dataset[i], dataset, i) for i in batch_idx]
+        imgs = [img for img, _, _ in extracted]
 
         t0 = perf_counter()
         probs = model.member_probabilities_batch(imgs)  # (b, M, L)
@@ -280,10 +323,10 @@ def build_inference_cache(
 
         b = len(batch_idx)
         member_probs[start : start + b] = probs.astype(np.float32)
-        for j, it in enumerate(items):
-            ground_truth[start + j] = _ground_truth_row(np.asarray(it["lab"]))
+        for j, (_, lab, img_id) in enumerate(extracted):
+            ground_truth[start + j] = _ground_truth_row(lab)
             inference_seconds[start + j] = per_img
-            image_ids.append(_image_id(dataset, batch_idx[j]))
+            image_ids.append(img_id)
         processed += b
 
         if checkpoint_every and on_checkpoint and processed - last_ckpt >= checkpoint_every:
