@@ -861,7 +861,10 @@ def build_from_scenario(scenario: ScenarioConfig) -> BuiltScenario:
         scenario.patient_generator, base_schema, rngs["patient"], rngs["arrival"]
     )
     base_ai: DiagnosticActor
-    if scenario.ai.cache_mode == "off":
+    # Only the real backends are cacheable; mock / synthetic / manual-cached kinds (and any
+    # cache_mode: off) always build the live actor, so the cache layer is invisible to them.
+    cacheable = scenario.ai.kind in ("torchxrv", "medgemma")
+    if scenario.ai.cache_mode == "off" or not cacheable:
         base_ai = build_ai(
             scenario.ai,
             base_schema,

@@ -59,14 +59,14 @@ class AIModelConfig(_Strict):
     # cached params: replay an inference cache (real ensemble predictions, no re-inference).
     # Reuses uq / ensemble_measure / decision_threshold below.
     cache_stem: str | None = None
-    # Cache matrix — transparent memoization of torchxrv/medgemma inference, addressed
-    # per atomic model as `<cache_root>/<dataset>__<model>` (see
-    # `hai_sim.analysis.cache_matrix`). `off` (default) runs the live model, unchanged —
-    # caching is opt-in so validation/live paths are never routed through a cache. When
-    # on: `require` = replay only, error if a needed cell is missing (the safe study
-    # default, so a laptop run never silently starts a multi-day build); `fill` = build
-    # missing cells inline (run it on the GPU server); `report` = print the plan and stop.
-    cache_mode: Literal["off", "require", "fill", "report"] = "off"
+    # Cache matrix — transparent memoization of torchxrv/medgemma inference, addressed per
+    # atomic model as `<cache_root>/<dataset>__<model>` (see `hai_sim.analysis.cache_matrix`).
+    # Only torchxrv/medgemma are cacheable; every other AI kind (and validation, which builds
+    # the model directly) always runs live regardless of this field. `require` (default) =
+    # replay the cells, error if one is missing; `fill` = build missing cells inline (on the
+    # GPU server); `report` = print the plan and stop; `off` = skip the cache and run the live
+    # model (a quick smoke, or feature-space severity which the cache does not store).
+    cache_mode: Literal["off", "require", "fill", "report"] = "require"
     cache_root: str = "data/cache"
     # random_mock params
     alpha_conf: float = 2.0
