@@ -37,8 +37,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from hai_sim._numerics import logit as _logit
+from hai_sim._numerics import sigmoid as _sigmoid
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, ModelOutput, PatientContext
+from hai_sim.core.types import Image, ModelOutput, PatientContext
 
 if TYPE_CHECKING:
     from hai_sim.core.protocols import DiagnosticActor, IntegrationPolicy
@@ -51,17 +53,6 @@ def _binary_entropy(p: np.ndarray) -> np.ndarray:
     p = np.clip(p, _EPS, 1.0 - _EPS)
     h: np.ndarray = -(p * np.log(p) + (1.0 - p) * np.log(1.0 - p))
     return h
-
-
-def _logit(p: np.ndarray) -> np.ndarray:
-    p = np.clip(p, _EPS, 1.0 - _EPS)
-    out: np.ndarray = np.log(p / (1.0 - p))
-    return out
-
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    out: np.ndarray = 1.0 / (1.0 + np.exp(-x))
-    return out
 
 
 def doctor_belief(output: ModelOutput) -> np.ndarray:
@@ -98,7 +89,6 @@ def _team_output(
     ``extra["doctor_solo_labels"]`` is what the collector/KPI layer reads to keep
     the unaided-doctor counterfactual alongside the aided (team) verdict.
     """
-    labels = tuple(int(x) for x in (p_team >= 0.5))
     extra: dict[str, Any] = {
         "assisted": True,
         "policy": policy_name,
@@ -107,13 +97,8 @@ def _team_output(
         "doctor_solo_confidence": tuple(float(x) for x in doctor_out.diagnosis.confidence),
         "fusion_weight_ai": tuple(float(x) for x in weight_ai),
     }
-    return ModelOutput(
-        diagnosis=Diagnosis(
-            labels=labels,
-            confidence=tuple(float(x) for x in p_team),
-        ),
-        uncertainty=tuple(float(x) for x in _binary_entropy(p_team)),
-        extra=extra,
+    return ModelOutput.from_arrays(
+        p_team >= 0.5, p_team, _binary_entropy(p_team), extra=extra
     )
 
 

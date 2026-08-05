@@ -58,6 +58,7 @@ class PoissonPatientGenerator:
         image_shape: tuple[int, ...] = (1, 1),
         rng: np.random.Generator | None = None,
         arrivals: ArrivalProcess | None = None,
+        embed_truth: bool = False,
     ) -> None:
         if arrival_rate is not None and arrival_rate <= 0:
             raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
@@ -77,6 +78,7 @@ class PoissonPatientGenerator:
         self.image_shape = image_shape
         self.rng = rng if rng is not None else np.random.default_rng()
         self.arrivals = resolve_arrivals(arrivals, arrival_rate, self.rng)
+        self.embed_truth = embed_truth
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
         """Yield (inter_arrival_delay, patient) pairs."""
@@ -87,7 +89,16 @@ class PoissonPatientGenerator:
             gt = tuple(
                 int(self.rng.random() < p) for p in self.prevalence
             )
-            image: Image = np.zeros(self.image_shape, dtype=np.uint8)
+            # Normally a placeholder — nothing in this stream reads pixels. With
+            # ``embed_truth`` the "image" carries the case's true label vector instead, the
+            # clean channel by which a *synthetic* reader (e.g. `FixedAccuracyAI`) learns
+            # the case without the engine ever handing the AI stage the ground truth a real
+            # model must not see.
+            image: Image = (
+                np.asarray(gt, dtype=np.float64)
+                if self.embed_truth
+                else np.zeros(self.image_shape, dtype=np.uint8)
+            )
             # No example_id: these patients are synthesised, not drawn from a dataset, so
             # there is no image identity to record. arrival_time is stamped by the engine.
             context = PatientContext(patient_id=pid, arrival_time=0.0)

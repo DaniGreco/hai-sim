@@ -17,7 +17,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
 
 
 class RandomMockAI(BaseDiagnosticActor):
@@ -57,11 +57,6 @@ class RandomMockAI(BaseDiagnosticActor):
         confidence = self.rng.beta(self.alpha_conf, self.beta_conf, size=n)
         uncertainty = self.rng.beta(self.alpha_unc, self.beta_unc, size=n)
         labels = (confidence >= 0.5).astype(int)
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in labels),
-                confidence=tuple(float(x) for x in confidence),
-            ),
-            uncertainty=tuple(float(x) for x in uncertainty),
-            extra={"_mock": True},
+        return ModelOutput.from_arrays(
+            labels, confidence, uncertainty, extra={"_mock": True}
         )

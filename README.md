@@ -916,7 +916,7 @@ of the calibration debt `../TESI.md` §8.2 flags as blocking for log-odds fusion
 ## Determinism
 
 A single `seed` drives the whole run. Internally `np.random.SeedSequence(seed)` is spawned
-into 5 independent sub-streams (patient generation, AI, doctor, sort, and a reserved fifth)
+into 5 independent sub-streams (patient generation, AI, doctor, sort, and arrival)
 so that **swapping one module does not perturb the others**. Same seed + same scenario file
 = byte-identical CSV/JSON. In studies, `replications` are seeds, giving each arm common
 random numbers.

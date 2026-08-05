@@ -29,7 +29,8 @@ from typing import Literal
 import numpy as np
 
 from hai_sim.core.base import BaseDiagnosticActor
-from hai_sim.core.types import Diagnosis, Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.core.types import Image, LabelSchema, ModelOutput, PatientContext
+from hai_sim.doctors._shared import lognormal_service_time
 
 AssistedPolicy = Literal["noop", "follow_when_certain"]
 
@@ -103,18 +104,13 @@ class RandomMockDoctor(BaseDiagnosticActor):
                 extra["ai_hint_followed_labels"] = tuple(followed)
             # "noop" → hint seen, no behavior change.
 
-        return ModelOutput(
-            diagnosis=Diagnosis(
-                labels=tuple(int(x) for x in labels),
-                confidence=tuple(float(x) for x in confidence),
-            ),
-            uncertainty=tuple(float(x) for x in uncertainty),
-            extra=extra,
-        )
+        return ModelOutput.from_arrays(labels, confidence, uncertainty, extra=extra)
 
     def service_time(
         self,
         images: Sequence[Image],
         context: PatientContext | None = None,
     ) -> float:
-        return float(self.rng.lognormal(self.service_time_mu, self.service_time_sigma))
+        return lognormal_service_time(
+            self.rng, self.service_time_mu, self.service_time_sigma
+        )

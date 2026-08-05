@@ -83,6 +83,8 @@ from hai_sim.sort.uncertainty import UncertaintyDescSort
 def build_label_schema(name: str) -> LabelSchema:
     if name == "default_v0":
         return LabelSchema.default_v0()
+    if name == "single":
+        return LabelSchema.single()
     if name == "chexpert":
         return LabelSchema.chexpert()
     if name == "xrv":
@@ -201,6 +203,19 @@ def build_ai(
             schema=schema,
             uq=_build_uq(cfg),
             decision_threshold=cfg.decision_threshold,
+            service_time=cfg.service_time,
+        )
+    if cfg.kind == "fixed_accuracy":
+        from hai_sim.models.synthetic import FixedAccuracyAI
+
+        return FixedAccuracyAI(
+            schema=schema,
+            rng=rng,
+            d_prime=cfg.d_prime,
+            criterion=cfg.criterion,
+            sensitivity=cfg.sensitivity,
+            specificity=cfg.specificity,
+            prior=cfg.prior,
             service_time=cfg.service_time,
         )
     raise ValueError(f"unknown ai.kind: {cfg.kind}")
@@ -357,6 +372,23 @@ def build_capability(
             difficulty_slope=cfg.difficulty_slope,
             fatigue_slope=cfg.fatigue_slope,
             floor=cfg.floor,
+            service_time_model=build_service_time(cfg.service_time, rng),
+        )
+    if cfg.kind == "sdt":
+        from hai_sim.doctors.sdt import SDTDoctor
+
+        return SDTDoctor(
+            schema=schema,
+            rng=rng,
+            d_prime=cfg.d_prime,
+            criterion=cfg.criterion,
+            sensitivity=cfg.sensitivity,
+            specificity=cfg.specificity,
+            prior=cfg.prior,
+            difficulty_slope=cfg.difficulty_slope,
+            fatigue_slope=cfg.fatigue_slope,
+            service_time_mu=cfg.service_time_mu,
+            service_time_sigma=cfg.service_time_sigma,
             service_time_model=build_service_time(cfg.service_time, rng),
         )
     if cfg.kind == "random_mock":
@@ -607,6 +639,7 @@ def build_patient_generator(
             prevalence=cfg.prevalence,
             image_shape=cfg.image_shape,
             rng=rng,
+            embed_truth=cfg.embed_truth,
         )
     if cfg.kind == "mock_dataset":
         mock = MockDataset(
@@ -676,14 +709,13 @@ def build_rngs(seed: int) -> dict[str, np.random.Generator]:
     arrival times move.
     """
     seed_seq = np.random.SeedSequence(seed)
-    children = seed_seq.spawn(6)
+    children = seed_seq.spawn(5)
     return {
         "patient": np.random.default_rng(children[0]),
         "ai": np.random.default_rng(children[1]),
         "doctor": np.random.default_rng(children[2]),
         "sort": np.random.default_rng(children[3]),
         "arrival": np.random.default_rng(children[4]),
-        "_reserved": np.random.default_rng(children[5]),
     }
 
 

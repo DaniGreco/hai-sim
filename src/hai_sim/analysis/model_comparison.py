@@ -35,6 +35,7 @@ from typing import Any
 
 import numpy as np
 
+from hai_sim.analysis.error_curve import _auroc
 from hai_sim.analysis.inference_cache import InferenceCache, measures_from_cache
 
 # Categorical series colours, in fixed slot order — a model keeps its colour no matter
@@ -205,27 +206,12 @@ def auroc(scores: np.ndarray, positive: np.ndarray) -> float | None:
 
     Returning ``None`` rather than 0.5 for a degenerate split matters: "we could not
     measure this" and "the model was no better than chance" are different statements and
-    a chart must not merge them.
+    a chart must not merge them. The Mann-Whitney computation (mid-rank tie handling and
+    all) is shared with `error_curve._auroc`, which returns NaN on the degenerate split;
+    this only maps that NaN to the ``None`` the discrimination chart wants.
     """
-    scores = np.asarray(scores, dtype=float)
-    positive = np.asarray(positive, dtype=bool)
-    n_pos = int(positive.sum())
-    n_neg = int((~positive).sum())
-    if n_pos == 0 or n_neg == 0:
-        return None
-    order = np.argsort(scores, kind="mergesort")
-    ranks = np.empty(len(scores), dtype=float)
-    ranks[order] = np.arange(1, len(scores) + 1, dtype=float)
-    # Average ranks within ties, so a model that outputs one constant score scores 0.5
-    # rather than whatever the sort order happened to be.
-    sorted_scores = scores[order]
-    start = 0
-    for i in range(1, len(sorted_scores) + 1):
-        if i == len(sorted_scores) or sorted_scores[i] != sorted_scores[start]:
-            if i - start > 1:
-                ranks[order[start:i]] = ranks[order[start:i]].mean()
-            start = i
-    return float((ranks[positive].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+    value = _auroc(np.asarray(scores, dtype=float), positive)
+    return None if np.isnan(value) else float(value)
 
 
 def per_pathology_auroc(run: ModelRun) -> dict[str, float | None]:
