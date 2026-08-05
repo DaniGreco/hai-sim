@@ -79,9 +79,16 @@ class InferenceCache:
     """Batch size used during inference; 1 ⇒ ``inference_seconds`` is true latency."""
 
     dataset_fingerprint: str = ""
-    """Composition signature (dataset | views | unique_patients | dataset length).
-    Guards resume: a cache built over a differently-filtered dataset must not be
-    silently extended, because dataset indices would point at different images."""
+    """Identity of what the model saw: dataset | views | unique_patients | resize.
+    Guards resume: a cache built over a differently-filtered/-preprocessed dataset must
+    not be silently extended. The image *count* is deliberately absent — a cell is an
+    accumulating pool keyed by image id (`hai_sim.analysis.cache_matrix`), so a study
+    completes only the ids it lacks rather than being pinned to one fixed-N sample."""
+
+    model_fingerprint: str = ""
+    """Exact identity of the model config that produced the probabilities (weights for
+    xrv; model_id + prompt_set + readout for MedGemma). The decision threshold, UQ
+    measure and calibration are applied downstream, so they are NOT part of it."""
 
     @property
     def n_images(self) -> int:
@@ -123,6 +130,7 @@ class InferenceCache:
             "pathologies": list(self.pathologies),
             "dataset": self.dataset,
             "dataset_fingerprint": self.dataset_fingerprint,
+            "model_fingerprint": self.model_fingerprint,
             "batch_size": self.batch_size,
             "inference_seconds_per_image": {
                 "mean": float(np.mean(self.inference_seconds)) if self.n_images else 0.0,
@@ -160,6 +168,7 @@ class InferenceCache:
             dataset=str(manifest["dataset"]),
             batch_size=int(manifest["batch_size"]),
             dataset_fingerprint=str(manifest.get("dataset_fingerprint", "")),
+            model_fingerprint=str(manifest.get("model_fingerprint", "")),
         )
 
 
@@ -217,6 +226,7 @@ def build_inference_cache(
     on_checkpoint: Callable[[InferenceCache], None] | None = None,
     prior: InferenceCache | None = None,
     dataset_fingerprint: str = "",
+    model_fingerprint: str = "",
 ) -> InferenceCache:
     """Run the ensemble over ``indices`` and collect raw probabilities + timing.
 
@@ -265,6 +275,7 @@ def build_inference_cache(
             dataset=dataset_name,
             batch_size=batch_size,
             dataset_fingerprint=dataset_fingerprint,
+            model_fingerprint=model_fingerprint,
         )
 
     processed = 0
