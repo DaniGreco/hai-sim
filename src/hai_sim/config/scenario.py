@@ -61,11 +61,12 @@ class AIModelConfig(_Strict):
     cache_stem: str | None = None
     # Cache matrix — transparent memoization of torchxrv/medgemma inference, addressed
     # per atomic model as `<cache_root>/<dataset>__<model>` (see
-    # `hai_sim.analysis.cache_matrix`). `require` = replay only, error if a needed cell is
-    # missing (the safe default, so a laptop study never silently starts a multi-day
-    # build); `fill` = build missing cells inline (run it on the GPU server); `report` =
-    # print the build plan and stop.
-    cache_mode: Literal["require", "fill", "report"] = "require"
+    # `hai_sim.analysis.cache_matrix`). `off` (default) runs the live model, unchanged —
+    # caching is opt-in so validation/live paths are never routed through a cache. When
+    # on: `require` = replay only, error if a needed cell is missing (the safe study
+    # default, so a laptop run never silently starts a multi-day build); `fill` = build
+    # missing cells inline (run it on the GPU server); `report` = print the plan and stop.
+    cache_mode: Literal["off", "require", "fill", "report"] = "off"
     cache_root: str = "data/cache"
     # random_mock params
     alpha_conf: float = 2.0

@@ -60,6 +60,22 @@ class DatasetPatientGenerator:
         self.sample_mode: SampleMode = sample_mode
         self.gt_source = gt_source
         self.arrivals = resolve_arrivals(arrivals, arrival_rate, self.rng)
+        # Fix the sampled indices once, so the stream a study replays and the ids a cache
+        # layer pre-resolves are the same draw — random sampling must not advance the rng
+        # differently between planning and iteration.
+        self._indices = self._index_stream()
+
+    def planned_indices(self) -> list[int]:
+        """The dataset indices this run will stream, in order."""
+        return list(self._indices)
+
+    def planned_example_ids(self) -> list[str]:
+        """The example ids this run will stream, resolved without loading pixels where the
+        dataset exposes ``example_ids`` — so a cache layer can pre-resolve coverage."""
+        ids = getattr(self.dataset, "example_ids", None)
+        if ids is not None:
+            return [str(ids[i]) for i in self._indices]
+        return [self.dataset[i].example_id for i in self._indices]
 
     def _index_stream(self) -> list[int]:
         n = len(self.dataset)
@@ -79,7 +95,7 @@ class DatasetPatientGenerator:
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
         now = 0.0
-        for pid, idx in enumerate(self._index_stream()):
+        for pid, idx in enumerate(self._indices):
             example = self.dataset[idx]
             gt = self._resolve_gt(example)
             delay = float(self.arrivals.next_delay(now))
