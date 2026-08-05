@@ -238,6 +238,39 @@ QUESTION_PROMPT = (
 )
 QUESTION_TEMPLATE = "\n\nQuestion: Is {label} present in this chest X-ray?\nAnswer:"
 
+# The `xrv` label names are terse and, in places, dataset jargon ("Pleural_Thickening"
+# with an underscore, "Effusion", the NIH-era "Infiltration"). A medical model answers a
+# natural radiological phrasing more reliably, so each label maps to the phrase used *in
+# the question* — the schema and the cached columns stay `xrv`, only the wording changes.
+# This is a modelling choice (how the opinion is elicited, ../TESI.md readout doctrine),
+# held identical across MedGemma variants for comparability and versioned with this
+# readout; a label not listed (a non-xrv schema) falls back to its own name.
+CLINICAL_PHRASING: dict[str, str] = {
+    "Atelectasis": "atelectasis",
+    "Consolidation": "consolidation",
+    "Infiltration": "a pulmonary infiltrate",
+    "Pneumothorax": "a pneumothorax",
+    "Edema": "pulmonary edema",
+    "Emphysema": "emphysema",
+    "Fibrosis": "pulmonary fibrosis",
+    "Effusion": "a pleural effusion",
+    "Pneumonia": "pneumonia",
+    "Pleural_Thickening": "pleural thickening",
+    "Cardiomegaly": "cardiomegaly",
+    "Nodule": "a pulmonary nodule",
+    "Mass": "a pulmonary mass",
+    "Hernia": "a hiatal hernia",
+    "Lung Lesion": "a lung lesion",
+    "Fracture": "a fracture",
+    "Lung Opacity": "a lung opacity",
+    "Enlarged Cardiomediastinum": "a widened mediastinum",
+}
+
+
+def clinical_phrase(label: str) -> str:
+    """The natural-language phrase for a label in the question, or the label unchanged."""
+    return CLINICAL_PHRASING.get(label, label)
+
 
 @dataclass(frozen=True)
 class IndependentQuestionReadout:
@@ -268,7 +301,7 @@ class IndependentQuestionReadout:
         labels: Sequence[str],
         prefix: str = "",
     ) -> np.ndarray:
-        branches = [QUESTION_TEMPLATE.format(label=label) for label in labels]
+        branches = [QUESTION_TEMPLATE.format(label=clinical_phrase(label)) for label in labels]
         scores = backend.score_branches(
             image, prefix + QUESTION_PROMPT, branches, (*YES_TOKENS, *NO_TOKENS)
         )

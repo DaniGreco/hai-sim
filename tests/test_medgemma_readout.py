@@ -24,6 +24,7 @@ from hai_sim.models.readout import (
     TeacherForcedLogprobReadout,
     answer_token_positions,
     build_checklist,
+    clinical_phrase,
     parse_confidence_json,
     resolve_prompt_set,
 )
@@ -141,9 +142,23 @@ def test_one_branch_per_pathology_each_naming_only_its_own():
     backend = FakeVisionLanguage([0.5, 0.5, 0.5])
     IndependentQuestionReadout().probabilities(backend, None, _LABELS)
     assert len(backend.branches_seen) == len(_LABELS)
-    for branch, label in zip(backend.branches_seen, _LABELS, strict=True):
-        assert label in branch
-        assert not any(other in branch for other in _LABELS if other != label)
+    phrases = [clinical_phrase(label) for label in _LABELS]
+    for branch, phrase in zip(backend.branches_seen, phrases, strict=True):
+        assert phrase in branch
+        assert not any(other in branch for other in phrases if other != phrase)
+
+
+def test_questions_are_clinically_phrased():
+    """The wording uses the clinical phrase, not the raw xrv label — the underscore
+    jargon 'Pleural_Thickening' must never reach the model, and 'Effusion' becomes a
+    pleural effusion. An unmapped label (a non-xrv schema) is used verbatim."""
+    backend = FakeVisionLanguage([0.5, 0.5])
+    IndependentQuestionReadout().probabilities(backend, None, ("Effusion", "Pleural_Thickening"))
+    joined = " ".join(backend.branches_seen)
+    assert "a pleural effusion" in joined
+    assert "pleural thickening" in joined
+    assert "Pleural_Thickening" not in joined
+    assert clinical_phrase("SomethingNovel") == "SomethingNovel"
 
 
 def test_the_image_is_read_once_for_all_the_questions():
