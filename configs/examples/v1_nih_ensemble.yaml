@@ -1,7 +1,12 @@
-# Same as v1_nih_torchxrv but with a cross-domain Deep Ensemble for genuine
-# epistemic uncertainty: five weight sets (NIH/CheXpert/MIMIC/PadChest/RSNA) vote
-# per image, and their disagreement (mutual information) is the uncertainty
-# signal the triage sorts on. Slower (5 forward passes/image) but the real UQ.
+# A cross-domain Deep Ensemble for genuine epistemic uncertainty: four weight sets
+# (CheXpert/MIMIC/PadChest/RSNA) vote per image, and their disagreement (mutual
+# information) is the uncertainty signal the triage sorts on. The NIH-trained member is
+# DROPPED on purpose — it is trained on this very NIH evaluation set, so it would leak
+# in-domain (and, on our random sample, partly memorized) predictions. See TESI.md §6.4-bis.
+#
+# Live inference is cacheable: build the per-member cells once on the GPU server
+#   uv run python scripts/materialize_cache.py --scenario <this> --limit 0 --device cuda:0
+# then set ai.cache_mode: require to replay them (data/cache/nih__<member>).
 
 name: v1_nih_ensemble
 seed: 42
@@ -20,8 +25,7 @@ patient_generator:
 
 ai:
   kind: torchxrv
-  weights:                       # cross-domain ensemble members
-    - densenet121-res224-nih
+  weights:                       # 4-member cross-domain ensemble (NIH member dropped: leakage)
     - densenet121-res224-chex
     - densenet121-res224-mimic_ch
     - densenet121-res224-pc
@@ -30,6 +34,9 @@ ai:
   ensemble_measure: mutual_information   # epistemic disagreement
   decision_threshold: 0.5
   service_time: 0.25
+  # "off" = live ensemble (a quick smoke). Build caches with materialize_cache.py, then set
+  # "require" to replay data/cache/nih__<member>, or "fill" to build gaps on the GPU server.
+  cache_mode: "off"
 
 persona:                   # fixed-accuracy solo reader
   capability:
