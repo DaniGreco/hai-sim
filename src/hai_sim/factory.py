@@ -617,6 +617,24 @@ def build_image_folder_dataset(cfg: PatientGenConfig, schema: LabelSchema) -> An
     )
 
 
+def build_cacheable_dataset(cfg: PatientGenConfig, schema: LabelSchema) -> Any:
+    """The dataset object an inference-cache builder iterates, for either cacheable kind.
+
+    ``xrv_dataset`` → the raw TorchXRayVision dataset (dict items); ``image_folder`` →
+    an `ImageFolderDataset` (DatasetExample items). `build_inference_cache` handles both,
+    so this is the single place the cache builder / matrix materializer resolves a
+    dataset from config regardless of its kind.
+    """
+    if cfg.kind == "xrv_dataset":
+        return build_xrv_dataset(cfg)
+    if cfg.kind == "image_folder":
+        return build_image_folder_dataset(cfg, schema)
+    raise ValueError(
+        f"patient_generator.kind={cfg.kind!r} is not cacheable; use xrv_dataset or "
+        "image_folder"
+    )
+
+
 def build_patient_generator(
     cfg: PatientGenConfig,
     schema: LabelSchema,

@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from hai_sim.core.types import DatasetExample
+
 if TYPE_CHECKING:
     from hai_sim.core.types import LabelSchema
 
@@ -173,10 +175,19 @@ class InferenceCache:
 
 
 def _ground_truth_row(lab: np.ndarray) -> np.ndarray:
-    """Map a dataset label vector (with NaN) to the ``{1, 0, -1}`` convention."""
+    """Map a dataset label vector to the ``{1, 0, -1}`` convention.
+
+    Handles both conventions the builder is fed: a raw TorchXRayVision vector
+    (``0`` / ``1`` / ``NaN`` = not annotated) and a `DatasetExample` vector already in
+    ``{1, 0, -1}`` (``-1`` = not annotated). Both ``NaN`` and an existing ``-1`` map to
+    ``-1``, so a "not annotated" label is never silently turned into an annotated
+    negative — the M\\D labels of ``../TESI.md`` §6.4-bis must stay unknown, not zero.
+    """
     lab = np.asarray(lab, dtype=float).ravel()
-    out = np.where(np.isnan(lab), -1, (lab >= 0.5).astype(np.int8))
-    return out.astype(np.int8)
+    out = np.full(lab.shape, -1, dtype=np.int8)
+    annotated = ~np.isnan(lab) & (lab != -1)
+    out[annotated] = (lab[annotated] >= 0.5).astype(np.int8)
+    return out
 
 
 def _image_id(dataset: Any, idx: int) -> str:
@@ -187,6 +198,27 @@ def _image_id(dataset: Any, idx: int) -> str:
             if col in getattr(csv, "columns", ()):
                 return str(csv.iloc[idx][col])
     return str(idx)
+
+
+def _extract_item(item: Any, dataset: Any, idx: int) -> tuple[np.ndarray, np.ndarray, str]:
+    """Normalize one dataset item to (model-ready image, label vector, image id).
+
+    Supports the two dataset shapes a cache is built over: a raw TorchXRayVision
+    dataset (a ``dict`` with ``img`` / ``lab``, id read from its csv), and any framework
+    `Dataset` yielding a `DatasetExample` (image / ground_truth / example_id) — which is
+    what lets one builder cache both an xrv dataset and an `ImageFolderDataset` (VinDr).
+    """
+    if isinstance(item, DatasetExample):
+        return (
+            np.asarray(item.image, dtype=np.float32),
+            np.asarray(item.ground_truth, dtype=float),
+            item.example_id,
+        )
+    return (
+        np.asarray(item["img"], dtype=np.float32),
+        np.asarray(item["lab"], dtype=float),
+        _image_id(dataset, idx),
+    )
 
 
 @runtime_checkable
@@ -282,8 +314,8 @@ def build_inference_cache(
     last_ckpt = 0
     for start in range(0, n_total, batch_size):
         batch_idx = list(indices[start : start + batch_size])
-        items = [dataset[i] for i in batch_idx]
-        imgs = [np.asarray(it["img"], dtype=np.float32) for it in items]
+        extracted = [_extract_item(dataset[i], dataset, i) for i in batch_idx]
+        imgs = [img for img, _, _ in extracted]
 
         t0 = perf_counter()
         probs = model.member_probabilities_batch(imgs)  # (b, M, L)
@@ -291,10 +323,10 @@ def build_inference_cache(
 
         b = len(batch_idx)
         member_probs[start : start + b] = probs.astype(np.float32)
-        for j, it in enumerate(items):
-            ground_truth[start + j] = _ground_truth_row(np.asarray(it["lab"]))
+        for j, (_, lab, img_id) in enumerate(extracted):
+            ground_truth[start + j] = _ground_truth_row(lab)
             inference_seconds[start + j] = per_img
-            image_ids.append(_image_id(dataset, batch_idx[j]))
+            image_ids.append(img_id)
         processed += b
 
         if checkpoint_every and on_checkpoint and processed - last_ckpt >= checkpoint_every:
