@@ -163,7 +163,6 @@ def build_ai(
             emit_embedding=emit_embedding,
         )
     if cfg.kind == "medgemma":
-        from hai_sim.models.medgemma import MedGemmaAI
         from hai_sim.models.readout import (
             GeneratedJsonReadout,
             IndependentQuestionReadout,
@@ -178,13 +177,40 @@ def build_ai(
             readout = TeacherForcedLogprobReadout(both_polarities=cfg.both_polarities)
         else:
             readout = IndependentQuestionReadout()
+
+        # One prompt yields one member, so member disagreement does not exist and only
+        # entropy of the model's own probability is available; several prompts make
+        # member-disagreement UQ available. Both backends share this.
+        if cfg.backend == "vllm":
+            from hai_sim.models.vllm_backend import VLLMBackend, VLLMMedGemmaAI
+
+            if not cfg.endpoint or not cfg.served_model_name:
+                raise ValueError(
+                    "ai.backend='vllm' requires ai.endpoint and ai.served_model_name"
+                )
+            backend = VLLMBackend(
+                cfg.endpoint,
+                cfg.served_model_name,
+                concurrency=cfg.concurrency,
+                top_logprobs=cfg.top_logprobs,
+            )
+            return VLLMMedGemmaAI(
+                schema=schema,
+                backend=backend,
+                readout=readout,
+                prompt_set=cfg.prompt_set,
+                uq=_build_uq(cfg),
+                decision_threshold=cfg.decision_threshold,
+                service_time=cfg.service_time,
+            )
+
+        from hai_sim.models.medgemma import MedGemmaAI
+
         return MedGemmaAI(
             schema=schema,
             model_id=cfg.model_id,
             readout=readout,
             prompt_set=cfg.prompt_set,
-            # One prompt yields one member, so member disagreement does not exist and
-            # only entropy of the model's own probability is available; several do.
             uq=_build_uq(cfg),
             decision_threshold=cfg.decision_threshold,
             service_time=cfg.service_time,
