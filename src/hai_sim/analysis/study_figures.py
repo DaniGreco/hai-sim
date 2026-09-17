@@ -143,7 +143,7 @@ def render_team_effect(long_csv: str | Path, out: str | Path, persona: str = "se
               "log_odds_fusion": "Logarithmic pool (add the evidence)"}
     stats = (("d_n_fn", "missed findings"), ("d_n_fp", "false alarms"))
 
-    fig, axes = plt.subplots(len(fusions), 2, figsize=(7.2, (0.25 * len(labels) + 0.75) * len(fusions) + 1.0),
+    fig, axes = plt.subplots(len(fusions), 2, figsize=(7.2, (0.25 * len(labels) + 0.85) * len(fusions) + 0.9),
                              sharey=True, squeeze=False)
     for i, fusion in enumerate(fusions):
         for j, (stat, what) in enumerate(stats):
@@ -160,8 +160,8 @@ def render_team_effect(long_csv: str | Path, out: str | Path, persona: str = "se
                     ax.plot([r[f"{stat}_lo"], r[f"{stat}_hi"]], [y, y], color=color, lw=1.0, zorder=2)
                     ax.plot(r[stat], y, marker="osD"[a], ms=3.8, mew=1.0, color=color,
                             mfc=color if clear else SURFACE, zorder=3)
-            ax.set_title(f"{titles[fusion]}: change in {what}" if j == 0 else f"change in {what}",
-                         fontsize=7.8, color=INK, loc="left")
+            head = titles[fusion] if j == 0 else ""
+            ax.set_title(f"{head}\nchange in {what}", fontsize=7.8, color=INK, loc="left")
             ax.grid(axis="x", color=RULE, lw=0.5)
             ax.set_axisbelow(True)
             ax.tick_params(axis="y", length=0)
@@ -179,7 +179,7 @@ def render_team_effect(long_csv: str | Path, out: str | Path, persona: str = "se
     handles.append(Line2D([], [], color=INK_2, marker="o", mfc=SURFACE, ls="none", ms=4.2,
                           label="Hollow: 95% interval includes zero"))
     fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False, fontsize=7.2, labelcolor=INK_2)
-    fig.tight_layout(rect=(0, 0.5 / h, 1, 1 - 0.3 / h), w_pad=1.0, h_pad=1.2)
+    fig.tight_layout(rect=(0, 0.5 / h, 1, 1 - 0.24 / h), w_pad=1.0, h_pad=1.2)
     out = Path(out)
     _save(fig, out)
     plt.close(fig)
