@@ -17,8 +17,11 @@ from hai_sim.uq.calibration import (
     expected_calibration_error,
     fit_isotonic,
     fit_platt,
+    fit_platt_per_label,
     fit_temperature,
     fit_temperature_per_label,
+    load_platt_file,
+    save_platt_file,
 )
 from hai_sim.uq.methods import EnsembleUQ, EntropyUQ
 
@@ -174,10 +177,10 @@ def test_calibrated_uq_wraps_any_method_and_records_which_one():
     assert unc.shape == (2,)
 
 
-def test_calibrated_uq_keeps_uncertainty_consistent_with_the_probabilities():
+def test_members_stage_keeps_uncertainty_consistent_with_the_probabilities():
     """Calibrating members *before* fusion is what keeps these two describing the same
-    numbers; calibrating after would leave the entropy talking about the raw output."""
-    wrapped = CalibratedUQ(EntropyUQ(), TemperatureScaling(5.0))
+    numbers; the output stage deliberately leaves the entropy on the raw output."""
+    wrapped = CalibratedUQ(EntropyUQ(), TemperatureScaling(5.0), stage="members")
     probs, unc, _ = wrapped.estimate(np.asarray([[0.99]]))
     from hai_sim.uq.methods import binary_entropy
 
@@ -199,9 +202,90 @@ def test_factory_wraps_when_calibration_is_configured():
     )
     built = _build_uq(cfg)
     assert isinstance(built, CalibratedUQ)
-    assert built.name == "ensemble:mutual_information+temperature:2.5"
+    assert built.name == "ensemble:mutual_information+temperature:2.5@output"
 
 
 def test_factory_isotonic_requires_fitted_knots():
     with pytest.raises(ValueError, match="knots_x and knots_y"):
         build_calibrator(CalibrationConfig(kind="isotonic"))
+
+
+
+# --- output stage, converged Platt, per-label files ---------------------------------
+
+
+def test_output_stage_calibrates_the_fused_probability_and_leaves_uncertainty_raw():
+    inner = EnsembleUQ(measure="mean_entropy")
+    members = np.asarray([[0.9, 0.2], [0.7, 0.4]])
+    raw_probs, raw_unc, _ = inner.estimate(members)
+    cal = PlattCalibrator(a=1.0, b=-2.0)
+    probs, unc, extra = CalibratedUQ(inner, cal, stage="output").estimate(members)
+    np.testing.assert_allclose(probs, cal.calibrate(raw_probs))
+    np.testing.assert_allclose(unc, raw_unc)
+    assert extra["calibration_stage"] == "output"
+
+
+def test_output_stage_cannot_reorder_cases():
+    """A monotone map on the fused probability keeps every case ranking intact — the
+    members stage gives no such guarantee, which is why output is the default."""
+    rng = np.random.default_rng(0)
+    members = rng.random((200, 4, 1))
+    cal = PlattCalibrator(a=1.7, b=-3.0)
+    wrapped = CalibratedUQ(EnsembleUQ(measure="mean_entropy"), cal, stage="output")
+    raw = np.array([EnsembleUQ(measure="mean_entropy").estimate(m)[0][0] for m in members])
+    out = np.array([wrapped.estimate(m)[0][0] for m in members])
+    assert np.array_equal(np.argsort(raw), np.argsort(out))
+
+
+def test_calibrated_uq_rejects_an_unknown_stage():
+    with pytest.raises(ValueError, match="stage"):
+        CalibratedUQ(EntropyUQ(), PlattCalibrator(), stage="after")
+
+
+def test_fit_platt_converges_to_the_generating_map():
+    """Rare finding, logits far from zero: the case a coordinate-wise step crawls on."""
+    rng = np.random.default_rng(3)
+    raw = rng.beta(1.0, 12.0, size=40_000)
+    true_a, true_b = 1.8, 2.0
+    z = np.log(raw / (1 - raw))
+    y = (rng.random(raw.size) < 1 / (1 + np.exp(-(true_a * z + true_b)))).astype(float)
+    a, b = fit_platt(raw, y)
+    assert a == pytest.approx(true_a, abs=0.15)
+    assert b == pytest.approx(true_b, abs=0.25)
+    pred = 1 / (1 + np.exp(-(a * z + b)))
+    assert abs(float(np.mean(pred - y))) < 1e-6, "at the optimum mean(p) == mean(y)"
+    assert abs(float(np.mean((pred - y) * z))) < 1e-6
+
+
+def test_fit_platt_per_label_leaves_unfittable_columns_at_identity():
+    rng = np.random.default_rng(4)
+    probs = rng.random((500, 3))
+    labels = np.stack(
+        [
+            (rng.random(500) < probs[:, 0]).astype(float),
+            np.full(500, -1.0),  # unannotated
+            np.zeros(500),  # single class
+        ],
+        axis=1,
+    )
+    a, b, n_pos = fit_platt_per_label(probs, labels)
+    assert (a[1], b[1]) == (1.0, 0.0) and (a[2], b[2]) == (1.0, 0.0)
+    assert n_pos[0] > 0 and n_pos[1] == 0 and n_pos[2] == 0
+
+
+def test_platt_file_roundtrips_aligned_by_label_name(tmp_path):
+    path = tmp_path / "calibration" / "toy__model.json"
+    save_platt_file(
+        path,
+        pathologies=["A", "B"],
+        a=np.array([2.0, 0.5]),
+        b=np.array([-1.0, 1.0]),
+        n_positive=np.array([10, 20]),
+        provenance={"split": "even"},
+    )
+    cal = load_platt_file(path, ["B", "A"])
+    np.testing.assert_allclose(cal.a, [0.5, 2.0])
+    np.testing.assert_allclose(cal.b, [1.0, -1.0])
+    with pytest.raises(ValueError, match="no calibration entry"):
+        load_platt_file(path, ["A", "C"])
+

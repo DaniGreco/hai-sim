@@ -25,12 +25,22 @@ class CalibrationConfig(_Strict):
     ``isotonic`` fits any monotone shape and overfits small samples happily.
 
     Parameters are *fitted*, not guessed: use ``scripts/fit_calibration.py`` against an
-    inference cache and paste the result here. Fit on data the study does not score, and
-    remember calibration belongs to (model + readout + prompt + population), not to a
-    model in the abstract.
+    inference cache. Per-pathology Platt is 2 x L numbers per (model, dataset), so it
+    lives in a file next to the cache (``path``) rather than in the scenario. Fit on data
+    the study does not score (``patient_generator.split``), and remember calibration
+    belongs to (model + readout + prompt + population), not to a model in the abstract.
+
+    ``stage`` says what gets calibrated: ``output`` (default) the fused probability the
+    reader is shown, leaving the uncertainty on the raw members; ``members`` each member
+    before fusion, so the uncertainty describes calibrated numbers too. See
+    `hai_sim.uq.calibration`.
     """
 
     kind: Literal["identity", "temperature", "platt", "isotonic"] = "identity"
+    stage: Literal["output", "members"] = "output"
+    # platt: a per-label calibration file written by scripts/fit_calibration.py; when
+    # set it replaces the scalar a / b below.
+    path: str | None = None
     # temperature: scalar, or one value per label (len must equal the schema).
     temperature: float | tuple[float, ...] = 1.0
     # platt: sigmoid(a * logit(p) + b)
@@ -192,6 +202,11 @@ class TrustConfig(_Strict):
     """
 
     kind: Literal["linear_pool", "confidence_gated", "log_odds_fusion"] = "linear_pool"
+    # The fused belief at or above which the team calls a finding present. 0.5 keeps the
+    # team on the same footing as the unaided reader, so a paired contrast measures the
+    # advice and not a change of operating point; 1/(1 + c_FN/c_FP) is the cost-optimal
+    # cut, meaningful only on calibrated probabilities.
+    decision_threshold: float = Field(default=0.5, gt=0.0, lt=1.0)
     # linear_pool / confidence_gated: Weight of Advice
     weight_ai: float = Field(default=0.39, ge=0.0, le=1.0)
     # confidence_gated: min AI confidence (max(p, 1-p)) to listen to the AI
@@ -420,6 +435,10 @@ class PatientGenConfig(_Strict):
     label_sources: tuple[LabelSourceConfig, ...] = ()
     image_ext: str = ".png"
     sample_mode: Literal["sequential", "random"] = "sequential"
+    # inference_cache only: restrict the patient pool to the even- or odd-indexed cache
+    # rows. A calibration fitted on one half must be studied on the other
+    # (scripts/fit_calibration.py --split even  ->  split: odd).
+    split: Literal["all", "even", "odd"] = "all"
     # View filtering (applied for dataset=nih). Default ("PA",) matches xrv's own
     # default; use ("PA", "AP") to include antero-posterior (portable/ICU) frontals.
     views: tuple[str, ...] = ("PA",)
