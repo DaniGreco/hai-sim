@@ -373,7 +373,10 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
               ("hybrid", "Reader with the AI's advice", SERIES[0], "D")]
     value: dict[tuple[str, str, str], list[float]] = defaultdict(list)
     for r in rows:
-        _, actor, stat = r["metric"].split(".")
+        parts = r["metric"].split(".")
+        if len(parts) != 3 or parts[0] != "actors":
+            continue
+        _, actor, stat = parts
         if stat in ("n_fn", "n_fp"):
             label = r["group"][6:]
             pos, neg = counts[label]
@@ -384,8 +387,8 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
     labels.sort(key=lambda name: -counts[name][0])
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.35), sharey=True)
-    panels = (("n_fn", "Missed findings, % of the patients who have the finding"),
-              ("n_fp", "False alarms, % of the patients who do not have it"))
+    panels = (("n_fn", "Missed findings (% of patients with the finding)"),
+              ("n_fp", "False alarms (% of patients without it)"))
     for ax, (stat, title) in zip(axes, panels, strict=True):
         n = len(labels)
         for k, label in enumerate(labels):
