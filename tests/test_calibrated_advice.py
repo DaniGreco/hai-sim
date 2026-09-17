@@ -111,3 +111,18 @@ def test_scenario_fusion_overrides_the_rule_and_keeps_the_persona_weight():
     assert doc.policy.ai_weight == pytest.approx(0.45)
     assert doc.policy.weight_doctor == pytest.approx(0.55)
     assert doc.policy.beta == 0.0
+
+
+def test_permutation_reads_every_image_of_the_split_exactly_once():
+    gen = CachedPatientGenerator(
+        cache=_cache(20),
+        schema=LabelSchema.xrv(),
+        arrival_rate=1.0,
+        n_patients=10,
+        rng=np.random.default_rng(3),
+        sample_mode="permutation",
+        split="odd",
+    )
+    ids = [p.context.example_id for _, p in gen]
+    assert sorted(ids) == sorted(f"img{i}" for i in range(1, 20, 2))
+    assert ids != sorted(ids, key=lambda s: int(s[3:])), "and not in cache order"

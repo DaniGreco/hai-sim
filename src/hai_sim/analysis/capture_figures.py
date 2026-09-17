@@ -44,6 +44,21 @@ CURVE_ORDERINGS = (
     ("mean_entropy", "raw"),
 )
 PRETTY = {"Pleural_Thickening": "Pleural thickening"}
+DATASET_NAME = {"nih": "NIH ChestX-ray14", "vindr": "VinDr-CXR"}
+MODEL_NAME = {
+    "ensemble": "DenseNet-121 ensemble (4 members)",
+    "medgemma-4b": "MedGemma 1.5 4B",
+    "medgemma-27b": "MedGemma 27B",
+}
+SPLIT_NAME = {"odd": "evaluation half (images not used to fit the calibration)",
+              "even": "fitting half", "all": "all images"}
+
+
+def _wrap(text: str, width: int = 122) -> str:
+    """Wrap each sentence block to the figure width (7.2 in at the subtitle size)."""
+    import textwrap
+
+    return "\n".join(textwrap.fill(line, width) for line in text.split("\n"))
 
 
 def _pretty(name: str) -> str:
@@ -113,7 +128,7 @@ def _label(ax: Any, pathology: str, n: int) -> None:
 
 def _grid(plt: Any, n: int, cols: int = 4) -> tuple[Any, list[Any]]:
     rows = math.ceil(n / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 0.95), squeeze=False)
+    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 1.15), squeeze=False)
     flat = [a for row in axes for a in row]
     for a in flat[n:]:
         a.set_visible(False)
@@ -129,7 +144,8 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
     ]
     h = fig.get_figheight()
     fig.suptitle(title, x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
-    fig.text(0.01, 1 - 0.27 / h, subtitle, ha="left", va="top", fontsize=8, color=INK_2)
+    fig.text(0.01, 1 - 0.27 / h, _wrap(subtitle), ha="left", va="top", fontsize=7.6, color=INK_2,
+             linespacing=1.35)
     fig.legend(
         handles=handles + refs,
         loc="lower center",
@@ -142,10 +158,15 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
     )
     fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2, y=0.52 / h)
     fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.40 / h), h_pad=1.1, w_pad=0.8)
+    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.58 / h), h_pad=1.1, w_pad=0.8)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
+
+
+def _data_line(curves: dict[Any, CurveResult], dataset: str, split: str) -> str:
+    n = max(c.n_units for (ds, *_), c in curves.items() if ds == dataset)
+    return f"Data: {DATASET_NAME.get(dataset, dataset)}, {SPLIT_NAME.get(split, split)}, {n:,} images."
 
 
 def _pathologies(curves: dict[Any, CurveResult], dataset: str, target: str) -> list[str]:
@@ -157,7 +178,8 @@ def _pathologies(curves: dict[Any, CurveResult], dataset: str, target: str) -> l
     return sorted(size, key=lambda p: -size[p])
 
 
-def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, target: str, out: Path) -> None:
+def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, target: str, out: Path,
+                     split: str = "odd", names_of: dict[str, str] | None = None) -> None:
     from matplotlib.lines import Line2D
 
     plt = _plt()
@@ -180,17 +202,21 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
                label=ORDERING_LABEL[o] + (" (calibrated)" if k == "calibrated" else ""))
         for (o, k), col, dash in zip(CURVE_ORDERINGS, SERIES, DASHES, strict=True)
     ]
-    what = "positive cases" if target == "positive" else "model errors"
+    what = "Positive cases" if target == "positive" else "Model errors"
+    unit = "positive cases of the finding" if target == "positive" else "errors of the model on the finding"
     _finish(
         fig, handles,
-        f"Which ordering meets the {what} first? {model}, {dataset.upper()}",
-        "One panel per finding. The closer a line is to the ideal ordering, the earlier the cases are read.",
+        f"{what} met along the reading order, by ordering criterion",
+        f"{_data_line(curves, dataset, split)} Model: {(names_of or MODEL_NAME).get(model, model)}. "
+        f"One panel per finding; n = {unit}. The closer a line is to the ideal ordering, the earlier "
+        "those cases are read.",
         TARGET_TITLE[target], out,
     )
     plt.close(fig)
 
 
-def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: str, target: str, out: Path) -> None:
+def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: str, target: str, out: Path,
+                  split: str = "odd", names_of: dict[str, str] | None = None) -> None:
     from matplotlib.lines import Line2D
 
     plt = _plt()
@@ -207,17 +233,21 @@ def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: st
             ax.plot(*_thin(curves[(dataset, m, pathology, target, "probability", "raw")]),
                     color=color, lw=1.5, ls=dash, zorder=3)
         _label(ax, pathology, first.n_errors)
-    handles = [Line2D([], [], color=c, lw=1.5, ls=d, label=m) for m, c, d in zip(shown, SERIES, DASHES, strict=False)]
+    named = names_of or MODEL_NAME
+    handles = [Line2D([], [], color=c, lw=1.5, ls=d, label=named.get(m, m))
+               for m, c, d in zip(shown, SERIES, DASHES, strict=False)]
     _finish(
         fig, handles,
-        f"Which model puts the positive cases first? {dataset.upper()}",
-        "Every model orders the worklist by its own probability of the finding, most suspicious first.",
+        "Positive cases met along the reading order, by model",
+        f"{_data_line(curves, dataset, split)} Each model orders the images by its own probability of "
+        "the finding, most suspicious first. One panel per finding; n = positive cases of the finding.",
         TARGET_TITLE[target], out,
     )
     plt.close(fig)
 
 
-def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: str, target: str, out: Path) -> None:
+def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: str, target: str, out: Path,
+                       split: str = "odd", names_of: dict[str, str] | None = None) -> None:
     """Pathology x (model, ordering) skill, on a diverging scale centred on random."""
     from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
@@ -242,7 +272,7 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
 
     cmap = LinearSegmentedColormap.from_list("div", ["#c2410c", "#f4b08a", "#ecebe6", "#8fb8ea", "#1d5fb5"])
     cmap.set_bad("#ffffff")
-    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.45))
+    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.65))
     ax.imshow(np.ma.masked_invalid(grid), cmap=cmap, norm=TwoSlopeNorm(0.0, -1.0, 1.0), aspect="auto")
     for i in range(len(names)):
         for j in range(len(columns)):
@@ -264,7 +294,8 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
     for m in models:
         width = sum(1 for c in columns if c[0] == m)
         if width:
-            ax.text(start + (width - 1) / 2, -1.55, m, ha="center", va="bottom", fontsize=8, color=INK, weight="bold")
+            ax.text(start + (width - 1) / 2, -1.55, (names_of or MODEL_NAME).get(m, m), ha="center",
+                    va="bottom", fontsize=7.4, color=INK, weight="bold")
             if start:
                 ax.axvline(start - 0.5, color=SURFACE, lw=4)
             start += width
@@ -273,12 +304,17 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
     ax.grid(which="minor", color=SURFACE, lw=1.5)
     what = "positive cases" if target == "positive" else "model errors"
     h = fig.get_figheight()
-    fig.suptitle(f"Skill of each ordering at meeting the {what} first, {dataset.upper()}",
+    fig.suptitle(f"Skill of each ordering criterion at reading the {what} first",
                  x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
+    n_img = max(r["n_images"] for r in sel)
+    fig.text(0.01, 1 - 0.27 / h,
+             _wrap(f"Data: {DATASET_NAME.get(dataset, dataset)}, {SPLIT_NAME.get(split, split)}, "
+                   f"{n_img:,} images. n = {what} of the finding."),
+             ha="left", va="top", fontsize=7.6, color=INK_2)
     fig.text(0.01, 0.02 / h, "Skill: +1 = ideal ordering, 0 = random ordering, negative = worse than random.\n"
              "n/a: the ordering does not exist for that finding (fewer than two ensemble members cover it).",
              ha="left", va="bottom", fontsize=7, color=INK_2)
-    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.22 / h))
+    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.40 / h))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -287,11 +323,14 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
 
 def render_all(cfg: CaptureStudyConfig, result: dict[str, Any], out: Path) -> None:
     curves, rows, models = result["curves"], result["rows"], list(cfg.models)
+    names_of = {**MODEL_NAME, **{k: m.label for k, m in cfg.models.items() if m.label}}
     for dataset in cfg.datasets:
         for target in cfg.targets:
             for model in models:
                 render_orderings(curves, dataset, model, target,
-                                 out / "figures" / f"curves_{dataset}_{model}_{target}")
-            render_skill_table(rows, models, dataset, target, out / "figures" / f"skill_{dataset}_{target}")
+                                 out / "figures" / f"curves_{dataset}_{model}_{target}", cfg.split, names_of)
+            render_skill_table(rows, models, dataset, target, out / "figures" / f"skill_{dataset}_{target}",
+                               cfg.split, names_of)
         if "positive" in cfg.targets:
-            render_models(curves, models, dataset, "positive", out / "figures" / f"models_{dataset}_positive")
+            render_models(curves, models, dataset, "positive", out / "figures" / f"models_{dataset}_positive",
+                          cfg.split, names_of)

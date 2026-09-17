@@ -828,6 +828,8 @@ def build_patient_generator(
             sample_mode=cfg.sample_mode,
             gt_source=cfg.gt_source,
         )
+    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
+        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     if cfg.kind == "inference_cache":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.sim.cache_generator import CachedPatientGenerator

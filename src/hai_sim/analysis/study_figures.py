@@ -10,13 +10,27 @@ reads as one system.
 from __future__ import annotations
 
 import csv
+import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from hai_sim.analysis.capture_figures import INK, INK_2, RULE, SERIES, SURFACE, _plt, _pretty
+from hai_sim.analysis.capture_figures import (
+    DATASET_NAME,
+    INK,
+    INK_2,
+    MODEL_NAME,
+    RULE,
+    SERIES,
+    SPLIT_NAME,
+    SURFACE,
+    _plt,
+    _pretty,
+    _wrap,
+)
+from hai_sim.personas import PERSONA_LIBRARY
 
 NEUTRAL = "#8a8983"
 BAND = "#f4f3ef"  # alternate-row band: separates the rows without drawing lines
@@ -25,6 +39,41 @@ BAND = "#f4f3ef"  # alternate-row band: separates the rows without drawing lines
 def _read(path: str | Path) -> list[dict[str, str]]:
     with Path(path).open(encoding="utf-8") as fh:
         return list(csv.DictReader(fh))
+
+
+def _study_of(csv_path: str | Path) -> dict[str, Any]:
+    """The study's own config, read from the JSON written next to the CSV, so a figure can
+    state its data, model and sample size without being told."""
+    path = Path(csv_path)
+    stem = path.name
+    for tail in ("_summary.csv", "_long.csv", ".csv"):
+        if stem.endswith(tail):
+            stem = stem[: -len(tail)]
+            break
+    found = path.with_name(stem + ".json")
+    return json.loads(found.read_text(encoding="utf-8"))["study"] if found.exists() else {}
+
+
+def _data_line(study: dict[str, Any]) -> str:
+    gen = study.get("base", {}).get("patient_generator", {})
+    dataset = Path(str(gen.get("cache_stem", ""))).name.split("__")[0]
+    n, runs = gen.get("n_patients"), len(study.get("replications", []) or [1])
+    once = ", each image read once" if gen.get("sample_mode") == "permutation" else ""
+    return (f"Data: {DATASET_NAME.get(dataset, dataset)}, {SPLIT_NAME.get(gen.get('split', 'all'), '')}, "
+            f"{n:,} patients per run{once}; {runs} runs per condition.")
+
+
+def _reader_line(name: str) -> str:
+    cfg = PERSONA_LIBRARY.get(name)
+    if cfg is None:
+        return f"Reader: {name}."
+    cap = cfg.capability
+    level = "senior" if "senior" in name else "junior" if "junior" in name else name
+    text = (f"Reader: simulated {level} radiologist "
+            f"(sensitivity {cap.sensitivity:g}, specificity {cap.specificity:g})")
+    if cfg.trust is not None and cfg.sees_ai:
+        text += f", weight given to the AI {cfg.trust.weight_ai:g}"
+    return text + "."
 
 
 def _save(fig: Any, out: Path) -> None:
@@ -52,6 +101,10 @@ def render_queue_load(
     from matplotlib.lines import Line2D
 
     plt = _plt()
+    study = _study_of(summary_csv)
+    base = study.get("base", {})
+    ai_key = base.get("ai", {}).get("name") or "ensemble"
+    calibrated = ", calibrated per finding" if base.get("ai", {}).get("calibration") else ""
     rows = [r for r in _read(summary_csv) if r["metric"] == metric and r["group"].endswith(":positive")]
     rates = sorted({r["patient_generator.arrival_rate"] for r in rows}, key=float)
     findings = list(dict.fromkeys(r["group"][len("truth="):-len(":positive")] for r in rows))
@@ -61,7 +114,7 @@ def render_queue_load(
              ("probability_desc", SERIES[0], "D", "Most suspicious first")]
     cell = {(r["patient_generator.arrival_rate"], r["sort.kind"], r["group"]): r for r in rows}
 
-    fig, axes = plt.subplots(1, len(rates), figsize=(7.2, 0.27 * len(findings) + 1.95), sharey=True)
+    fig, axes = plt.subplots(1, len(rates), figsize=(7.2, 0.27 * len(findings) + 2.3), sharey=True)
     load_name = {0: "Half idle", 1: "At capacity", 2: "Overloaded"}
     for j, (ax, rate) in enumerate(zip(np.atleast_1d(axes), rates, strict=True)):
         for i, f in enumerate(findings):
@@ -96,20 +149,23 @@ def render_queue_load(
     first.set_yticks(range(len(findings)))
     first.set_yticklabels([_pretty(f) for f in reversed(findings)], fontsize=7.4, color=INK)
     h = fig.get_figheight()
-    fig.suptitle("Do patients with a finding wait less when the worklist is reordered?",
+    fig.suptitle("Waiting time of patients with a finding, by worklist order and reader load",
                  x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
-    fig.text(0.01, 1 - 0.27 / h, "One reader serves the list; patients arrive at random times. Utilisation = work arriving / "
-             "work the reader can do,\nso 0.5 is a half-idle reader, 1 a reader exactly at capacity, "
-             "2 twice as much work as can be done.",
+    fig.text(0.01, 1 - 0.27 / h,
+             _wrap(f"{_data_line(study)} AI ordering the worklist: {MODEL_NAME.get(ai_key, ai_key)}{calibrated}. "
+                   f"{_reader_line(str(base.get('persona', '')))[:-1]}, one reader. Patients arrive at random "
+                   "times. Utilisation = work arriving / work the reader can do: 0.5 half idle, 1 at capacity, "
+                   "2 overloaded."),
              ha="left", va="top", fontsize=7.6, color=INK_2, linespacing=1.35)
     fig.supxlabel("mean wait of the patients who have the finding, in reads (1 read = the mean reading time)",
-                  fontsize=8, color=INK_2, y=0.42 / h)
+                  fontsize=8, color=INK_2, y=0.54 / h)
     handles = [Line2D([], [], color=c, marker=m, ls="none", ms=4.6, label=lab) for _k, c, m, lab in sorts]
     handles.append(Line2D([], [], color=INK_2, marker="o", mfc=SURFACE, ls="none", ms=4.6,
-                          label="Hollow: paired difference from random includes zero"))
-    fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False, fontsize=7.2,
-               labelcolor=INK_2, handletextpad=0.3, columnspacing=1.2)
-    fig.tight_layout(rect=(0, 0.5 / h, 1, 1 - 0.58 / h), w_pad=1.0)
+                          label="Hollow: not distinguishable from random order"))
+    handles.append(Line2D([], [], color=RULE, lw=1.6, label="Grey bar: guide joining the three orders"))
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=7.0,
+               labelcolor=INK_2, handletextpad=0.4, columnspacing=1.4)
+    fig.tight_layout(rect=(0, 0.62 / h, 1, 1 - 0.74 / h), w_pad=1.0)
     out = Path(out)
     _save(fig, out)
     plt.close(fig)
@@ -192,7 +248,7 @@ def _team_figure(plt: Any, row_labels: list[str], series: list[str], getters: li
                  title: str, subtitle: str, out: Path, row_height: float = 0.40) -> None:
     from matplotlib.lines import Line2D
 
-    fig, axes = plt.subplots(1, 2, figsize=(7.2, row_height * len(row_labels) + 2.05), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, row_height * len(row_labels) + 2.25), sharey=True)
     for ax, get, what in zip(axes, getters, ("Missed findings", "False alarms"), strict=True):
         _dot_rows(ax, row_labels, series, get)
         ax.set_title(f"{what}: team minus reader alone", fontsize=8.2, color=INK, loc="left")
@@ -203,16 +259,18 @@ def _team_figure(plt: Any, row_labels: list[str], series: list[str], getters: li
     axes[0].set_yticklabels([_pretty(x) for x in reversed(row_labels)], fontsize=7.6, color=INK)
     h = fig.get_figheight()
     fig.suptitle(title, x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
-    fig.text(0.01, 1 - 0.27 / h, subtitle, ha="left", va="top", fontsize=7.6, color=INK_2, linespacing=1.35)
-    fig.supxlabel("change in the number of cases, per 2000 patients", fontsize=8, color=INK_2, y=0.52 / h)
-    handles = [Line2D([], [], color=c, marker="osD"[a], ls="none", ms=4.4, label=f"advice from {name}")
+    fig.text(0.01, 1 - 0.27 / h, _wrap(subtitle), ha="left", va="top", fontsize=7.6, color=INK_2,
+             linespacing=1.35)
+    fig.supxlabel("change in the number of cases per run", fontsize=8, color=INK_2, y=0.52 / h)
+    handles = [Line2D([], [], color=c, marker="osD"[a], ls="none", ms=4.4,
+                      label=f"advice from {MODEL_NAME.get(name, name)}")
                for a, (name, c) in enumerate(zip(series, SERIES, strict=False))]
-    handles.append(Line2D([], [], color=INK_2, lw=1.1, label="95% interval over 5 runs"))
+    handles.append(Line2D([], [], color=INK_2, lw=1.1, label="95% interval over the runs"))
     handles.append(Line2D([], [], color=INK_2, marker="o", mfc=SURFACE, ls="none", ms=4.4,
                           label="hollow: interval includes zero"))
     fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=7.2,
                labelcolor=INK_2, handletextpad=0.4, columnspacing=1.6)
-    fig.tight_layout(rect=(0, 0.66 / h, 1, 1 - 0.56 / h), w_pad=1.2)
+    fig.tight_layout(rect=(0, 0.66 / h, 1, 1 - 0.74 / h), w_pad=1.2)
     _save(fig, out)
     plt.close(fig)
 
@@ -235,10 +293,11 @@ def render_team_effect(long_csv: str | Path, out: str | Path, persona: str = "se
     out = Path(out)
     _team_figure(
         plt, labels, series, [getter("n_fn"), getter("n_fp")],
-        f"What the AI's advice changes, finding by finding ({persona.replace('_', ' ')} reader)",
-        "Each row is a finding. Each marker is the same reader helped by a different AI, compared with that reader\n"
-        f"working alone on the same images. Left of the line: the team makes fewer of those errors. "
-        f"Rule: {RULE_NAME.get(fusion, fusion)}.",
+        "Change in the reader's errors when the AI's advice is shown, by finding",
+        f"{_data_line(_study_of(long_csv))} {_reader_line(persona)} Opinions combined by: "
+        f"{RULE_NAME.get(fusion, fusion)}. Each marker is the same reader helped by a different AI, compared "
+        "with that reader alone on the same images. Horizontal bar: 95% confidence interval of that change "
+        "over the runs.",
         out,
     )
     return out
@@ -269,9 +328,10 @@ def render_team_rules(long_csv: str | Path, out: str | Path) -> Path:
     out = Path(out)
     _team_figure(
         plt, names, series, [getter("n_fn"), getter("n_fp")],
-        "Two ways of combining the reader and the AI, all findings together",
-        "Each row is a reader and a rule. Averaging the probabilities gives the same result whichever AI advises:\n"
-        "the AI is not being used. Adding the evidence uses it: no extra misses, and the better AI removes more false alarms.",
+        "Change in the reader's errors with the AI's advice, by reader and combination rule",
+        f"{_data_line(_study_of(long_csv))} All findings summed. Each row is a simulated reader and a rule "
+        "for combining the two opinions. Each marker is that reader helped by a different AI, compared with the "
+        "same reader alone on the same images. Horizontal bar: 95% confidence interval of that change over the runs.",
         out, row_height=0.46,
     )
     return out

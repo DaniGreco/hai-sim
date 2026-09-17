@@ -23,10 +23,11 @@ base:
     kind: inference_cache
     cache_stem: data/cache/composed/vindr__ens4
     arrival_rate: 0.075
-    n_patients: 2000
-    sample_mode: random
+    n_patients: 7500                    # the whole evaluation half of VinDr-CXR ...
+    sample_mode: permutation            # ... each image once, in a random order per run
     split: odd
   ai:
+    name: ensemble
     kind: cached
     cache_stem: data/cache/composed/vindr__ens4
     uq: ensemble

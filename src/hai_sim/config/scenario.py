@@ -448,7 +448,8 @@ class PatientGenConfig(_Strict):
     # annotation CSVs" dataset (VinDr, ...); see `LabelSourceConfig`.
     label_sources: tuple[LabelSourceConfig, ...] = ()
     image_ext: str = ".png"
-    sample_mode: Literal["sequential", "random"] = "sequential"
+    # "permutation" (inference_cache only): every image once, in a random order.
+    sample_mode: Literal["sequential", "random", "permutation"] = "sequential"
     # inference_cache only: restrict the patient pool to the even- or odd-indexed cache
     # rows. A calibration fitted on one half must be studied on the other
     # (scripts/fit_calibration.py --split even  ->  split: odd).

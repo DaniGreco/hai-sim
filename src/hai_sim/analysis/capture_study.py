@@ -70,6 +70,7 @@ class CaptureModel(_Strict):
     """One AI: the cache-matrix cells whose members are averaged into its probability."""
 
     cells: tuple[str, ...] = Field(min_length=1)
+    label: str | None = None  # how the model is named inside a figure; default = its key
     calibration: str | None = None  # file stem under calibration_dir; default = model key
 
 

@@ -15,11 +15,14 @@ datasets: [nih, vindr]
 
 models:
   ensemble:
+    label: DenseNet-121 ensemble (4 members)
     cells: [chex, mimic_ch, pc, rsna]
     calibration: ens4
   medgemma-4b:
+    label: MedGemma 1.5 4B
     cells: [medgemma-1]            # on-disk stem of medgemma-1.5-4b (see cache matrix notes)
   medgemma-27b:
+    label: MedGemma 27B
     cells: [medgemma-27b]
 
 orderings: [probability, predictive_entropy, mean_entropy, mutual_information]
