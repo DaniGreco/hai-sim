@@ -33,6 +33,7 @@ from hai_sim.config.scenario import (
     CapabilityConfig,
     DifficultyConfig,
     FatigueConfig,
+    FusionConfig,
     KPIGroupConfig,
     LabelSourceConfig,
     PatientGenConfig,
@@ -505,8 +506,16 @@ def build_capability(
     raise ValueError(f"unknown capability.kind: {cfg.kind}")
 
 
-def build_trust_policy(cfg: TrustConfig) -> IntegrationPolicy:
-    """Build the swappable AI-integration policy that models the persona's trust."""
+def build_trust_policy(
+    cfg: TrustConfig, ai_prior: Sequence[float] | None = None
+) -> IntegrationPolicy:
+    """Build the swappable AI-integration policy that models the persona's trust.
+
+    ``weight_ai`` is the persona's weight of advice under every rule. A linear pool uses
+    it as the AI's share; log-odds fusion uses the same share as relative odds,
+    ``w / (1 - w)``, so 0.5 means "take the AI's evidence at face value" and the library's
+    0.20 ... 0.65 span under- to over-reliance around it.
+    """
     if cfg.kind == "linear_pool":
         return LinearPoolPolicy(
             weight_ai=cfg.weight_ai, decision_threshold=cfg.decision_threshold
@@ -523,12 +532,19 @@ def build_trust_policy(cfg: TrustConfig) -> IntegrationPolicy:
             weight_doctor=cfg.weight_doctor,
             prior=cfg.prior,
             decision_threshold=cfg.decision_threshold,
+            ai_weight=cfg.weight_ai / max(1.0 - cfg.weight_ai, 1e-6),
+            ai_prior=ai_prior,
         )
     raise ValueError(f"unknown trust.kind: {cfg.kind}")
 
 
 def build_persona(
-    persona: str | PersonaConfig, schema: LabelSchema, rng: np.random.Generator
+    persona: str | PersonaConfig,
+    schema: LabelSchema,
+    rng: np.random.Generator,
+    *,
+    fusion: FusionConfig | None = None,
+    ai_prior: Sequence[float] | None = None,
 ) -> DiagnosticActor:
     """Assemble a doctor persona = capability x visibility x trust into an actor.
 
@@ -541,7 +557,9 @@ def build_persona(
     if not cfg.sees_ai:
         return base
     trust = cfg.trust if cfg.trust is not None else TrustConfig()
-    policy = build_trust_policy(trust)
+    if fusion is not None:
+        trust = trust.model_copy(update=fusion.model_dump(exclude_none=True))
+    policy = build_trust_policy(trust, ai_prior)
     return AssistedDoctor(base=base, policy=policy, name=f"Persona[{cfg.name or 'inline'}]")
 
 
@@ -940,7 +958,21 @@ def build_from_scenario(scenario: ScenarioConfig) -> BuiltScenario:
         generator = project_generator(base_generator, projection)
         ai = ProjectedActor(base_ai, projection)
 
-    doctor = build_persona(scenario.persona, active_schema, rngs["doctor"])
+    ai_prior = None
+    # The prevalence is only the right reference for a probability that was calibrated
+    # against it; an uncalibrated AI keeps the policy's own prior.
+    cal = scenario.ai.calibration
+    if cal is not None and cal.kind == "platt" and cal.path is not None:
+        from hai_sim.uq.calibration import load_prevalence
+
+        ai_prior = load_prevalence(cal.path, active_schema.labels)
+    doctor = build_persona(
+        scenario.persona,
+        active_schema,
+        rngs["doctor"],
+        fusion=scenario.fusion,
+        ai_prior=ai_prior,
+    )
     sort = build_sort(scenario.sort, rngs["sort"])
     severity = build_severity(scenario.severity, active_schema)
     return BuiltScenario(

@@ -37,12 +37,16 @@ base:
       kind: platt                       # written by scripts/fit_calibration.py
       path: data/cache/calibration/nih__ens4.json
   persona: solo_senior
+  fusion:                              # the rule; the persona keeps its own weight
+    kind: linear_pool
+    beta: 0.0
   sort:
     kind: uncertainty_desc
     aggregator: mean
 
 factors:
   ai.calibration.kind: [identity, platt]   # raw vs calibrated advice, same readers
+  fusion.kind: [linear_pool, log_odds_fusion]   # average probabilities vs add evidence
   persona:          # names from the persona library (src/hai_sim/personas.py)
     - solo_senior
     - senior_skeptical

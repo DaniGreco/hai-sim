@@ -170,6 +170,12 @@ def main(argv: list[str] | None = None) -> int:
                 a=a,
                 b=b,
                 n_positive=n_pos,
+                prevalence=np.array(
+                    [
+                        np.mean(fit_y[fit_y[:, k] >= 0, k]) if np.any(fit_y[:, k] >= 0) else np.nan
+                        for k in range(fit_y.shape[1])
+                    ]
+                ),
                 provenance={
                     "caches": list(args.cache),
                     "model_fingerprints": [c.model_fingerprint for c in caches],

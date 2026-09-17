@@ -361,6 +361,7 @@ def save_platt_file(
     a: np.ndarray,
     b: np.ndarray,
     n_positive: np.ndarray,
+    prevalence: np.ndarray,
     provenance: dict[str, object],
 ) -> None:
     """Write a per-label Platt calibration next to the cache it was fitted on.
@@ -374,12 +375,30 @@ def save_platt_file(
         "kind": "platt",
         "provenance": provenance,
         "per_label": {
-            name: {"a": float(a[k]), "b": float(b[k]), "n_positive": int(n_positive[k])}
+            name: {
+                "a": float(a[k]),
+                "b": float(b[k]),
+                "n_positive": int(n_positive[k]),
+                # The base rate the calibrated probability is anchored to: what an
+                # evidence-based fusion subtracts to recover the likelihood ratio.
+                "prevalence": None if not np.isfinite(prevalence[k]) else float(prevalence[k]),
+            }
             for k, name in enumerate(pathologies)
         },
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_prevalence(path: str | Path, labels: Sequence[str]) -> np.ndarray:
+    """Per-label prevalence stored in a calibration file; NaN where it was not annotated."""
+    per_label = json.loads(Path(path).read_text(encoding="utf-8"))["per_label"]
+    out = np.full(len(labels), np.nan)
+    for k, name in enumerate(labels):
+        value = per_label.get(name, {}).get("prevalence")
+        if value is not None and value > 0.0:
+            out[k] = float(value)
+    return out
 
 
 def load_platt_file(path: str | Path, labels: Sequence[str]) -> PlattCalibrator:

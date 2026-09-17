@@ -217,6 +217,19 @@ class TrustConfig(_Strict):
     prior: float = Field(default=0.5, gt=0.0, lt=1.0)
 
 
+class FusionConfig(_Strict):
+    """Scenario-level choice of *how* the doctor's and the AI's opinions are combined.
+
+    A persona says who the reader is and how much it trusts the AI (``weight_ai``); this
+    block says by which rule that trust is exercised, so one study can run the same
+    personas under several rules. Any field left unset keeps the persona's own value.
+    """
+
+    kind: Literal["linear_pool", "confidence_gated", "log_odds_fusion"] | None = None
+    beta: float | None = Field(default=None, ge=0.0)
+    decision_threshold: float | None = Field(default=None, gt=0.0, lt=1.0)
+
+
 class PersonaConfig(_Strict):
     """A doctor persona = capability x visibility x trust — the doctor model itself.
 
@@ -478,6 +491,8 @@ class ScenarioConfig(_Strict):
     patient_generator: PatientGenConfig
     ai: AIModelConfig
     persona: str | PersonaConfig
+    # How opinions are combined, overriding the persona's own rule. See `FusionConfig`.
+    fusion: FusionConfig | None = None
     sort: SortConfig
     severity: SeverityConfig | None = None
     # The signal plane: per-read scalars the engine computes between the two stations

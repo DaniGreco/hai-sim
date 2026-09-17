@@ -281,6 +281,7 @@ def test_platt_file_roundtrips_aligned_by_label_name(tmp_path):
         a=np.array([2.0, 0.5]),
         b=np.array([-1.0, 1.0]),
         n_positive=np.array([10, 20]),
+        prevalence=np.array([0.1, np.nan]),
         provenance={"split": "even"},
     )
     cal = load_platt_file(path, ["B", "A"])

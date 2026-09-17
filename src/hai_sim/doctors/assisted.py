@@ -207,7 +207,18 @@ class LogOddsFusionPolicy:
         w_ai(x)       = exp(-beta · H_ai)
 
     ``H_ai`` is the AI's own uncertainty on that label, so the AI's vote is discounted
-    exactly where it is unsure. With ``prior=0.5, w_doctor=1, beta=0`` this collapses to
+    exactly where it is unsure.
+
+    **Evidence, not probability.** A calibrated probability contains the prevalence: on a
+    1% finding an alarming image honestly earns 0.10, which a probability average reads
+    as "10%, so no" while it is ten times the base rate. ``ai_prior`` (per label, the
+    prevalence of the population the AI was calibrated on) is what gets subtracted from
+    the AI's log-odds, so its contribution is the likelihood ratio the image carries and
+    nothing else. The doctor's evidence is taken relative to ``prior``, the base rate its
+    own belief was formed under, and the team posterior is rebuilt on that same ``prior``:
+    with no AI evidence the team *is* the unaided doctor, so a paired contrast measures the
+    advice alone. ``ai_weight`` scales the AI's evidence: 1 takes it at face value (optimal
+    for independent errors), below 1 under-relies, above 1 over-relies. With ``prior=0.5, w_doctor=1, beta=0`` this collapses to
     ``logit(p_team) = logit(p_doctor) + logit(p_ai)`` — the optimal way to combine two
     readers whose errors are independent.
 
@@ -225,7 +236,11 @@ class LogOddsFusionPolicy:
         prior: float = 0.5,
         name: str = "log_odds_fusion",
         decision_threshold: float = 0.5,
+        ai_weight: float = 1.0,
+        ai_prior: Sequence[float] | None = None,
     ) -> None:
+        if ai_weight < 0.0:
+            raise ValueError(f"ai_weight must be >= 0, got {ai_weight}")
         if beta < 0.0:
             raise ValueError(f"beta must be >= 0, got {beta}")
         if weight_doctor < 0.0:
@@ -237,6 +252,9 @@ class LogOddsFusionPolicy:
         self.prior = float(prior)
         self.name = name
         self.decision_threshold = float(decision_threshold)
+        self.ai_weight = float(ai_weight)
+        # NaN = no prevalence known for that label → fall back to the shared prior.
+        self.ai_prior = None if ai_prior is None else np.asarray(ai_prior, dtype=float)
 
     def combine(
         self,
@@ -256,10 +274,22 @@ class LogOddsFusionPolicy:
         # np.where keeps NaNs out of exp() and logit(), which would propagate them.
         uncovered = ~np.isfinite(p_ai) | ~np.isfinite(ai_uncertainty)
         w_ai = np.where(
-            uncovered, 0.0, np.exp(-self.beta * np.where(uncovered, 0.0, ai_uncertainty))
+            uncovered,
+            0.0,
+            self.ai_weight * np.exp(-self.beta * np.where(uncovered, 0.0, ai_uncertainty)),
         )
+        logit_ai_prior = logit_prior
+        if self.ai_prior is not None:
+            if self.ai_prior.shape != p_doctor.shape:
+                raise ValueError(
+                    f"ai_prior has {self.ai_prior.shape} entries, the schema has {p_doctor.shape}"
+                )
+            known = np.isfinite(self.ai_prior)
+            logit_ai_prior = np.where(
+                known, _logit(np.where(known, self.ai_prior, 0.5)), logit_prior
+            )
         llr_ai = np.where(
-            uncovered, 0.0, _logit(np.where(uncovered, 0.5, p_ai)) - logit_prior
+            uncovered, 0.0, _logit(np.where(uncovered, 0.5, p_ai)) - logit_ai_prior
         )
 
         p_team = _sigmoid(logit_prior + self.weight_doctor * llr_doctor + w_ai * llr_ai)
