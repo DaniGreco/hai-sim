@@ -1,0 +1,44 @@
+# MedGemma 1.5 4B (BF16) over NIH ChestX-ray14 full, served by a vLLM pod on TAAI01.
+#
+# Builds data/cache/nih__medgemma-1.5-4b via the vLLM endpoint. Mirrors the image selection
+# of nih_full_ensemble.yaml (same seed, sequential, PA+AP, unique_patients -> the same
+# ~30.8k pool) so the MedGemma cell aligns image-for-image with the ensemble cells.
+#
+# ⚠️ Prereq: pod `thesis-medgemma-4b` Ready (see the socket note in v5_medgemma_vindr_4b.yaml).
+# Build on the host: pilot --limit 300 first, then --limit 0 for the full pool.
+name: v5_medgemma_nih_4b
+seed: 42
+label_schema: xrv
+
+patient_generator:
+  kind: xrv_dataset
+  dataset: nih
+  imgpath: data/nih_full/images
+  csvpath: data/nih_full/Data_Entry_2017.csv
+  arrival_rate: 0.5
+  n_patients: 200
+  sample_mode: sequential
+  views: [PA, AP]
+  unique_patients: true       # one image per patient -> ~30.8k independent samples
+  resize: 896                 # MedGemma's native input; separate cell from the 224 ensemble
+
+ai:
+  kind: medgemma
+  backend: vllm
+  model_id: google/medgemma-1.5-4b-it
+  served_model_name: medgemma-4b
+  endpoint: http://localhost:30840/v1
+  readout: independent_question
+  prompt_set: single
+  uq: entropy
+  decision_threshold: 0.5
+  concurrency: 6
+  top_logprobs: 20
+  service_time: 30.0
+  cache_mode: require
+
+persona: senior_skeptical
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean

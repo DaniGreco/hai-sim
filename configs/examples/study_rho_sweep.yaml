@@ -1,0 +1,89 @@
+# The flagship experiment (../TESI.md §5): rho as an experimental lever, on real data.
+#
+#   hai-sim study configs/examples/study_rho_sweep.yaml
+#
+# The doctor is an SDT observer whose discriminability is eroded by the case's HUMAN
+# difficulty — the measured disagreement between VinDr-CXR's three radiologists
+# (data/vindr/difficulty.csv, mean_delta_active; 75% of images are uncontested at 0,
+# the contested tail reaches 0.89 — difficulty is bimodal, as Meding 2022 predicts).
+# The AI is the real 4-member ensemble replayed from the composed cache on the same
+# images. Because the ensemble's errors also concentrate on contested images (measured:
+# Spearman rho ~ +0.3 between predictive entropy and reader disagreement, all 18
+# pathologies), raising `difficulty_slope` couples the two error processes: the same
+# images that fool the radiologists now fool the simulated reader too. That is rho_HM
+# as a dial, induced by real data rather than imposed.
+#
+# Axes:
+#   persona.capability.difficulty_slope  0 (case-blind, rho ~ 0) … 2.0 (strong coupling)
+#   persona.trust.weight_ai              0 (unaided baseline) vs 0.39 (Bailey 2023 mean)
+#
+# `baseline: weight_ai = 0` pairs every assisted arm against the same unaided reader at
+# the same seed: the reported delta is the benefit of AI assistance AT that coupling
+# level — the thesis question "does complementarity survive when doctor and AI err on
+# the same cases?".
+name: rho_sweep
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4
+    arrival_rate: 0.5
+    n_patients: 1500
+    sample_mode: random
+  ai:
+    kind: cached
+    cache_stem: data/cache/composed/vindr__ens4
+    uq: ensemble
+    ensemble_measure: mean_entropy      # the best error-ranker (per-pathology study)
+    decision_threshold: 0.5
+    service_time: 0.25
+  difficulty:
+    kind: table
+    path: data/vindr/difficulty.csv
+    id_column: example_id
+    value_column: mean_delta_active
+  persona:
+    name: sdt_reader
+    capability:
+      kind: sdt
+      sensitivity: 0.95
+      specificity: 0.95
+      prior: 0.1
+      difficulty_slope: 0.0             # overwritten by the factor
+    sees_ai: true
+    trust:
+      kind: linear_pool
+      weight_ai: 0.39                   # overwritten by the factor
+  sort:
+    kind: uncertainty_desc
+    aggregator: mean
+
+factors:
+  persona.capability.difficulty_slope: [0.0, 0.5, 1.0, 1.5, 2.0]
+  persona.trust.weight_ai: [0.0, 0.39]
+
+design: grid
+replications: [1, 2, 3, 4, 5]
+
+baseline:
+  persona.trust.weight_ai: 0.0
+
+kpis: [system, actors, team]
+
+by:
+  - key: label          # every metric also per pathology — the citable layer
+
+report:
+  - actors.doctor.recall_macro
+  - actors.doctor.f1_macro
+  - actors.hybrid.recall_macro
+  - actors.hybrid.f1_macro
+  - actors.hybrid.n_fn
+  - team.complementarity_gap_f1
+  - team.rair
+  - team.rsr
+  - team.over_reliance
+  - team.under_reliance

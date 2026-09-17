@@ -1,0 +1,75 @@
+# MedGemma 1.5 4B (BF16) over VinDr-CXR, served by a vLLM pod on the k3s node (TAAI01).
+#
+# Cache-matrix build config: builds data/cache/vindr__medgemma-1.5-4b by calling the vLLM
+# endpoint over HTTP (no weights loaded in-process). Run on the k3s HOST as ext-dgreco.
+#
+# ⚠️ Prerequisite: the vLLM pod `thesis-medgemma-4b` must be Ready (endpoint answering).
+#    It auto-recovers once a host root runs `sudo systemctl start nvidia-persistenced`
+#    (the missing CDI socket after the driver upgrade). Until then the endpoint 5xx/refuses.
+#
+# Build (host, from the repo dir; datasets under ../data symlinked to ./data):
+#   python3 -m venv .venv && .venv/bin/pip install -e ".[models]"
+#   .venv/bin/python scripts/materialize_cache.py \
+#       --scenario configs/examples/v5_medgemma_vindr_4b.yaml --limit 300 --checkpoint-every 100
+#   # pilot at --limit 300 first (validate + measure sec/img), then --limit 0 for the full 15k.
+name: v5_medgemma_vindr_4b
+seed: 42
+label_schema: xrv
+
+patient_generator:
+  kind: image_folder
+  dataset_id: vindr                 # cache stem -> data/cache/vindr__medgemma-1.5-4b
+  imgpath: data/vindr/images        # the 1024px VinDr train PNGs (15,000)
+  image_ext: .png
+  arrival_rate: 0.5
+  n_patients: 200
+  resize: 896                       # MedGemma encodes at 896x896 into 256 SigLIP tokens
+  gt_source: native
+  label_sources:
+    - name: majority                # >= 2 of 3 radiologists (built with --k 2)
+      kind: csv
+      path: data/vindr/labels.csv
+      id_column: image_id
+      space: vindr
+      map: vindr14->xrv
+
+label_view:
+  mode: subset
+  targets:
+    - Cardiomegaly
+    - Effusion
+    - Consolidation
+    - Atelectasis
+    - Infiltration
+    - Nodule
+    - Mass
+    - Pleural_Thickening
+    - Pneumothorax
+    - Fibrosis
+    - Lung Opacity
+
+ai:
+  kind: medgemma
+  backend: vllm
+  model_id: google/medgemma-1.5-4b-it   # identity + cache alias (-> medgemma-1.5-4b)
+  served_model_name: medgemma-4b        # the pod's --served-model-name (request `model`)
+  endpoint: http://localhost:30840/v1   # NodePort on the host -> thesis-medgemma-4b
+  readout: independent_question         # one yes/no question per label; read P(yes) logprob
+  prompt_set: single
+  uq: entropy
+  decision_threshold: 0.5               # post-hoc; the cache stores raw probabilities
+  concurrency: 6                        # in-flight questions/img; <= vLLM --max-num-seqs (8)
+  top_logprobs: 20
+  service_time: 30.0
+  cache_mode: require                   # studies replay; the build uses materialize --mode fill
+
+difficulty:
+  kind: table
+  path: data/vindr/difficulty.csv
+  value_column: mean_delta_active
+
+persona: senior_skeptical
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean

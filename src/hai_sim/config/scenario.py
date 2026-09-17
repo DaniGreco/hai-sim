@@ -100,6 +100,19 @@ class AIModelConfig(_Strict):
     prompt_set: Literal["single", "triple"] = "single"
     both_polarities: bool = False
     dtype: str = "auto"
+    # vLLM HTTP backend: serve medgemma from a running vLLM OpenAI-compatible endpoint
+    # instead of loading the weights in this process (e.g. the k3s node's pods — which also
+    # lets the 27B run on one 96 GB card with no in-process sharding). `endpoint` is the base
+    # URL up to and including /v1; `served_model_name` is the server's --served-model-name,
+    # which the request's `model` field must match. Only the `independent_question` readout
+    # is supported over HTTP (teacher-forcing needs per-position logits the API hides). See
+    # models/vllm_backend.py. `concurrency` is in-flight requests per image (<= vLLM's
+    # --max-num-seqs); keep it modest when the GPU is shared with other workloads.
+    backend: Literal["transformers", "vllm"] = "transformers"
+    endpoint: str | None = None
+    served_model_name: str | None = None
+    concurrency: int = 8
+    top_logprobs: int = 20
     # Optional post-hoc probability calibration, applied to member probabilities before
     # they are fused. Omit → raw model output, which for both backends measured so far
     # is badly over-confident (§8.2, §8.4).
