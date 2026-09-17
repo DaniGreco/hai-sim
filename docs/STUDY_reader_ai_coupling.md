@@ -1,4 +1,4 @@
-# Measured reader–AI error coupling (rho) on VinDr-CXR
+# Reader–AI error coupling (rho) on VinDr-CXR: the check behind independent personas
 
 Status 2026-09-17: measured, exploratory. Results in
 `out/analysis/reader_ai_coupling/reader_ai_coupling.json`, produced by the `measure.py`
@@ -6,15 +6,22 @@ next to it. That script is a provisional holding place and must be folded into t
 framework (it is the same kind of object as `difficulty_alignment` in the offline
 uncertainty study); do not let it become another one-off like the old `rho_probe`.
 
-## Why this exists
+## Why this exists — and what it is used for
 
-The coupling sweep used `difficulty_slope` as a free knob and then measured the error
-correlation it produced on a *simulated* reader. That number is a manipulation check, not
-a finding: the correlation exists because we put it there. VinDr-CXR ships the individual
-reads of its radiologists (`data/vindr/readers.csv`, three readers per image, 17 reader
-ids), so the correlation between a *real* reader's errors and the AI's errors can be
-measured directly. The simulator is then calibrated to that value instead of sweeping an
-arbitrary range.
+**Decision (2026-09-17): the personas stay as they are.** A persona has one sensitivity and
+one specificity, the same for every finding and blind to the image. Such a reader errs at
+random, so its errors are independent of the AI's: **rho = 0 by construction**. That is the
+most favourable case for assistance (two readers who fail on different cases complement each
+other the most), so **every benefit of assistance the simulator reports is an upper bound**.
+
+This measurement is the justification for that choice, not a parameter that feeds the
+simulator. VinDr-CXR ships the individual reads of its radiologists
+(`data/vindr/readers.csv`, three readers per image, 17 reader ids), so the correlation
+between a *real* reader's errors and the AI's errors can be measured directly. It turns out
+to be small (see "In the simulator's scoring frame" below), so independence is a reasonable
+approximation: the limit is declared and quantified, and no coupling mechanism is needed in
+the simulator. `difficulty_slope` stays in the code as an optional what-if knob; it is not
+part of the main studies.
 
 ## How rho is computed
 
@@ -104,16 +111,49 @@ Reading:
   from the 0.95/0.95 persona used so far. `SDTDoctor` accepts per-label sequences, so
   these can be used directly.
 
-## How it is meant to be fixed in the simulator (not done yet)
+## In the simulator's scoring frame
 
-1. Reader operating point per finding from the table above (per-label `sensitivity` /
-   `specificity` on the SDT capability).
-2. `difficulty_slope` calibrated once so that the *simulated* class-conditional phi matches
-   the measured one; then frozen. Subsequent studies (which uncertainty measure helps
-   most, personas, ordering) run at that fixed coupling.
-3. Open point: one scalar slope cannot match ten per-finding targets that range from 0 to
-   +0.28. Either accept a single slope fit to the support-weighted mean and report the
-   per-finding residual, or make the slope per-label.
+The simulator scores every actor against the VinDr ground truth, i.e. the 2-of-3 majority,
+not against the leave-one-out reference. Same formulas with `y_u = majority` and the AI cut
+at the 0.5 used by the simulation studies (`out/analysis/reader_ai_coupling/majority_frame.py`).
+In this frame a reader can only err on an image where the panel split 2-1, and exactly one of
+the three readers errs there, so a real panel member errs with probability 1/3 on contested
+images and never on unanimous ones.
+
+| finding | reader sens / spec | phi\|+ | phi\|- |
+|---|---|---|---|
+| Cardiomegaly | 0.905 / 0.988 | +0.09 | +0.13 |
+| Pulmonary fibrosis | 0.874 / 0.986 | -0.02 | +0.06 |
+| Pleural thickening | 0.805 / 0.974 | +0.01 | +0.09 |
+| Pleural effusion | 0.897 / 0.991 | +0.16 | +0.08 |
+| Lung Opacity | 0.768 / 0.982 | +0.06 | +0.13 |
+| Nodule/Mass | 0.816 / 0.990 | +0.06 | +0.07 |
+| Infiltration | 0.790 / 0.992 | -0.03 | +0.08 |
+| Consolidation | 0.752 / 0.995 | 0.00 | +0.13 |
+| Atelectasis | 0.763 / 0.997 | -0.04 | +0.06 |
+| Pneumothorax | 0.925 / 0.999 | -0.05 | +0.04 |
+
+**This is the table that justifies rho = 0**: miss coupling at most +0.16 (Pleural effusion),
++0.09 for Cardiomegaly, within +/-0.06 elsewhere; false-alarm coupling +0.04 ... +0.13.
+Independence is optimistic mainly for Pleural effusion, Lung Opacity and Cardiomegaly.
+
+## Why the coupling was NOT built into the simulated reader
+
+A per-pathology `difficulty_slope` calibrated to these values was considered and dropped
+after a closed-form feasibility check:
+
+1. With three readers the per-finding disagreement `4p(1-p)` is binary (0 unanimous, 8/9
+   contested). A slope on a two-valued variable is just two skill levels.
+2. The leave-one-out `phi|+` is structurally `corr(image is contested 2-of-3, AI misses)`:
+   from a 2-of-3 image only the dissenter's unit survives the agreement filter.
+3. `SDTDoctor` holds the *absolute* criterion, so lowering `d'` never changes the false-alarm
+   rate: the mechanism can couple misses only, never false alarms.
+4. The slope reaches the target only at saturation and wrecks sensitivity on the way
+   (Pleural effusion 0.88 -> 0.61, Lung Opacity -> 0.20).
+
+Reproducing the coupling faithfully would need a reader resampled from the real reads (VinDr
+only, 10 findings, no personas). The complexity was judged not worth it against a measured
+coupling this small.
 
 ## Limitations (to be carried into the thesis)
 
