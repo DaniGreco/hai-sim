@@ -169,6 +169,34 @@ class LabelGrouping:
         ]
 
 
+@dataclass(frozen=True)
+class TruthGrouping:
+    """For every pathology, two slices of *patients*: those who have it and those who do not.
+
+    `LabelGrouping` keeps every patient and narrows the label axis, which is right for a
+    diagnostic metric. A time metric asks something else — *do the patients with this
+    finding wait less than the ones without?* — and that needs the patients themselves
+    split by their ground truth. Records are left whole; a patient the dataset did not
+    annotate for a pathology (``-1``) falls in neither slice; a slice that would be empty
+    is omitted.
+    """
+
+    label_names: tuple[str, ...]
+
+    @property
+    def name(self) -> str:
+        return "truth"
+
+    def split(self, records: Sequence[PatientRecord]) -> list[RecordSlice]:
+        slices: list[RecordSlice] = []
+        for index, label in enumerate(self.label_names):
+            for value, shown in ((1, "positive"), (0, "negative")):
+                picked = tuple(r for r in records if int(r.ground_truth[index]) == value)
+                if picked:
+                    slices.append(RecordSlice(f"truth={label}:{shown}", picked))
+        return slices
+
+
 def project_record(record: PatientRecord, index: int) -> PatientRecord:
     """A copy of ``record`` restricted to label ``index`` on every per-label axis."""
     n_labels = len(record.ground_truth)

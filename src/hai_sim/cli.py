@@ -591,6 +591,19 @@ def cmd_ui(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_plot(args: argparse.Namespace) -> int:
+    """Figure of a simulation study, from the CSV the study wrote."""
+    from hai_sim.analysis.study_figures import render_queue_load, render_team_effect
+
+    out = args.out or f"out/figures/{args.kind}"
+    if args.kind == "queue_load":
+        path = render_queue_load(args.csv, out)
+    else:
+        path = render_team_effect(args.csv, out, persona=args.persona)
+    print(f"figure -> {path}.png / .pdf")
+    return 0
+
+
 def cmd_capture(args: argparse.Namespace) -> int:
     """Offline capture study over the cache matrix: tidy table + figures."""
     from hai_sim.analysis.capture_study import load_config, run_and_write
@@ -620,6 +633,13 @@ def main(argv: list[str] | None = None) -> int:
     cap_p.add_argument("config", help="capture study YAML")
     cap_p.add_argument("--out-dir", default="out/capture")
     cap_p.set_defaults(func=cmd_capture)
+
+    plot_p = sub.add_parser("plot", help="draw the figure of a simulation study from its CSV")
+    plot_p.add_argument("kind", choices=["queue_load", "team_effect"])
+    plot_p.add_argument("csv", help="queue_load: the *_summary.csv; team_effect: the *_long.csv")
+    plot_p.add_argument("--out", default=None, help="output stem (default: out/figures/<kind>)")
+    plot_p.add_argument("--persona", default="senior_trusting", help="team_effect only")
+    plot_p.set_defaults(func=cmd_plot)
 
     val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
     val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")

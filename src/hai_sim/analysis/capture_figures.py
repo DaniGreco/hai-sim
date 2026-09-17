@@ -113,7 +113,7 @@ def _label(ax: Any, pathology: str, n: int) -> None:
 
 def _grid(plt: Any, n: int, cols: int = 4) -> tuple[Any, list[Any]]:
     rows = math.ceil(n / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 1.15), squeeze=False)
+    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 0.95), squeeze=False)
     flat = [a for row in axes for a in row]
     for a in flat[n:]:
         a.set_visible(False)
@@ -142,7 +142,7 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
     )
     fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2, y=0.52 / h)
     fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.5 / h), h_pad=1.1, w_pad=0.8)
+    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.40 / h), h_pad=1.1, w_pad=0.8)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -242,7 +242,7 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
 
     cmap = LinearSegmentedColormap.from_list("div", ["#c2410c", "#f4b08a", "#ecebe6", "#8fb8ea", "#1d5fb5"])
     cmap.set_bad("#ffffff")
-    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.65))
+    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.45))
     ax.imshow(np.ma.masked_invalid(grid), cmap=cmap, norm=TwoSlopeNorm(0.0, -1.0, 1.0), aspect="auto")
     for i in range(len(names)):
         for j in range(len(columns)):
@@ -278,7 +278,7 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
     fig.text(0.01, 0.02 / h, "Skill: +1 = ideal ordering, 0 = random ordering, negative = worse than random.\n"
              "n/a: the ordering does not exist for that finding (fewer than two ensemble members cover it).",
              ha="left", va="bottom", fontsize=7, color=INK_2)
-    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.3 / h))
+    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.22 / h))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))

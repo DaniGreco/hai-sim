@@ -55,6 +55,8 @@ class AIModelConfig(_Strict):
     kind: Literal["random_mock", "torchxrv", "cached", "medgemma", "fixed_accuracy"] = (
         "random_mock"
     )
+    # A label for study tables when a whole `ai` block is a factor level. No effect on a run.
+    name: str | None = None
     service_time: float = 0.05
     # fixed_accuracy params: a synthetic signal-detection AI whose skill is a dial, for the
     # "AI performs well — is it trusted?" study (§3, RQ3). Give `d_prime` to set skill
@@ -244,7 +246,7 @@ class PersonaConfig(_Strict):
 
 
 class SortConfig(_Strict):
-    kind: Literal["random", "uncertainty_desc"]
+    kind: Literal["random", "uncertainty_desc", "probability_desc"]
     aggregator: Literal["mean", "max", "weighted"] = "mean"
     weights: tuple[float, ...] | None = None
 
@@ -468,7 +470,9 @@ class KPIGroupConfig(_Strict):
     """One conditioning axis for the KPI bundles: every bundle is computed per subgroup.
 
     ``key`` is either the literal ``"label"`` — one subgroup per pathology, which turns
-    a macro-averaged bundle into a per-pathology one — or something readable off a
+    a macro-averaged bundle into a per-pathology one — the literal ``"truth"`` — for every
+    pathology, the patients who have it and the patients who do not, which is how a time
+    metric is asked "do the sick wait less?" — or something readable off a
     record: a plain field (``severity``, ``priority_key``, ``ts_arrival``) or an
     observation (``ctx.sex``, ``load.in_system_at_arrival``, ``ai.uq_method``).
 

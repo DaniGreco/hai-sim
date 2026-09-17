@@ -1,0 +1,61 @@
+# Experiment E3: under load, do the patients who have a finding wait less?
+#
+#   hai-sim study configs/studies/queue_load.yaml
+#
+# The dynamic counterpart of the capture study. One reader, patients arriving at three
+# rates (the department half idle, at capacity, overloaded), the worklist served in random
+# order, most-uncertain-first or most-suspicious-first. Reordering a queue cannot change the
+# mean wait, only WHO waits, so every time metric is read separately for the patients with
+# and without each finding (`by: truth`), paired seed by seed against the random order.
+#
+# Mean read time is ~13.2 time units (lognormal mu 2.5, sigma 0.4), so capacity is an
+# arrival rate of ~0.075. The AI is the 4-member ensemble replayed from cache, calibrated per
+# pathology so that probabilities of different findings share one scale before `max`
+# collapses them into a single priority. Patients come from the rows the calibration was
+# not fitted on.
+name: queue_load
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4
+    arrival_rate: 0.075
+    n_patients: 2000
+    sample_mode: random
+    split: odd
+  ai:
+    kind: cached
+    cache_stem: data/cache/composed/vindr__ens4
+    uq: ensemble
+    ensemble_measure: mean_entropy
+    decision_threshold: 0.5
+    service_time: 0.25
+    calibration:
+      kind: platt
+      path: data/cache/calibration/vindr__ens4.json
+  persona: solo_senior
+  sort:
+    kind: random
+    aggregator: max
+
+factors:
+  patient_generator.arrival_rate: [0.04, 0.075, 0.15]
+  sort.kind: [random, uncertainty_desc, probability_desc]
+
+design: grid
+replications: [1, 2, 3, 4, 5]
+
+baseline:
+  sort.kind: random
+
+kpis: [system]
+
+by:
+  - key: truth
+
+report:
+  - system.mean_wait_to_doctor
+  - system.mean_time_in_system

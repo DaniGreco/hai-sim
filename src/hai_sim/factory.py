@@ -66,7 +66,7 @@ from hai_sim.doctors.assisted import (
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.labels import ProjectedActor, build_projection, project_generator
-from hai_sim.metrics.slicing import Grouping, LabelGrouping, ValueGrouping
+from hai_sim.metrics.slicing import Grouping, LabelGrouping, TruthGrouping, ValueGrouping
 from hai_sim.models.mock import RandomMockAI
 from hai_sim.personas import resolve_persona
 from hai_sim.severity.models import (
@@ -78,7 +78,7 @@ from hai_sim.severity.models import (
 from hai_sim.sim.dataset_generator import DatasetPatientGenerator
 from hai_sim.sim.patient_generator import PoissonPatientGenerator
 from hai_sim.sort.random import RandomSort
-from hai_sim.sort.uncertainty import UncertaintyDescSort
+from hai_sim.sort.uncertainty import ProbabilityDescSort, UncertaintyDescSort
 
 
 def build_label_schema(name: str) -> LabelSchema:
@@ -576,6 +576,10 @@ def build_kpi_groupings(
             if cfg.edges:
                 raise ValueError("kpi_groups 'label' takes no edges: it is categorical")
             groupings.append(LabelGrouping(label_names=schema.labels))
+        elif cfg.key == "truth":
+            if cfg.edges:
+                raise ValueError("kpi_groups 'truth' takes no edges: it is categorical")
+            groupings.append(TruthGrouping(label_names=schema.labels))
         else:
             groupings.append(
                 ValueGrouping(
@@ -590,6 +594,8 @@ def build_sort(cfg: SortConfig, rng: np.random.Generator) -> SortStrategy:
         return RandomSort(rng=rng)
     if cfg.kind == "uncertainty_desc":
         return UncertaintyDescSort(aggregator=cfg.aggregator, weights=cfg.weights)
+    if cfg.kind == "probability_desc":
+        return ProbabilityDescSort(aggregator=cfg.aggregator, weights=cfg.weights)
     raise ValueError(f"unknown sort.kind: {cfg.kind}")
 
 

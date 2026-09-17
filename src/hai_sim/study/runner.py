@@ -180,6 +180,8 @@ def _fmt_cell(v: Any) -> str:
         return f"{v:.6f}"
     if isinstance(v, (str, int)):
         return str(v)
+    if isinstance(v, dict) and isinstance(v.get("name"), str):
+        return str(v["name"])  # a named block (persona, ai) reads as its name
     return json.dumps(v, default=str)  # e.g. an inline-dict factor level
 
 
