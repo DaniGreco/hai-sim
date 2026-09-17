@@ -38,7 +38,10 @@ class CachedPatientGenerator:
         rng: np.random.Generator | None = None,
         sample_mode: SampleMode = "sequential",
         arrivals: ArrivalProcess | None = None,
+        split: str = "all",
     ) -> None:
+        if split not in ("all", "even", "odd"):
+            raise ValueError(f"split must be 'all', 'even' or 'odd', got {split!r}")
         if arrival_rate is not None and arrival_rate <= 0:
             raise ValueError(f"arrival_rate must be > 0, got {arrival_rate}")
         if n_patients <= 0:
@@ -55,13 +58,24 @@ class CachedPatientGenerator:
         self.n_patients = n_patients
         self.rng = rng if rng is not None else np.random.default_rng()
         self.sample_mode: SampleMode = sample_mode
+        # The rows this stream may draw from. Parity of the cache row is the same split
+        # scripts/fit_calibration.py uses, so "fit on even, study on odd" is one word.
+        rows = np.arange(cache.n_images)
+        if split != "all":
+            rows = rows[rows % 2 == (0 if split == "even" else 1)]
+        if rows.size == 0:
+            raise ValueError(f"split={split!r} leaves no cache rows to draw from")
+        self.split = split
+        self._rows = rows
         self.arrivals = resolve_arrivals(arrivals, arrival_rate, self.rng)
 
     def _index_stream(self) -> list[int]:
-        n = self.cache.n_images
+        n = int(self._rows.size)
         if self.sample_mode == "random":
-            return [int(i) for i in self.rng.integers(0, n, size=self.n_patients)]
-        return [i % n for i in range(self.n_patients)]
+            picks = self.rng.integers(0, n, size=self.n_patients)
+        else:
+            picks = np.arange(self.n_patients) % n
+        return [int(self._rows[i]) for i in picks]
 
     def __iter__(self) -> Iterator[tuple[float, Patient]]:
         now = 0.0

@@ -83,6 +83,7 @@ def _team_output(
     doctor_out: ModelOutput,
     policy_name: str,
     weight_ai: np.ndarray,
+    decision_threshold: float = 0.5,
 ) -> ModelOutput:
     """Assemble the fused `ModelOutput`, stashing the doctor-solo counterfactual.
 
@@ -96,9 +97,10 @@ def _team_output(
         "doctor_solo_labels": tuple(int(x) for x in doctor_out.diagnosis.labels),
         "doctor_solo_confidence": tuple(float(x) for x in doctor_out.diagnosis.confidence),
         "fusion_weight_ai": tuple(float(x) for x in weight_ai),
+        "team_decision_threshold": float(decision_threshold),
     }
     return ModelOutput.from_arrays(
-        p_team >= 0.5, p_team, _binary_entropy(p_team), extra=extra
+        p_team >= decision_threshold, p_team, _binary_entropy(p_team), extra=extra
     )
 
 
@@ -114,11 +116,17 @@ class LinearPoolPolicy:
     are over-stated — unlike `LogOddsFusionPolicy`, which such an AI can dominate.
     """
 
-    def __init__(self, weight_ai: float = 0.4, name: str = "linear_pool") -> None:
+    def __init__(
+        self,
+        weight_ai: float = 0.4,
+        name: str = "linear_pool",
+        decision_threshold: float = 0.5,
+    ) -> None:
         if not 0.0 <= weight_ai <= 1.0:
             raise ValueError(f"weight_ai must be in [0, 1], got {weight_ai}")
         self.weight_ai = float(weight_ai)
         self.name = name
+        self.decision_threshold = float(decision_threshold)
 
     def combine(
         self,
@@ -132,7 +140,9 @@ class LinearPoolPolicy:
         w_ai = np.where(uncovered, 0.0, self.weight_ai)
         p_ai = np.where(uncovered, 0.0, p_ai)
         p_team = (1.0 - w_ai) * p_doctor + w_ai * p_ai
-        return _team_output(p_team, doctor_out, self.name, w_ai)
+        return _team_output(
+            p_team, doctor_out, self.name, w_ai, self.decision_threshold
+        )
 
 
 class ConfidenceGatedPoolPolicy:
@@ -154,6 +164,7 @@ class ConfidenceGatedPoolPolicy:
         weight_ai: float = 0.4,
         confidence_threshold: float = 0.7,
         name: str = "confidence_gated",
+        decision_threshold: float = 0.5,
     ) -> None:
         if not 0.0 <= weight_ai <= 1.0:
             raise ValueError(f"weight_ai must be in [0, 1], got {weight_ai}")
@@ -164,6 +175,7 @@ class ConfidenceGatedPoolPolicy:
         self.weight_ai = float(weight_ai)
         self.confidence_threshold = float(confidence_threshold)
         self.name = name
+        self.decision_threshold = float(decision_threshold)
 
     def combine(
         self,
@@ -179,7 +191,9 @@ class ConfidenceGatedPoolPolicy:
         w_ai = np.where(heeded, self.weight_ai, 0.0)
         p_ai = np.where(uncovered, 0.0, p_ai)
         p_team = (1.0 - w_ai) * p_doctor + w_ai * p_ai
-        return _team_output(p_team, doctor_out, self.name, w_ai)
+        return _team_output(
+            p_team, doctor_out, self.name, w_ai, self.decision_threshold
+        )
 
 
 class LogOddsFusionPolicy:
@@ -210,6 +224,7 @@ class LogOddsFusionPolicy:
         weight_doctor: float = 1.0,
         prior: float = 0.5,
         name: str = "log_odds_fusion",
+        decision_threshold: float = 0.5,
     ) -> None:
         if beta < 0.0:
             raise ValueError(f"beta must be >= 0, got {beta}")
@@ -221,6 +236,7 @@ class LogOddsFusionPolicy:
         self.weight_doctor = float(weight_doctor)
         self.prior = float(prior)
         self.name = name
+        self.decision_threshold = float(decision_threshold)
 
     def combine(
         self,
@@ -247,7 +263,9 @@ class LogOddsFusionPolicy:
         )
 
         p_team = _sigmoid(logit_prior + self.weight_doctor * llr_doctor + w_ai * llr_ai)
-        return _team_output(p_team, doctor_out, self.name, w_ai)
+        return _team_output(
+            p_team, doctor_out, self.name, w_ai, self.decision_threshold
+        )
 
 
 class AssistedDoctor(BaseDiagnosticActor):
