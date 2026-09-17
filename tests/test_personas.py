@@ -8,6 +8,7 @@ import pytest
 from hai_sim.config.scenario import CapabilityConfig, PersonaConfig, ScenarioConfig
 from hai_sim.core.types import Diagnosis, LabelSchema, ModelOutput
 from hai_sim.doctors.assisted import AssistedDoctor, ConfidenceGatedPoolPolicy
+from hai_sim.doctors.sdt import SDTDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.factory import build_from_scenario, build_persona
 from hai_sim.personas import PERSONA_LIBRARY, resolve_persona
@@ -50,7 +51,7 @@ def test_resolve_inline_passthrough():
 
 def test_solo_persona_is_bare_reader():
     doc = build_persona("solo_senior", _SCHEMA, np.random.default_rng(0))
-    assert isinstance(doc, FixedAccuracyDoctor)
+    assert isinstance(doc, SDTDoctor)
     assert not isinstance(doc, AssistedDoctor)
 
 
