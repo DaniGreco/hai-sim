@@ -127,6 +127,24 @@ def build_calibrator(
     raise ValueError(f"unknown calibration.kind: {cfg.kind}")
 
 
+def _decision_threshold(cfg: AIModelConfig, labels: Sequence[str]) -> Any:
+    """The AI's decision cut: a number, or the per-finding prevalence-matched cuts."""
+    if cfg.decision_threshold != "prevalence_matched":
+        value = float(cfg.decision_threshold)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"ai.decision_threshold must be in [0, 1], got {value}")
+        return value
+    cal = cfg.calibration
+    if cal is None or cal.path is None:
+        raise ValueError(
+            "ai.decision_threshold: prevalence_matched reads the cuts from the calibration "
+            "file, so ai.calibration.path must be set"
+        )
+    from hai_sim.uq.calibration import load_thresholds
+
+    return load_thresholds(cal.path, labels, calibrated=cal.kind == "platt")
+
+
 def _build_uq(cfg: AIModelConfig, labels: Sequence[str] | None = None) -> Any:
     """The run's UQ method, wrapped in its calibrator when the scenario asks for one.
 
@@ -167,7 +185,7 @@ def build_ai(
             schema=schema,
             weights=cfg.weights,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
             device=cfg.device,
             emit_embedding=emit_embedding,
@@ -210,7 +228,7 @@ def build_ai(
                 readout=readout,
                 prompt_set=cfg.prompt_set,
                 uq=_build_uq(cfg, schema.labels),
-                decision_threshold=cfg.decision_threshold,
+                decision_threshold=_decision_threshold(cfg, schema.labels),
                 service_time=cfg.service_time,
             )
 
@@ -222,7 +240,7 @@ def build_ai(
             readout=readout,
             prompt_set=cfg.prompt_set,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
             device=cfg.device,
             dtype=cfg.dtype,
@@ -238,7 +256,7 @@ def build_ai(
             cache=cache,
             schema=schema,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
         )
     if cfg.kind == "fixed_accuracy":
@@ -317,7 +335,7 @@ def build_cached_ai(
         caches,
         schema,
         uq=_build_uq(cfg, schema.labels),
-        decision_threshold=cfg.decision_threshold,
+        decision_threshold=_decision_threshold(cfg, schema.labels),
         service_time=cfg.service_time,
     )
 

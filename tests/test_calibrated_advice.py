@@ -126,3 +126,43 @@ def test_permutation_reads_every_image_of_the_split_exactly_once():
     ids = [p.context.example_id for _, p in gen]
     assert sorted(ids) == sorted(f"img{i}" for i in range(1, 20, 2))
     assert ids != sorted(ids, key=lambda s: int(s[3:])), "and not in cache order"
+
+
+# --- the AI's own operating point --------------------------------------------------------
+
+
+def test_prevalence_matched_threshold_is_read_per_finding_from_the_calibration_file(tmp_path):
+    from hai_sim.config.scenario import AIModelConfig, CalibrationConfig
+    from hai_sim.factory import _decision_threshold
+    from hai_sim.uq.calibration import save_platt_file
+
+    labels = ["A", "B"]
+    path = tmp_path / "cal.json"
+    save_platt_file(
+        path,
+        pathologies=labels,
+        a=np.ones(2),
+        b=np.zeros(2),
+        n_positive=np.array([50, 0]),
+        prevalence=np.array([0.1, np.nan]),
+        provenance={},
+        threshold_raw=np.array([0.7, np.nan]),
+        threshold_calibrated=np.array([0.2, np.nan]),
+    )
+    cfg = AIModelConfig(
+        kind="cached",
+        decision_threshold="prevalence_matched",
+        calibration=CalibrationConfig(kind="platt", path=str(path)),
+    )
+    np.testing.assert_allclose(_decision_threshold(cfg, labels), [0.2, 0.5])
+    raw = cfg.model_copy(update={"calibration": CalibrationConfig(kind="identity", path=str(path))})
+    np.testing.assert_allclose(_decision_threshold(raw, labels), [0.7, 0.5])
+
+
+def test_prevalence_matched_threshold_needs_a_calibration_file():
+    from hai_sim.config.scenario import AIModelConfig
+    from hai_sim.factory import _decision_threshold
+
+    with pytest.raises(ValueError, match="calibration"):
+        _decision_threshold(AIModelConfig(kind="cached", decision_threshold="prevalence_matched"), ["A"])
+    assert _decision_threshold(AIModelConfig(kind="cached", decision_threshold=0.3), ["A"]) == 0.3

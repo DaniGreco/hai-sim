@@ -5,8 +5,15 @@ of the cases you care about you have already met. Two targets, per pathology:
 
 - ``positive`` — the images that truly show the finding. The clinical question: do sick
   patients get read earlier?
-- ``error``    — the images on which the model's own call is wrong. The uncertainty
-  question: is the reader's attention sent where the model fails?
+- ``fn``       — the model's **false negatives**: images that show the finding and that the
+  model called negative (missed findings).
+- ``fp``       — the model's **false positives**: images that do not show the finding and
+  that the model called positive (false alarms).
+- ``error``    — both kinds together.
+
+The last three ask the uncertainty question: is the reader's attention sent where the model
+fails? The model's call is its probability cut at the prevalence-matched threshold (it calls
+as many positives as there are), fitted on the rows this study does not read.
 
 The curve is framed by two references (`hai_sim.analysis.error_curve.compute_curve`): the
 **ideal** ordering meets every target first, so it climbs straight and then stays flat — a
@@ -52,7 +59,7 @@ from hai_sim.uq.calibration import load_platt_file
 from hai_sim.uq.methods import binary_entropy
 
 Ordering = Literal["probability", "predictive_entropy", "mean_entropy", "mutual_information"]
-Target = Literal["positive", "error"]
+Target = Literal["positive", "fn", "fp", "error"]
 
 ORDERING_LABEL: dict[str, str] = {
     "probability": "Probability (most suspicious first)",
@@ -87,7 +94,7 @@ class CaptureStudyConfig(_Strict):
         "mutual_information",
     )
     probabilities: tuple[Literal["raw", "calibrated"], ...] = ("raw", "calibrated")
-    targets: tuple[Target, ...] = ("positive", "error")
+    targets: tuple[Target, ...] = ("positive", "fn", "fp")
     # Evaluate on these cache rows; the calibration files are fitted on the other parity.
     split: Literal["odd", "even", "all"] = "odd"
     # A pathology enters the study only with this many target cases on the evaluated rows.
@@ -186,7 +193,8 @@ def run_capture_study(cfg: CaptureStudyConfig) -> dict[str, Any]:
                     continue
                 y = gt[ev, k] == 1
                 threshold = _prevalence_matched_threshold(p_all[ft, k], gt[ft, k])
-                is_target = {"positive": y, "error": (p_all[ev, k] >= threshold) != y}
+                call = p_all[ev, k] >= threshold
+                is_target = {"positive": y, "fn": y & ~call, "fp": ~y & call, "error": call != y}
                 n_cover = int(np.isfinite(members[:, :, k]).any(axis=0).sum())
                 for target in cfg.targets:
                     t = is_target[target]

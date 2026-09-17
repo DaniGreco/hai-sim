@@ -36,8 +36,21 @@ SURFACE = "#ffffff"
 
 TARGET_TITLE = {
     "positive": "share of positive cases already read",
+    "fn": "share of the model's false negatives already read",
+    "fp": "share of the model's false positives already read",
     "error": "share of the model's errors already read",
 }
+# (title noun, what n counts, plain meaning)
+TARGET_TEXT = {
+    "positive": ("Positive cases", "positive cases of the finding", ""),
+    "fn": ("False negatives of the model", "false negatives of the model on the finding",
+           " False negative: the image shows the finding and the model called it absent."),
+    "fp": ("False positives of the model", "false positives of the model on the finding",
+           " False positive: the image does not show the finding and the model called it present."),
+    "error": ("Errors of the model", "errors of the model on the finding", ""),
+}
+THRESHOLD_TEXT = (" The model's call is its probability cut where it calls as many positives as "
+                  "there are (prevalence-matched threshold, fitted on the other half).")
 CURVE_ORDERINGS = (
     ("probability", "raw"),
     ("predictive_entropy", "calibrated"),
@@ -128,7 +141,7 @@ def _label(ax: Any, pathology: str, n: int) -> None:
 
 def _grid(plt: Any, n: int, cols: int = 4) -> tuple[Any, list[Any]]:
     rows = math.ceil(n / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 1.15), squeeze=False)
+    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 1.35), squeeze=False)
     flat = [a for row in axes for a in row]
     for a in flat[n:]:
         a.set_visible(False)
@@ -158,7 +171,7 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
     )
     fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2, y=0.52 / h)
     fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.58 / h), h_pad=1.1, w_pad=0.8)
+    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.78 / h), h_pad=1.1, w_pad=0.8)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -202,14 +215,14 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
                label=ORDERING_LABEL[o] + (" (calibrated)" if k == "calibrated" else ""))
         for (o, k), col, dash in zip(CURVE_ORDERINGS, SERIES, DASHES, strict=True)
     ]
-    what = "Positive cases" if target == "positive" else "Model errors"
-    unit = "positive cases of the finding" if target == "positive" else "errors of the model on the finding"
+    what, unit, meaning = TARGET_TEXT[target]
+    meaning += "" if target == "positive" else THRESHOLD_TEXT
     _finish(
         fig, handles,
         f"{what} met along the reading order, by ordering criterion",
         f"{_data_line(curves, dataset, split)} Model: {(names_of or MODEL_NAME).get(model, model)}. "
-        f"One panel per finding; n = {unit}. The closer a line is to the ideal ordering, the earlier "
-        "those cases are read.",
+        f"One panel per finding; n = {unit}.{meaning} The closer a line is to the ideal ordering, the "
+        "earlier those cases are read.",
         TARGET_TITLE[target], out,
     )
     plt.close(fig)
@@ -272,7 +285,7 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
 
     cmap = LinearSegmentedColormap.from_list("div", ["#c2410c", "#f4b08a", "#ecebe6", "#8fb8ea", "#1d5fb5"])
     cmap.set_bad("#ffffff")
-    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.65))
+    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.95))
     ax.imshow(np.ma.masked_invalid(grid), cmap=cmap, norm=TwoSlopeNorm(0.0, -1.0, 1.0), aspect="auto")
     for i in range(len(names)):
         for j in range(len(columns)):
@@ -302,19 +315,20 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
     ax.set_xticks(np.arange(-0.5, len(columns)), minor=True)
     ax.set_yticks(np.arange(-0.5, len(names)), minor=True)
     ax.grid(which="minor", color=SURFACE, lw=1.5)
-    what = "positive cases" if target == "positive" else "model errors"
+    what = TARGET_TEXT[target][0].lower()
     h = fig.get_figheight()
     fig.suptitle(f"Skill of each ordering criterion at reading the {what} first",
                  x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
     n_img = max(r["n_images"] for r in sel)
     fig.text(0.01, 1 - 0.27 / h,
              _wrap(f"Data: {DATASET_NAME.get(dataset, dataset)}, {SPLIT_NAME.get(split, split)}, "
-                   f"{n_img:,} images. n = {what} of the finding."),
+                   f"{n_img:,} images. n = {TARGET_TEXT[target][1]}.{TARGET_TEXT[target][2]}"
+                   + ("" if target == "positive" else THRESHOLD_TEXT)),
              ha="left", va="top", fontsize=7.6, color=INK_2)
     fig.text(0.01, 0.02 / h, "Skill: +1 = ideal ordering, 0 = random ordering, negative = worse than random.\n"
              "n/a: the ordering does not exist for that finding (fewer than two ensemble members cover it).",
              ha="left", va="bottom", fontsize=7, color=INK_2)
-    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.40 / h))
+    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.70 / h))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))

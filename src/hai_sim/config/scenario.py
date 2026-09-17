@@ -91,7 +91,12 @@ class AIModelConfig(_Strict):
     ensemble_measure: Literal[
         "mutual_information", "predictive_entropy", "mean_entropy", "std"
     ] = "mutual_information"
-    decision_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # The AI's own call, used for its stand-alone errors and the reliance metrics (the reader
+    # is shown the probability, not this call). A number, or "prevalence_matched": per
+    # finding, the cut at which the model calls as many positives as there are, read from
+    # the calibration file. A calibrated probability of a rare finding almost never reaches
+    # 0.5, so a fixed 0.5 would make a calibrated AI call nothing at all.
+    decision_threshold: float | Literal["prevalence_matched"] = 0.5
     device: str = "cpu"
     # medgemma params — a generative vision-language model as the AI reader.
     # `readout` is how a probability is elicited from a model that emits text:

@@ -30,6 +30,7 @@ base:
     uq: ensemble
     ensemble_measure: mean_entropy
     service_time: 0.25
+    decision_threshold: prevalence_matched   # the AI's own call: as many positives as there are
     calibration: {kind: platt, path: data/cache/calibration/vindr__ens4.json}
   persona: senior_trusting
   fusion: {kind: log_odds_fusion, beta: 0.0}
@@ -42,11 +43,13 @@ factors:
       kind: cached
       cache_stem: data/cache/vindr__medgemma-1
       service_time: 0.25
+      decision_threshold: prevalence_matched
       calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-4b.json}
     - name: medgemma-27b
       kind: cached
       cache_stem: data/cache/vindr__medgemma-27b
       service_time: 0.25
+      decision_threshold: prevalence_matched
       calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-27b.json}
   fusion.kind: [linear_pool, log_odds_fusion]
   persona: [senior_skeptical, senior_trusting, junior_skeptical, junior_trusting]
@@ -60,6 +63,8 @@ by:
   - key: label
 
 report:
+  - actors.ai.n_fn
+  - actors.ai.n_fp
   - actors.doctor.recall_macro
   - actors.doctor.n_fn
   - actors.doctor.n_fp

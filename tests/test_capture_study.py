@@ -97,3 +97,14 @@ def test_compose_members_keeps_only_shared_images_in_the_first_cache_order():
     assert ids == ("x", "z")
     np.testing.assert_allclose(members[:, :, 0], [[0.1, 0.7], [0.3, 0.9]], rtol=1e-6)
     assert truth[:, 0].tolist() == [1, 1]
+
+
+def test_false_negatives_and_false_positives_are_separate_targets(tmp_path):
+    rng = np.random.default_rng(5)
+    gt = (rng.random(6000) < 0.15).astype(int)
+    p = np.clip(0.25 + 0.35 * gt + rng.normal(0, 0.18, gt.size), 0.01, 0.99)
+    res = _study(tmp_path, {"a": p}, gt, targets=("positive", "fn", "fp"))
+    fn, fp, pos = (_row(res, ordering="probability", target=t) for t in ("fn", "fp", "positive"))
+    assert fn["n_targets"] + fp["n_targets"] > 0 and fn["n_targets"] < pos["n_targets"]
+    # false positives sit, by construction, among the images the model scores highest
+    assert fp["skill"] > 0.7 and fp["skill"] > fn["skill"]

@@ -27,6 +27,6 @@ models:
 
 orderings: [probability, predictive_entropy, mean_entropy, mutual_information]
 probabilities: [raw, calibrated]
-targets: [positive, error]
+targets: [positive, fn, fp]     # sick patients; the model's false negatives; its false positives
 split: odd
 min_targets: 20

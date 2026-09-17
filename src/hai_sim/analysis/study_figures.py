@@ -335,3 +335,97 @@ def render_team_rules(long_csv: str | Path, out: str | Path) -> Path:
         out, row_height=0.46,
     )
     return out
+
+
+# --- E4: the three actors side by side ---------------------------------------------------------
+
+
+def _truth_counts(study: dict[str, Any]) -> dict[str, tuple[int, int]]:
+    """``pathology -> (patients with it, patients without it)`` among the patients of a run."""
+    from hai_sim.analysis.inference_cache import InferenceCache
+
+    gen = study.get("base", {}).get("patient_generator", {})
+    cache = InferenceCache.load(gen["cache_stem"])
+    rows = np.arange(cache.n_images)
+    if gen.get("split", "all") != "all":
+        rows = rows[rows % 2 == (0 if gen["split"] == "even" else 1)]
+    gt = np.asarray(cache.ground_truth)[rows]
+    return {name: (int((gt[:, k] == 1).sum()), int((gt[:, k] == 0).sum()))
+            for k, name in enumerate(cache.pathologies)}
+
+
+def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemble",
+                        persona: str = "senior_trusting", fusion: str = "log_odds_fusion") -> Path:
+    """Per finding: the miss rate and the false-alarm rate of the AI alone, of the reader alone
+    and of the two together. The one figure that says what a model is worth."""
+    from matplotlib.lines import Line2D
+
+    plt = _plt()
+    study = _study_of(long_csv)
+    gen = study.get("base", {}).get("patient_generator", {})
+    if gen.get("sample_mode") != "permutation":
+        raise ValueError("rates need every image read once per run (sample_mode: permutation)")
+    counts = _truth_counts(study)
+    rows = [r for r in _read(long_csv)
+            if r["ai"] == ai and r["persona"] == persona and r["fusion.kind"] == fusion
+            and r["group"].startswith("label=") and r["value"] not in ("", "nan")]
+    actors = [("ai", "AI alone", SERIES[1], "s"), ("doctor", "Reader alone", NEUTRAL, "o"),
+              ("hybrid", "Reader with the AI's advice", SERIES[0], "D")]
+    value: dict[tuple[str, str, str], list[float]] = defaultdict(list)
+    for r in rows:
+        _, actor, stat = r["metric"].split(".")
+        if stat in ("n_fn", "n_fp"):
+            label = r["group"][6:]
+            pos, neg = counts[label]
+            denom = pos if stat == "n_fn" else neg
+            if denom:
+                value[(label, actor, stat)].append(100.0 * float(r["value"]) / denom)
+    labels = [name for name in counts if counts[name][0] >= 20 and (name, "ai", "n_fn") in value]
+    labels.sort(key=lambda name: -counts[name][0])
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.35), sharey=True)
+    panels = (("n_fn", "Missed findings, % of the patients who have the finding"),
+              ("n_fp", "False alarms, % of the patients who do not have it"))
+    for ax, (stat, title) in zip(axes, panels, strict=True):
+        n = len(labels)
+        for k, label in enumerate(labels):
+            y0 = n - 1 - k
+            if k % 2 == 0:
+                ax.axhspan(y0 - 0.5, y0 + 0.5, color=BAND, zorder=0, lw=0)
+            for a, (actor, _name, color, marker) in enumerate(actors):
+                got = value.get((label, actor, stat))
+                if not got:
+                    continue
+                mean, lo, hi = _mean_ci(got)
+                y = y0 + (1 - a) * 0.26
+                if np.isfinite(lo):
+                    ax.plot([lo, hi], [y, y], color=color, lw=1.1, zorder=2, solid_capstyle="butt")
+                ax.plot(mean, y, marker=marker, ms=4.4, color=color, zorder=3, ls="none")
+        ax.set_title(title, fontsize=8.0, color=INK, loc="left")
+        ax.set_ylim(-0.5, n - 0.5)
+        ax.set_xlim(left=0)
+        ax.grid(axis="x", color=RULE, lw=0.5)
+        ax.set_axisbelow(True)
+        ax.tick_params(axis="y", length=0)
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+    axes[0].set_yticks(range(len(labels)))
+    axes[0].set_yticklabels([f"{_pretty(x)}  (n = {counts[x][0]})" for x in reversed(labels)],
+                            fontsize=7.4, color=INK)
+    h = fig.get_figheight()
+    fig.suptitle("Errors of the AI alone, of the reader alone and of the two together, by finding",
+                 x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
+    fig.text(0.01, 1 - 0.27 / h,
+             _wrap(f"{_data_line(study)} AI: {MODEL_NAME.get(ai, ai)}, calibrated per finding; on its own it "
+                   "calls a finding present above the cut where it calls as many positives as there are. "
+                   f"{_reader_line(persona)} Opinions combined by: {RULE_NAME.get(fusion, fusion)}; the team "
+                   "calls a finding present at 0.5. n = patients who have the finding. Lower is better in "
+                   "both panels. Horizontal bar: 95% confidence interval over the runs."),
+             ha="left", va="top", fontsize=7.6, color=INK_2, linespacing=1.35)
+    handles = [Line2D([], [], color=c, marker=m, ls="none", ms=4.6, label=name) for _a, name, c, m in actors]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=7.4, labelcolor=INK_2)
+    fig.tight_layout(rect=(0, 0.32 / h, 1, 1 - 0.95 / h), w_pad=1.2)
+    out = Path(out)
+    _save(fig, out)
+    plt.close(fig)
+    return out
