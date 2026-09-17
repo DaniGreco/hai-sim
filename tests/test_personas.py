@@ -9,7 +9,6 @@ from hai_sim.config.scenario import CapabilityConfig, PersonaConfig, ScenarioCon
 from hai_sim.core.types import Diagnosis, LabelSchema, ModelOutput
 from hai_sim.doctors.assisted import AssistedDoctor, ConfidenceGatedPoolPolicy
 from hai_sim.doctors.sdt import SDTDoctor
-from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.factory import build_from_scenario, build_persona
 from hai_sim.personas import PERSONA_LIBRARY, resolve_persona
 from hai_sim.sim.engine import SimulationEngine
@@ -116,7 +115,7 @@ def _scenario(persona) -> ScenarioConfig:
 def test_scenario_with_library_persona_runs():
     sc = _scenario("solo_junior")
     _schema, gen, ai, doctor, sort, sev, n_ai, n_doc = build_from_scenario(sc)
-    assert isinstance(doctor, FixedAccuracyDoctor)
+    assert isinstance(doctor, SDTDoctor)
     res = SimulationEngine(
         patient_generator=gen, ai=ai, doctor=doctor, sort_strategy=sort,
         severity_model=sev, n_ai_workers=n_ai, n_doctor_workers=n_doc,
