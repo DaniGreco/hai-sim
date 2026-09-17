@@ -25,6 +25,7 @@ base:
     arrival_rate: 0.5
     n_patients: 1000
     sample_mode: random
+    split: odd                          # calibration below was fitted on the even rows
   ai:
     kind: cached
     cache_stem: data/cache/composed/nih__ens4
@@ -32,12 +33,20 @@ base:
     ensemble_measure: mean_entropy
     decision_threshold: 0.5
     service_time: 0.25
+    calibration:                        # per-pathology Platt on the fused probability,
+      kind: platt                       # written by scripts/fit_calibration.py
+      path: data/cache/calibration/nih__ens4.json
   persona: solo_senior
+  fusion:                              # the rule; the persona keeps its own weight
+    kind: linear_pool
+    beta: 0.0
   sort:
     kind: uncertainty_desc
     aggregator: mean
 
 factors:
+  ai.calibration.kind: [identity, platt]   # raw vs calibrated advice, same readers
+  fusion.kind: [linear_pool, log_odds_fusion]   # average probabilities vs add evidence
   persona:          # names from the persona library (src/hai_sim/personas.py)
     - solo_senior
     - senior_skeptical

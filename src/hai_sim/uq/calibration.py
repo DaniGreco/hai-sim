@@ -14,9 +14,18 @@ significant technical debt in the code"* and states that without it a log-odds f
 log-odds term and simply overrides its partner. With ECE 0.8 the fusion is not a
 compromise, it is a takeover.
 
-Applied to the ``(n_members, n_labels)`` stack **before** fusion, so the uncertainty the
-`UQMethod` derives describes the probabilities the run actually uses. Calibrating after
-fusion would leave the reported uncertainty describing numbers nobody used.
+**Where it is applied is a choice with two defensible answers** (`CalibratedUQ.stage`):
+
+- ``output`` (default) — calibrate the *fused* probability, the number a reader is shown.
+  Pool-then-calibrate is what makes that number honest: the mean of individually
+  calibrated members is itself under-confident and would need a second map anyway. The
+  map is monotone on the final probability, so the ranking of cases by probability is
+  untouched, and a single-member model (MedGemma) is treated exactly like an ensemble.
+  The uncertainty stays the one derived from the raw members.
+- ``members`` — calibrate the ``(n_members, n_labels)`` stack first, so the uncertainty
+  the `UQMethod` derives describes calibrated numbers. Use it to study the uncertainty
+  itself: an entropy is *not* invariant to calibration (it peaks at 0.5, and calibration
+  moves which cases sit there), so which uncertainty measure ranks errors best can change.
 
 Four maps and three fitters:
 
@@ -40,7 +49,9 @@ valid for a different prompt.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -53,7 +64,7 @@ def _logit(p: np.ndarray) -> np.ndarray:
 
 
 def _sigmoid(z: np.ndarray) -> np.ndarray:
-    return np.asarray(1.0 / (1.0 + np.exp(-z)))
+    return np.asarray(1.0 / (1.0 + np.exp(-np.clip(z, -60.0, 60.0))))
 
 
 def _preserving_nan(probs: np.ndarray, mapped: np.ndarray) -> np.ndarray:
@@ -153,32 +164,40 @@ class IsotonicCalibrator:
 
 
 class CalibratedUQ:
-    """Wraps a `UQMethod`, calibrating member probabilities before it sees them.
+    """Wraps a `UQMethod` and calibrates at one of two stages (see the module docstring).
 
     This is where calibration enters a run, and it is one object rather than an edit to
     each backend: every actor that produces uncertainty does so through a `UQMethod`, so
     wrapping the method covers the DenseNet, MedGemma and cache replay at once.
 
-    Members are calibrated **individually** before fusion. Doing it the other way —
-    fusing then calibrating — would leave the entropy decomposition describing the raw
-    probabilities while the run used the calibrated ones, and the epistemic term would
-    no longer be the disagreement between the numbers anyone saw.
+    ``stage="output"`` fuses the raw members, then calibrates the fused probability and
+    leaves the uncertainty as derived from the raw members. ``stage="members"`` calibrates
+    each member first, so both the fused probability and the uncertainty describe
+    calibrated numbers.
     """
 
-    def __init__(self, inner: object, calibrator: object) -> None:
+    def __init__(self, inner: object, calibrator: object, stage: str = "output") -> None:
+        if stage not in ("output", "members"):
+            raise ValueError(f"stage must be 'output' or 'members', got {stage!r}")
         self.inner = inner
         self.calibrator = calibrator
+        self.stage = stage
         inner_name = getattr(inner, "name", type(inner).__name__)
         cal_name = getattr(calibrator, "name", type(calibrator).__name__)
-        self.name = f"{inner_name}+{cal_name}"
+        self.name = f"{inner_name}+{cal_name}@{stage}"
 
     def estimate(
         self, member_probs: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
-        calibrated = self.calibrator.calibrate(np.asarray(member_probs, dtype=float))  # type: ignore[attr-defined]
-        probs, unc, extra = self.inner.estimate(calibrated)  # type: ignore[attr-defined]
+        stack = np.asarray(member_probs, dtype=float)
+        if self.stage == "members":
+            stack = self.calibrator.calibrate(stack)  # type: ignore[attr-defined]
+        probs, unc, extra = self.inner.estimate(stack)  # type: ignore[attr-defined]
+        if self.stage == "output":
+            probs = self.calibrator.calibrate(np.asarray(probs, dtype=float))  # type: ignore[attr-defined]
         extra = dict(extra)
         extra["calibrator"] = getattr(self.calibrator, "name", "?")
+        extra["calibration_stage"] = self.stage
         return probs, unc, extra
 
 
@@ -267,28 +286,136 @@ def fit_platt(
     probs: np.ndarray,
     labels: np.ndarray,
     *,
-    iterations: int = 100,
-    learning_rate: float = 0.1,
+    iterations: int = 200,
+    tol: float = 1e-9,
 ) -> tuple[float, float]:
-    """Fit ``(a, b)`` by Newton steps on the logistic negative log-likelihood."""
+    """Fit ``(a, b)`` by Newton steps on the logistic negative log-likelihood.
+
+    Full 2x2 Newton with step halving, run to convergence (gradient norm below ``tol``)
+    rather than for a fixed count: slope and intercept are strongly correlated when the
+    logits sit far from zero, which is the normal case for a rare finding, and a
+    coordinate-wise step then crawls. The loss is convex, so the optimum is unique.
+    """
     p, y = _valid(probs, labels)
     if p.size == 0 or np.all(y == y[0]):
         return 1.0, 0.0
     z = _logit(p)
+
+    def nll(a: float, b: float) -> float:
+        return _nll(_sigmoid(a * z + b), y)
+
     a, b = 1.0, 0.0
+    loss = nll(a, b)
     for _ in range(iterations):
         pred = _sigmoid(a * z + b)
         resid = pred - y
-        grad_a = float(np.mean(resid * z))
-        grad_b = float(np.mean(resid))
+        grad = np.array([np.mean(resid * z), np.mean(resid)])
+        if float(np.linalg.norm(grad)) < tol:
+            break
         w = pred * (1.0 - pred)
-        # Diagonal Newton: the full 2x2 Hessian buys little here and the diagonal
-        # keeps the step well-defined when the weights collapse near 0 or 1.
-        hess_a = float(np.mean(w * z * z)) + 1e-9
-        hess_b = float(np.mean(w)) + 1e-9
-        a -= learning_rate * grad_a / hess_a
-        b -= learning_rate * grad_b / hess_b
+        hess = np.array(
+            [[np.mean(w * z * z), np.mean(w * z)], [np.mean(w * z), np.mean(w)]]
+        ) + 1e-9 * np.eye(2)
+        step = np.linalg.solve(hess, grad)
+        scale = 1.0
+        cand = loss
+        while scale > 1e-6:
+            cand = nll(a - scale * step[0], b - scale * step[1])
+            if cand <= loss:
+                break
+            scale *= 0.5
+        else:
+            break
+        a, b, loss = a - scale * step[0], b - scale * step[1], cand
     return float(a), float(b)
+
+
+def fit_platt_per_label(
+    probs: np.ndarray, labels: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One ``(a, b)`` per label column, returned as ``(a, b, n_positive)`` of length ``L``.
+
+    A column with nothing to fit (unannotated, uncovered, or single-class) comes back as
+    the identity ``(1, 0)``. ``n_positive`` is returned because it is what decides
+    whether a fit is worth trusting: two parameters are well determined with a few
+    hundred positives and fragile below a few dozen.
+    """
+    arr = np.asarray(probs, dtype=float)
+    lab = np.asarray(labels, dtype=float)
+    if arr.ndim != 2 or arr.shape != lab.shape:
+        raise ValueError(f"expected matching (N, L) arrays, got {arr.shape} and {lab.shape}")
+    n_labels = arr.shape[1]
+    a, b = np.ones(n_labels), np.zeros(n_labels)
+    n_pos = np.zeros(n_labels, dtype=int)
+    for k in range(n_labels):
+        _, y = _valid(arr[:, k], lab[:, k])
+        n_pos[k] = int(np.sum(y == 1))
+        a[k], b[k] = fit_platt(arr[:, k], lab[:, k])
+    return a, b, n_pos
+
+
+def save_platt_file(
+    path: str | Path,
+    *,
+    pathologies: Sequence[str],
+    a: np.ndarray,
+    b: np.ndarray,
+    n_positive: np.ndarray,
+    prevalence: np.ndarray,
+    provenance: dict[str, object],
+) -> None:
+    """Write a per-label Platt calibration next to the cache it was fitted on.
+
+    A file rather than a YAML block because it is *data*: 2 x L numbers per
+    (model, dataset), fitted once and reused by every study of that cell. ``provenance``
+    records which caches and which split produced it, so a study can be checked against
+    the rule that calibration is never fitted on the images it scores.
+    """
+    payload = {
+        "kind": "platt",
+        "provenance": provenance,
+        "per_label": {
+            name: {
+                "a": float(a[k]),
+                "b": float(b[k]),
+                "n_positive": int(n_positive[k]),
+                # The base rate the calibrated probability is anchored to: what an
+                # evidence-based fusion subtracts to recover the likelihood ratio.
+                "prevalence": None if not np.isfinite(prevalence[k]) else float(prevalence[k]),
+            }
+            for k, name in enumerate(pathologies)
+        },
+    }
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def load_prevalence(path: str | Path, labels: Sequence[str]) -> np.ndarray:
+    """Per-label prevalence stored in a calibration file; NaN where it was not annotated."""
+    per_label = json.loads(Path(path).read_text(encoding="utf-8"))["per_label"]
+    out = np.full(len(labels), np.nan)
+    for k, name in enumerate(labels):
+        value = per_label.get(name, {}).get("prevalence")
+        if value is not None and value > 0.0:
+            out[k] = float(value)
+    return out
+
+
+def load_platt_file(path: str | Path, labels: Sequence[str]) -> PlattCalibrator:
+    """Load a `save_platt_file` calibration, aligned to ``labels`` by name."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if payload.get("kind") != "platt":
+        raise ValueError(f"{path}: expected kind 'platt', got {payload.get('kind')!r}")
+    per_label = payload["per_label"]
+    missing = [name for name in labels if name not in per_label]
+    if missing:
+        raise ValueError(f"{path}: no calibration entry for label(s) {missing}")
+    cal = PlattCalibrator(
+        a=[per_label[name]["a"] for name in labels],
+        b=[per_label[name]["b"] for name in labels],
+    )
+    cal.name = f"platt:{Path(path).stem}"
+    return cal
 
 
 def fit_isotonic(probs: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
