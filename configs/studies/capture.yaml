@@ -1,0 +1,29 @@
+# Experiments E1 + E2: does the proposed reading order put the right cases first?
+#
+#   hai-sim capture configs/studies/capture.yaml
+#
+# Read the images in the order a model proposes and count how many positive cases (or how
+# many of the model's own errors) have been met so far, per pathology. An ideal order meets
+# them all first (a right trapezoid), a random order is the diagonal.
+#
+# A model is a list of cache-matrix cells averaged into one probability, so the ensemble is
+# declared here. Rows are split by parity: calibration files are fitted on the even rows
+# (scripts/fit_calibration.py --split even), this study reads the odd ones.
+name: capture
+
+datasets: [nih, vindr]
+
+models:
+  ensemble:
+    cells: [chex, mimic_ch, pc, rsna]
+    calibration: ens4
+  medgemma-4b:
+    cells: [medgemma-1]            # on-disk stem of medgemma-1.5-4b (see cache matrix notes)
+  medgemma-27b:
+    cells: [medgemma-27b]
+
+orderings: [probability, predictive_entropy, mean_entropy, mutual_information]
+probabilities: [raw, calibrated]
+targets: [positive, error]
+split: odd
+min_targets: 20

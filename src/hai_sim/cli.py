@@ -591,6 +591,15 @@ def cmd_ui(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_capture(args: argparse.Namespace) -> int:
+    """Offline capture study over the cache matrix: tidy table + figures."""
+    from hai_sim.analysis.capture_study import load_config, run_and_write
+
+    out = run_and_write(load_config(args.config), args.out_dir)
+    print(f"capture study -> {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hai-sim", description="Human-AI sim runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -604,6 +613,13 @@ def main(argv: list[str] | None = None) -> int:
     study_p.add_argument("study", help="path to study YAML")
     study_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
     study_p.set_defaults(func=cmd_study)
+
+    cap_p = sub.add_parser(
+        "capture", help="capture study: does an ordering put the right cases first?"
+    )
+    cap_p.add_argument("config", help="capture study YAML")
+    cap_p.add_argument("--out-dir", default="out/capture")
+    cap_p.set_defaults(func=cmd_capture)
 
     val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
     val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")
