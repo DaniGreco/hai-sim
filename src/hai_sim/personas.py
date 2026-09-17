@@ -11,8 +11,10 @@ The library is a 2 x 3 grid — {senior, junior} x {solo, trusting, skeptical} �
 the natural sweep for the research question "how does the kind of reader change the
 team's outcome and whether it relies on the AI appropriately?".
 
-Capability is expressed as per-finding sensitivity and specificity (senior 0.95/0.95,
-junior 0.85/0.88). Trust is the **weight of advice (WOA)** — how much of an advisor's
+Capability is a sensitivity/specificity operating point (senior 0.95/0.95, junior
+0.85/0.88), the same for every finding, driving a signal-detection reader (`SDTDoctor`).
+The reader is blind to the image, so its errors are independent of the AI's; the measured
+size of that approximation is in ``docs/STUDY_reader_ai_coupling.md``. Trust is the **weight of advice (WOA)** — how much of an advisor's
 opinion a judge adopts, 0 = ignored, 1 = adopted wholesale — applied here as the AI's
 share of a linear pool:
 
@@ -54,9 +56,9 @@ _JUNIOR = (0.85, 0.88)
 
 
 def _cap(sens_spec: tuple[float, float]) -> CapabilityConfig:
-    return CapabilityConfig(
-        kind="fixed_accuracy", sensitivity=sens_spec[0], specificity=sens_spec[1]
-    )
+    # An SDT reader, not a fixed-bias coin: its belief varies case by case, which is what
+    # lets a trust weight act as a reliance curve instead of a step (../TESI.md §8.1).
+    return CapabilityConfig(kind="sdt", sensitivity=sens_spec[0], specificity=sens_spec[1])
 
 
 def _woa(weight_ai: float) -> TrustConfig:

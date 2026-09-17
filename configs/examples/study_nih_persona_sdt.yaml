@@ -5,8 +5,8 @@
 # Successor to old/study_nih_persona_contrast.yaml, with two fixes:
 #   1. The AI replays the composed 4-member cache-matrix cells
 #      (data/cache/composed/nih__ens4) instead of the retired nih_ensemble stem.
-#   2. Readers are SDT observers (same sensitivity/specificity operating points as the
-#      persona library) instead of FixedAccuracyDoctor. A fixed-accuracy reader's
+#   2. Readers are the library personas, which are SDT observers (they used to be
+#      FixedAccuracyDoctor). A fixed-accuracy reader's
 #      confidence is a two-valued constant, so a linear pool flips a label only past a
 #      fixed margin — the measured Δ = 0.0000 artifact on the senior arms (TESI.md
 #      §8.1). The SDT belief varies per case, so trust becomes a curve.
@@ -32,43 +32,24 @@ base:
     ensemble_measure: mean_entropy
     decision_threshold: 0.5
     service_time: 0.25
-  persona: &solo_senior
-    name: solo_senior_sdt
-    capability:
-      kind: sdt
-      sensitivity: 0.95
-      specificity: 0.95
-      prior: 0.1
-    sees_ai: false
+  persona: solo_senior
   sort:
     kind: uncertainty_desc
     aggregator: mean
 
 factors:
-  persona:
-    - *solo_senior
-    - name: senior_skeptical_sdt
-      capability: {kind: sdt, sensitivity: 0.95, specificity: 0.95, prior: 0.1}
-      sees_ai: true
-      trust: {kind: linear_pool, weight_ai: 0.20}
-    - name: senior_trusting_sdt
-      capability: {kind: sdt, sensitivity: 0.95, specificity: 0.95, prior: 0.1}
-      sees_ai: true
-      trust: {kind: linear_pool, weight_ai: 0.45}
-    - name: junior_skeptical_sdt
-      capability: {kind: sdt, sensitivity: 0.85, specificity: 0.88, prior: 0.1}
-      sees_ai: true
-      trust: {kind: linear_pool, weight_ai: 0.40}
-    - name: junior_trusting_sdt
-      capability: {kind: sdt, sensitivity: 0.85, specificity: 0.88, prior: 0.1}
-      sees_ai: true
-      trust: {kind: linear_pool, weight_ai: 0.65}
+  persona:          # names from the persona library (src/hai_sim/personas.py)
+    - solo_senior
+    - senior_skeptical
+    - senior_trusting
+    - junior_skeptical
+    - junior_trusting
 
 design: grid
 replications: [1, 2, 3, 4, 5]
 
 baseline:
-  persona: *solo_senior
+  persona: solo_senior
 
 kpis: [system, actors, team]
 
