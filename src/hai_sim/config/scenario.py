@@ -213,7 +213,6 @@ class TrustConfig(_Strict):
     confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     # log_odds_fusion
     beta: float = Field(default=1.0, ge=0.0)  # AI down-weight sharpness on uncertainty
-    weight_doctor: float = Field(default=1.0, ge=0.0)
     prior: float = Field(default=0.5, gt=0.0, lt=1.0)
 
 

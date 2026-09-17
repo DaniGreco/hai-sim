@@ -108,5 +108,6 @@ def test_scenario_fusion_overrides_the_rule_and_keeps_the_persona_weight():
         fusion=FusionConfig(kind="log_odds_fusion", beta=0.0),
     )
     assert isinstance(doc.policy, LogOddsFusionPolicy)
-    assert doc.policy.ai_weight == pytest.approx(0.45 / 0.55)
+    assert doc.policy.ai_weight == pytest.approx(0.45)
+    assert doc.policy.weight_doctor == pytest.approx(0.55)
     assert doc.policy.beta == 0.0

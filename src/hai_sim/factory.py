@@ -511,10 +511,13 @@ def build_trust_policy(
 ) -> IntegrationPolicy:
     """Build the swappable AI-integration policy that models the persona's trust.
 
-    ``weight_ai`` is the persona's weight of advice under every rule. A linear pool uses
-    it as the AI's share; log-odds fusion uses the same share as relative odds,
-    ``w / (1 - w)``, so 0.5 means "take the AI's evidence at face value" and the library's
-    0.20 ... 0.65 span under- to over-reliance around it.
+    ``weight_ai`` is the persona's weight of advice ``w`` under every rule, and the two
+    pools are the two classical opinion pools with the same weights ``(1 - w, w)``
+    (Genest & Zidek 1986): the linear pool averages probabilities, the logarithmic pool
+    averages log-odds. For the logarithmic pool the AI's calibrated probability is first
+    re-expressed on the doctor's prior (Saerens et al. 2002), which is what ``ai_prior``
+    does. At ``w = 0.5`` the decision coincides with the product rule for conditionally
+    independent readers (Kittler et al. 1998).
     """
     if cfg.kind == "linear_pool":
         return LinearPoolPolicy(
@@ -529,10 +532,10 @@ def build_trust_policy(
     if cfg.kind == "log_odds_fusion":
         return LogOddsFusionPolicy(
             beta=cfg.beta,
-            weight_doctor=cfg.weight_doctor,
+            weight_doctor=1.0 - cfg.weight_ai,
             prior=cfg.prior,
             decision_threshold=cfg.decision_threshold,
-            ai_weight=cfg.weight_ai / max(1.0 - cfg.weight_ai, 1e-6),
+            ai_weight=cfg.weight_ai,
             ai_prior=ai_prior,
         )
     raise ValueError(f"unknown trust.kind: {cfg.kind}")

@@ -215,10 +215,15 @@ class LogOddsFusionPolicy:
     prevalence of the population the AI was calibrated on) is what gets subtracted from
     the AI's log-odds, so its contribution is the likelihood ratio the image carries and
     nothing else. The doctor's evidence is taken relative to ``prior``, the base rate its
-    own belief was formed under, and the team posterior is rebuilt on that same ``prior``:
-    with no AI evidence the team *is* the unaided doctor, so a paired contrast measures the
-    advice alone. ``ai_weight`` scales the AI's evidence: 1 takes it at face value (optimal
-    for independent errors), below 1 under-relies, above 1 over-relies. With ``prior=0.5, w_doctor=1, beta=0`` this collapses to
+    own belief was formed under, and the team posterior is rebuilt on that same ``prior``.
+
+    Sources, each checked against the paper. Subtracting the AI's own prior and adding the
+    doctor's is the prior-shift correction of Saerens, Latinne & Decaestecker (2002,
+    eq. 3). With ``weight_doctor = 1 - w`` and ``ai_weight = w`` the rule is the
+    logarithmic opinion pool of Genest & Zidek (1986, eq. 3.11), which for a binary event
+    is a weighted mean of log-odds; this is how the factory builds it from a persona's
+    weight of advice. With both weights at 1 it is the product rule for conditionally
+    independent readers of Kittler et al. (1998, eq. 7). With ``prior=0.5, w_doctor=1, beta=0`` this collapses to
     ``logit(p_team) = logit(p_doctor) + logit(p_ai)`` — the optimal way to combine two
     readers whose errors are independent.
 

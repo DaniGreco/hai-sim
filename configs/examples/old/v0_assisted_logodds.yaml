@@ -24,7 +24,6 @@ persona:                   # fixed-accuracy reader assisted via log-odds fusion
   trust:
     kind: log_odds_fusion
     beta: 1.0              # exp(-beta * AI_uncertainty) weight on the AI's log-odds
-    weight_doctor: 1.0
     prior: 0.5
 
 sort:
