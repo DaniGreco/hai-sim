@@ -387,8 +387,9 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
     labels.sort(key=lambda name: -counts[name][0])
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.35), sharey=True)
-    panels = (("n_fn", "Missed findings (% of patients with the finding)"),
-              ("n_fp", "False alarms (% of patients without it)"))
+    total = int(gen.get("n_patients", 0))
+    panels = (("n_fn", "Missed findings, % of the n patients with the finding"),
+              ("n_fp", f"False alarms, % of the {total:,} - n patients without it"))
     for ax, (stat, title) in zip(axes, panels, strict=True):
         n = len(labels)
         for k, label in enumerate(labels):
