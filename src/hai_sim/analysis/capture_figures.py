@@ -285,7 +285,7 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
 
     cmap = LinearSegmentedColormap.from_list("div", ["#c2410c", "#f4b08a", "#ecebe6", "#8fb8ea", "#1d5fb5"])
     cmap.set_bad("#ffffff")
-    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 1.95))
+    fig, ax = plt.subplots(figsize=(7.2, 0.27 * len(names) + 2.1))
     ax.imshow(np.ma.masked_invalid(grid), cmap=cmap, norm=TwoSlopeNorm(0.0, -1.0, 1.0), aspect="auto")
     for i in range(len(names)):
         for j in range(len(columns)):
@@ -317,18 +317,18 @@ def render_skill_table(rows: list[dict[str, Any]], models: list[str], dataset: s
     ax.grid(which="minor", color=SURFACE, lw=1.5)
     what = TARGET_TEXT[target][0].lower()
     h = fig.get_figheight()
-    fig.suptitle(f"Skill of each ordering criterion at reading the {what} first",
+    fig.suptitle(f"Skill of the reading order given by each criterion, {what} first",
                  x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
     n_img = max(r["n_images"] for r in sel)
     fig.text(0.01, 1 - 0.27 / h,
              _wrap(f"Data: {DATASET_NAME.get(dataset, dataset)}, {SPLIT_NAME.get(split, split)}, "
-                   f"{n_img:,} images. n = {TARGET_TEXT[target][1]}.{TARGET_TEXT[target][2]}"
+                   f"{n_img:,} images. Each cell is the skill, from -1 to +1, of the reading order produced by that criterion, not the value of the criterion itself. n = {TARGET_TEXT[target][1]}.{TARGET_TEXT[target][2]}"
                    + ("" if target == "positive" else THRESHOLD_TEXT)),
              ha="left", va="top", fontsize=7.6, color=INK_2)
     fig.text(0.01, 0.02 / h, "Skill: +1 = ideal ordering, 0 = random ordering, negative = worse than random.\n"
              "n/a: the ordering does not exist for that finding (fewer than two ensemble members cover it).",
              ha="left", va="bottom", fontsize=7, color=INK_2)
-    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.70 / h))
+    fig.tight_layout(rect=(0, 0.34 / h, 1, 1 - 0.84 / h))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
