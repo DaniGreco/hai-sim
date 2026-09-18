@@ -229,31 +229,37 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
 
 
 def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: str, target: str, out: Path,
-                  split: str = "odd", names_of: dict[str, str] | None = None) -> None:
+                  split: str = "odd", names_of: dict[str, str] | None = None,
+                  ordering: str = "probability", kind: str = "raw") -> None:
+    """One line per model, every model ordering by the same criterion."""
     from matplotlib.lines import Line2D
 
     plt = _plt()
+    key = (ordering, kind)
     names = [p for p in _pathologies(curves, dataset, target)
-             if all((dataset, m, p, target, "probability", "raw") in curves for m in models)]
+             if all((dataset, m, p, target, *key) in curves for m in models)]
     if not names or len(models) < 2:
         return
     shown = models[: len(SERIES)]
     fig, axes = _grid(plt, len(names))
     for ax, pathology in zip(axes, names, strict=True):
-        first = curves[(dataset, shown[0], pathology, target, "probability", "raw")]
+        first = curves[(dataset, shown[0], pathology, target, *key)]
         _frame(ax, first)
         for m, color, dash in zip(shown, SERIES, DASHES, strict=False):
-            ax.plot(*_thin(curves[(dataset, m, pathology, target, "probability", "raw")]),
+            ax.plot(*_thin(curves[(dataset, m, pathology, target, *key)]),
                     color=color, lw=1.5, ls=dash, zorder=3)
         _label(ax, pathology, first.n_errors)
     named = names_of or MODEL_NAME
     handles = [Line2D([], [], color=c, lw=1.5, ls=d, label=named.get(m, m))
                for m, c, d in zip(shown, SERIES, DASHES, strict=False)]
+    what, unit, meaning = TARGET_TEXT[target]
+    crit = {"probability": "probability of the finding, most suspicious first",
+            "predictive_entropy": f"predictive entropy of its {kind} probability, most undecided first"}[ordering]
     _finish(
         fig, handles,
-        "Positive cases met along the reading order, by model",
-        f"{_data_line(curves, dataset, split)} Each model orders the images by its own probability of "
-        "the finding, most suspicious first. One panel per finding; n = positive cases of the finding.",
+        f"{what} met along the reading order, by model",
+        f"{_data_line(curves, dataset, split)} Each model orders the images by its own {crit}. "
+        f"One panel per finding; n = {unit}.{meaning}" + ("" if target == "positive" else THRESHOLD_TEXT),
         TARGET_TITLE[target], out,
     )
     plt.close(fig)
@@ -348,3 +354,6 @@ def render_all(cfg: CaptureStudyConfig, result: dict[str, Any], out: Path) -> No
         if "positive" in cfg.targets:
             render_models(curves, models, dataset, "positive", out / "figures" / f"models_{dataset}_positive",
                           cfg.split, names_of)
+        if "fn" in cfg.targets:
+            render_models(curves, models, dataset, "fn", out / "figures" / f"models_{dataset}_fn_entropy",
+                          cfg.split, names_of, ordering="predictive_entropy", kind="calibrated")
