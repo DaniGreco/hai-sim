@@ -386,10 +386,10 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
     labels = [name for name in counts if counts[name][0] >= 20 and (name, "ai", "n_fn") in value]
     labels.sort(key=lambda name: -counts[name][0])
 
-    fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.35), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.55), sharey=True)
     total = int(gen.get("n_patients", 0))
-    panels = (("n_fn", "Missed findings, % of the n patients with the finding"),
-              ("n_fp", f"False alarms, % of the {total:,} - n patients without it"))
+    panels = (("n_fn", "Missed findings" + chr(10) + "% of the n patients with the finding"),
+              ("n_fp", "False alarms" + chr(10) + f"% of the {total:,} - n patients without it"))
     for ax, (stat, title) in zip(axes, panels, strict=True):
         n = len(labels)
         for k, label in enumerate(labels):
