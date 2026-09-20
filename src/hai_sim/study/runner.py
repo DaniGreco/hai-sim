@@ -100,39 +100,70 @@ class StudyResult:
         return paired_contrasts(self.long_rows, lambda f: baseline_of(f, self.study))
 
 
+def _execute(scenario: Any, bundles: Sequence[str], by: Any) -> dict[str, dict[str, Any]]:
+    """Build one scenario, run it and reduce its records to the grouped KPI report.
+
+    Module-level so that a process pool can pickle it: every run of a study is
+    independent (its seed lives in the scenario), so runs can execute in parallel.
+    """
+    built = build_from_scenario(scenario)
+    result = SimulationEngine(
+        patient_generator=built.generator,
+        ai=built.ai,
+        doctor=built.doctor,
+        sort_strategy=built.sort,
+        severity_model=built.severity,
+        difficulty_model=built.difficulty,
+        fatigue_curve=built.fatigue,
+        n_ai_workers=built.n_ai_workers,
+        n_doctor_workers=built.n_doctor_workers,
+    ).run()
+    return compute_grouped_report(
+        result.collector.records,
+        bundles,
+        build_kpi_groupings(by, built.schema),
+    )
+
+
 def run_study(
-    study: StudyConfig, progress: Callable[[int, int], None] | None = None
+    study: StudyConfig,
+    progress: Callable[[int, int], None] | None = None,
+    workers: int = 1,
 ) -> StudyResult:
+    """Run every cell of a study. ``workers > 1`` executes the distinct scenarios in a
+    process pool; results are identical to the sequential run because each scenario
+    carries its own seed."""
     runs = expand_runs(study)
     bundles = _bundles_for(study, runs)
     factor_names = tuple(study.factors)
     rows: list[dict[str, Any]] = []
     long_rows: list[TidyRow] = []
     metric_paths: list[str] = []
-    cache: dict[str, dict[str, dict[str, Any]]] = {}
 
-    for i, run in enumerate(runs):
-        fingerprint = _fingerprint(run)
-        grouped = cache.get(fingerprint)
-        if grouped is None:
-            built = build_from_scenario(run.scenario)
-            result = SimulationEngine(
-                patient_generator=built.generator,
-                ai=built.ai,
-                doctor=built.doctor,
-                sort_strategy=built.sort,
-                severity_model=built.severity,
-                difficulty_model=built.difficulty,
-                fatigue_curve=built.fatigue,
-                n_ai_workers=built.n_ai_workers,
-                n_doctor_workers=built.n_doctor_workers,
-            ).run()
-            grouped = compute_grouped_report(
-                result.collector.records,
-                bundles,
-                build_kpi_groupings(study.by, built.schema),
-            )
-            cache[fingerprint] = grouped
+    unique: dict[str, Run] = {}
+    for run in runs:
+        unique.setdefault(_fingerprint(run), run)
+    cache: dict[str, dict[str, dict[str, Any]]] = {}
+    if workers > 1 and len(unique) > 1:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        with ProcessPoolExecutor(max_workers=min(workers, len(unique))) as pool:
+            futures = {
+                pool.submit(_execute, r.scenario, bundles, study.by): fp
+                for fp, r in unique.items()
+            }
+            for k, fut in enumerate(as_completed(futures)):
+                cache[futures[fut]] = fut.result()
+                if progress is not None:
+                    progress(k + 1, len(unique))
+    else:
+        for k, (fp, r) in enumerate(unique.items()):
+            cache[fp] = _execute(r.scenario, bundles, study.by)
+            if progress is not None:
+                progress(k + 1, len(unique))
+
+    for run in runs:
+        grouped = cache[_fingerprint(run)]
 
         for group, report in grouped.items():
             flat = flatten_report(report)
@@ -160,8 +191,6 @@ def run_study(
                     )
                 )
             rows.append(row)
-        if progress is not None:
-            progress(i + 1, len(runs))
 
     return StudyResult(
         study=study,

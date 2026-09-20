@@ -146,7 +146,7 @@ def cmd_study(args: argparse.Namespace) -> int:
     progress = _make_progress("run")
 
     t0 = time.time()
-    result = run_study(study, progress)
+    result = run_study(study, progress, workers=args.workers)
     wall = time.time() - t0
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -634,6 +634,8 @@ def main(argv: list[str] | None = None) -> int:
     study_p = sub.add_parser("study", help="run a parameter study (factor grid → tidy KPI table)")
     study_p.add_argument("study", help="path to study YAML")
     study_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
+    study_p.add_argument("--workers", type=int, default=1,
+                         help="run distinct scenarios in parallel on this many processes (default 1)")
     study_p.set_defaults(func=cmd_study)
 
     cap_p = sub.add_parser(
