@@ -109,7 +109,9 @@ def render_queue_load(
     rows = [r for r in _read(summary_csv) if r["metric"] == metric and r["group"].endswith(":positive")]
     rates = sorted({r["patient_generator.arrival_rate"] for r in rows}, key=float)
     findings = list(dict.fromkeys(r["group"][len("truth="):-len(":positive")] for r in rows))
-    # heaviest random-order wait at the top load decides nothing; keep the dataset's order
+    counts = _truth_counts(study)
+    findings.sort(key=lambda name: -counts.get(name, (0, 0))[0])
+    # rows from the most to the least prevalent finding, prevalence shown on the label
     sorts = [("random", NEUTRAL, "o", "Random order"),
              ("uncertainty_desc", SERIES[1], "s", "Most uncertain first"),
              ("probability_desc", SERIES[0], "D", "Most suspicious first")]
@@ -148,7 +150,7 @@ def render_queue_load(
             ax.spines[side].set_visible(False)
     first = np.atleast_1d(axes)[0]
     first.set_yticks(range(len(findings)))
-    first.set_yticklabels([_pretty(f) for f in reversed(findings)], fontsize=7.4, color=INK)
+    first.set_yticklabels([_row_label(f, counts) for f in reversed(findings)], fontsize=7.4, color=INK)
     h = fig.get_figheight()
     fig.suptitle("Waiting time of patients with a finding, by worklist order and reader load",
                  x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
@@ -338,6 +340,15 @@ def render_team_rules(long_csv: str | Path, out: str | Path) -> Path:
 # --- E4: the three actors side by side ---------------------------------------------------------
 
 
+def _row_label(name: str, counts: dict[str, tuple[int, int]]) -> str:
+    """``'11.9 %  Cardiomegaly  (n = 892)'``: prevalence among the patients of a run, then the
+    finding, then the count. Rows sorted by prevalence put the calibration story in view."""
+    pos, neg = counts[name]
+    total = pos + neg
+    share = 100.0 * pos / total if total else float("nan")
+    return f"{share:4.1f} %   {_pretty(name)}  (n = {pos})"
+
+
 def _truth_counts(study: dict[str, Any]) -> dict[str, tuple[int, int]]:
     """``pathology -> (patients with it, patients without it)`` among the patients of a run."""
     from hai_sim.analysis.inference_cache import InferenceCache
@@ -412,7 +423,7 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
         for side in ("top", "right", "left"):
             ax.spines[side].set_visible(False)
     axes[0].set_yticks(range(len(labels)))
-    axes[0].set_yticklabels([f"{_pretty(x)}  (n = {counts[x][0]})" for x in reversed(labels)],
+    axes[0].set_yticklabels([_row_label(x, counts) for x in reversed(labels)],
                             fontsize=7.4, color=INK)
     h = fig.get_figheight()
     fig.suptitle("Errors of the AI alone, of the reader alone and of the two together, by finding",
