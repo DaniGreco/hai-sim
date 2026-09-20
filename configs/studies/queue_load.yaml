@@ -37,6 +37,12 @@ base:
     calibration:
       kind: platt
       path: data/cache/calibration/vindr__ens4.json
+  # Score and prioritise only the eleven findings VinDr-CXR annotates (its D∩M), so the
+  # priority is never set by a raw, uncalibrated score of a label without ground truth.
+  label_view:
+    mode: subset
+    targets: [Cardiomegaly, Effusion, Consolidation, Atelectasis, Infiltration, Nodule, Mass,
+              Pleural_Thickening, Pneumothorax, Fibrosis, Lung Opacity]
   persona: solo_senior
   sort:
     kind: random
