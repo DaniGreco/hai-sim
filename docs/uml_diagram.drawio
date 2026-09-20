@@ -7,28 +7,28 @@
         <mxCell id="u_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=16;fontStyle=1;" value="Component Diagram" vertex="1">
           <mxGeometry height="40" width="500" x="20" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="u_cfg" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="«component»&#xa;&lt;b&gt;Configuration &amp; Factory&lt;/b&gt;&#xa;ScenarioConfig · build_from_scenario" vertex="1">
+        <mxCell id="u_cfg" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" value="«component»&#10;&lt;b&gt;Configuration &amp; Factory&lt;/b&gt;&#10;ScenarioConfig · build_from_scenario" vertex="1">
           <mxGeometry height="70" width="230" x="520" y="110" as="geometry" />
         </mxCell>
-        <mxCell id="u_gen" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="«component»&#xa;&lt;b&gt;PatientGenerator&lt;/b&gt;" vertex="1">
+        <mxCell id="u_gen" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="«component»&#10;&lt;b&gt;PatientGenerator&lt;/b&gt;" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="110" as="geometry" />
         </mxCell>
-        <mxCell id="u_qin" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="«component»&#xa;&lt;b&gt;input_queue&lt;/b&gt;&#xa;«SimPy Store»" vertex="1">
+        <mxCell id="u_qin" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="«component»&#10;&lt;b&gt;input_queue&lt;/b&gt;&#10;«SimPy Store»" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="240" as="geometry" />
         </mxCell>
-        <mxCell id="u_ai" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="«component»&#xa;&lt;b&gt;ModelStation&lt;/b&gt;&#xa;(AI inference)" vertex="1">
+        <mxCell id="u_ai" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="«component»&#10;&lt;b&gt;ModelStation&lt;/b&gt;&#10;(AI inference)" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="370" as="geometry" />
         </mxCell>
-        <mxCell id="u_triage" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="«component»&#xa;&lt;b&gt;Triage&lt;/b&gt;&#xa;(SortStrategy)" vertex="1">
+        <mxCell id="u_triage" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" value="«component»&#10;&lt;b&gt;Triage&lt;/b&gt;&#10;(SortStrategy)" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="500" as="geometry" />
         </mxCell>
-        <mxCell id="u_qtr" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="«component»&#xa;&lt;b&gt;triaged_store&lt;/b&gt;&#xa;«PriorityStore»" vertex="1">
+        <mxCell id="u_qtr" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;" value="«component»&#10;&lt;b&gt;triaged_store&lt;/b&gt;&#10;«PriorityStore»" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="630" as="geometry" />
         </mxCell>
-        <mxCell id="u_doc" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="«component»&#xa;&lt;b&gt;DoctorStation&lt;/b&gt;&#xa;(doctor model / persona)" vertex="1">
+        <mxCell id="u_doc" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" value="«component»&#10;&lt;b&gt;DoctorStation&lt;/b&gt;&#10;(doctor model / persona)" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="760" as="geometry" />
         </mxCell>
-        <mxCell id="u_metrics" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" value="«component»&#xa;&lt;b&gt;Metrics &amp; KPI&lt;/b&gt;&#xa;Collector + compute_kpis" vertex="1">
+        <mxCell id="u_metrics" parent="1" style="shape=component;jettyWidth=8;jettyHeight=4;whiteSpace=wrap;html=1;verticalAlign=top;align=center;spacingTop=4;spacingLeft=14;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;" value="«component»&#10;&lt;b&gt;Metrics &amp; KPI&lt;/b&gt;&#10;Collector + compute_kpis" vertex="1">
           <mxGeometry height="70" width="200" x="200" y="890" as="geometry" />
         </mxCell>
         <mxCell id="u_if_ai" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;fontSize=10;labelPosition=left;verticalLabelPosition=middle;align=right;verticalAlign=middle;" value="DiagnosticActor" vertex="1">
@@ -68,25 +68,25 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="ud2" edge="1" parent="1" source="u_cfg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;dashed=1;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" target="u_ai" value="«create»">
-          <mxGeometry relative="1" x="0.7" as="geometry">
+          <mxGeometry relative="1" x="1" as="geometry" y="0">
             <Array as="points">
               <mxPoint x="645" y="405" />
             </Array>
-          </mxGeometry>
+          <mxPoint as="offset" x="52" y="-9" /></mxGeometry>
         </mxCell>
         <mxCell id="ud3" edge="1" parent="1" source="u_cfg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;dashed=1;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" target="u_triage" value="«create»">
-          <mxGeometry relative="1" x="0.7" as="geometry">
+          <mxGeometry relative="1" x="1" as="geometry" y="0">
             <Array as="points">
               <mxPoint x="645" y="535" />
             </Array>
-          </mxGeometry>
+          <mxPoint as="offset" x="52" y="-9" /></mxGeometry>
         </mxCell>
         <mxCell id="ud4" edge="1" parent="1" source="u_cfg" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;dashed=1;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.5;" target="u_doc" value="«create»">
-          <mxGeometry relative="1" x="0.7" as="geometry">
+          <mxGeometry relative="1" x="1" as="geometry" y="0">
             <Array as="points">
               <mxPoint x="645" y="795" />
             </Array>
-          </mxGeometry>
+          <mxPoint as="offset" x="52" y="-9" /></mxGeometry>
         </mxCell>
         <mxCell id="ud5" edge="1" parent="1" source="u_doc" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=open;dashed=1;fontSize=9;exitX=0;exitY=0.2;exitDx=0;exitDy=0;entryX=0;entryY=0.2;entryDx=0;entryDy=0;verticalAlign=bottom;align=left;spacingLeft=4;" target="u_ai" value="«use» ai_hint">
           <mxGeometry relative="1" x="-0.2321" y="20" as="geometry">
@@ -115,10 +115,10 @@
         <mxCell id="p1_engine" parent="1" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;dashPattern=8 4;fillColor=none;strokeColor=#6c8ebf;verticalAlign=top;fontStyle=2;fontSize=12;align=center;spacingTop=6;" value="SimulationEngine.run()  —  simpy.Environment (event loop)" vertex="1">
           <mxGeometry height="1120" width="400" x="285" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="p1_cfg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;fontSize=11;" value="&lt;b&gt;ScenarioConfig&lt;/b&gt;&#xa;(config/scenario.py — pydantic, extra=forbid)&#xa;loaded from YAML" vertex="1">
+        <mxCell id="p1_cfg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;fontSize=11;" value="&lt;b&gt;ScenarioConfig&lt;/b&gt;&#10;(config/scenario.py — pydantic, extra=forbid)&#10;loaded from YAML" vertex="1">
           <mxGeometry height="60" width="200" x="40" y="368" as="geometry" />
         </mxCell>
-        <mxCell id="p1_factory" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;fontSize=11;" value="&lt;b&gt;factory.build_from_scenario()&lt;/b&gt;&#xa;wires modules + 5 independent&#xa;RNG substreams (SeedSequence)" vertex="1">
+        <mxCell id="p1_factory" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=center;fontSize=11;" value="&lt;b&gt;factory.build_from_scenario()&lt;/b&gt;&#10;wires modules + 5 independent&#10;RNG substreams (SeedSequence)" vertex="1">
           <mxGeometry height="60" width="200" x="40" y="508" as="geometry" />
         </mxCell>
         <mxCell id="p1_gen" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=center;fontSize=11;" value="&lt;b&gt;PatientGenerator&lt;/b&gt;&lt;br&gt;image + ground truth from dataset / cache&lt;br&gt;ArrivalProcess: Poisson · deterministic · NHPP" vertex="1">
@@ -139,7 +139,7 @@
         <mxCell id="p1_doc" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;fontSize=11;" value="&lt;b&gt;DoctorStation&lt;/b&gt;  (doctor_worker × N_doc)&lt;br&gt;DiagnosticActor: FixedAccuracyDoctor · SDTDoctor&lt;br&gt;lognormal service time · difficulty / fatigue signals" vertex="1">
           <mxGeometry height="104" width="290" x="340" y="820" as="geometry" />
         </mxCell>
-        <mxCell id="p1_collect" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11;" value="&lt;b&gt;MetricsCollector&lt;/b&gt;&#xa;append PatientRecord per patient&#xa;(full per-patient telemetry)" vertex="1">
+        <mxCell id="p1_collect" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11;" value="&lt;b&gt;MetricsCollector&lt;/b&gt;&#10;append PatientRecord per patient&#10;(full per-patient telemetry)" vertex="1">
           <mxGeometry height="72" width="260" x="355" y="980" as="geometry" />
         </mxCell>
         <mxCell id="p1_kpi" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=center;fontSize=11;" value="&lt;b&gt;compute_kpis()&lt;/b&gt; → RunKPIs&lt;br&gt;system · actors (ai / doctor / hybrid: F1, recall, n_FN, TTFE, MTTF, MTTFN)&lt;br&gt;team (RAIR, RSR, complementarity gap) · joint_table" vertex="1">
@@ -148,7 +148,7 @@
         <mxCell id="p1_assist" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=center;dashed=1;fontSize=11;" value="&lt;b&gt;AssistedDoctor&lt;/b&gt; + IntegrationPolicy&lt;br&gt;linear_pool · confidence_gated · log_odds_fusion&lt;br&gt;own opinion + ai_hint → team output" vertex="1">
           <mxGeometry height="96" width="220" x="730" y="828" as="geometry" />
         </mxCell>
-        <mxCell id="p1_out" parent="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11;" value="&lt;b&gt;Output artifacts&lt;/b&gt;&#xa;records_*.csv (per-patient)&#xa;summary_*.json (KPI block)" vertex="1">
+        <mxCell id="p1_out" parent="1" style="shape=document;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=center;fontSize=11;" value="&lt;b&gt;Output artifacts&lt;/b&gt;&#10;records_*.csv (per-patient)&#10;summary_*.json (KPI block)" vertex="1">
           <mxGeometry height="80" width="210" x="730" y="1106" as="geometry" />
         </mxCell>
         <mxCell id="p1_leg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;align=left;verticalAlign=top;fontSize=10;spacingLeft=6;spacingTop=4;" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;orange wide bar = QUEUE&lt;br&gt;blue tall box = MODEL / actor&lt;br&gt;green = generator / sort&lt;br&gt;purple = metrics&lt;div&gt;grey = config&lt;br&gt;yellow = output&lt;/div&gt;&lt;div&gt;dashed = optional / hybrid&lt;/div&gt;" vertex="1">
@@ -218,19 +218,19 @@
         <mxCell id="c_doc" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;Doctor actors&lt;/b&gt;  (doctors/)&lt;br&gt;———————————————&lt;br&gt;FixedAccuracyDoctor — sens / spec per finding&lt;br&gt;SDTDoctor — d′, criterion, prior&lt;br&gt;difficulty_slope · fatigue_slope&lt;br&gt;RandomMockDoctor&lt;br&gt;———————————————&lt;br&gt;AssistedDoctor(base, IntegrationPolicy)" vertex="1">
           <mxGeometry height="170" width="320" x="690" y="250" as="geometry" />
         </mxCell>
-        <mxCell id="c_rsort" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;RandomSort&lt;/b&gt;&#xa;—————————————&#xa;priority = uniform random" vertex="1">
+        <mxCell id="c_rsort" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;RandomSort&lt;/b&gt;&#10;—————————————&#10;priority = uniform random" vertex="1">
           <mxGeometry height="80" width="200" x="550" y="935" as="geometry" />
         </mxCell>
-        <mxCell id="c_usort" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;UncertaintyDescSort&lt;/b&gt;&#xa;—————————————&#xa;aggregator: mean|max|weighted&#xa;priority = − agg(uncertainty)" vertex="1">
+        <mxCell id="c_usort" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;UncertaintyDescSort&lt;/b&gt;&#10;—————————————&#10;aggregator: mean|max|weighted&#10;priority = − agg(uncertainty)" vertex="1">
           <mxGeometry height="90" width="220" x="305" y="930" as="geometry" />
         </mxCell>
         <mxCell id="c_modelout" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;ModelOutput&lt;/b&gt; «dataclass»&lt;br&gt;———————————————&lt;br&gt;diagnosis: Diagnosis&lt;br&gt;uncertainty: tuple[float]&lt;br&gt;extra: dict · embedding: ndarray | None" vertex="1">
           <mxGeometry height="110" width="240" x="40" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="c_diag" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;Diagnosis&lt;/b&gt; «dataclass»&#xa;———————————————&#xa;labels: tuple[int]&#xa;confidence: tuple[float]" vertex="1">
+        <mxCell id="c_diag" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;Diagnosis&lt;/b&gt; «dataclass»&#10;———————————————&#10;labels: tuple[int]&#10;confidence: tuple[float]" vertex="1">
           <mxGeometry height="90" width="240" x="40" y="240" as="geometry" />
         </mxCell>
-        <mxCell id="c_patient" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;Patient&lt;/b&gt; «dataclass»&#xa;———————————————&#xa;id: int&#xa;images: tuple[Image]&#xa;ground_truth: tuple[int]&#xa;context: PatientContext" vertex="1">
+        <mxCell id="c_patient" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;Patient&lt;/b&gt; «dataclass»&#10;———————————————&#10;id: int&#10;images: tuple[Image]&#10;ground_truth: tuple[int]&#10;context: PatientContext" vertex="1">
           <mxGeometry height="120" width="240" x="40" y="380" as="geometry" />
         </mxCell>
         <mxCell id="c_ctx" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;PatientContext&lt;/b&gt; «dataclass»&lt;br&gt;———————————————&lt;br&gt;patient_id · arrival_time · example_id&lt;br&gt;age · sex · priority&lt;br&gt;ground_truth · signals (sig.*)" vertex="1">
@@ -239,10 +239,10 @@
         <mxCell id="c_schema" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;LabelSchema&lt;/b&gt; «dataclass»&lt;br&gt;———————————————&lt;br&gt;labels: tuple[str]&lt;br&gt;xrv() (18) · chexpert() (14) · default_v0()" vertex="1">
           <mxGeometry height="90" width="240" x="40" y="690" as="geometry" />
         </mxCell>
-        <mxCell id="c_engine" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;SimulationEngine&lt;/b&gt;&#xa;———————————————&#xa;patient_generator · ai · doctor&#xa;sort_strategy · n_ai_workers · n_doctor_workers&#xa;———————————————&#xa;+ run() → SimulationResult" vertex="1">
+        <mxCell id="c_engine" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;SimulationEngine&lt;/b&gt;&#10;———————————————&#10;patient_generator · ai · doctor&#10;sort_strategy · n_ai_workers · n_doctor_workers&#10;———————————————&#10;+ run() → SimulationResult" vertex="1">
           <mxGeometry height="120" width="320" x="330" y="480" as="geometry" />
         </mxCell>
-        <mxCell id="c_collector" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;MetricsCollector&lt;/b&gt;&#xa;———————————————&#xa;records: list[PatientRecord]&#xa;+ add(...) · write_csv(...)" vertex="1">
+        <mxCell id="c_collector" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;MetricsCollector&lt;/b&gt;&#10;———————————————&#10;records: list[PatientRecord]&#10;+ add(...) · write_csv(...)" vertex="1">
           <mxGeometry height="100" width="240" x="690" y="640" as="geometry" />
         </mxCell>
         <mxCell id="c_kpi" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;verticalAlign=top;spacingLeft=8;spacingTop=6;fontSize=11;" value="&lt;b&gt;RunKPIs&lt;/b&gt; / &lt;b&gt;ActorKPIs&lt;/b&gt; / &lt;b&gt;TeamKPIs&lt;/b&gt;&lt;br&gt;———————————————&lt;br&gt;bundles: system · actors · team · joint_table&lt;br&gt;f1/precision/recall · n_fn/n_fp · ttfe/mttf/mttfn&lt;br&gt;rair · rsr · over/under-reliance · gap" vertex="1">
