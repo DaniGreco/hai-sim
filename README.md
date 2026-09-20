@@ -116,7 +116,7 @@ Two design seams worth knowing:
 
 ```
 hai-sim run <scenario.yaml>   [--out-dir out]
-hai-sim study <study.yaml>    [--out-dir out]
+hai-sim study <study.yaml>    [--out-dir out] [--workers N]   # N processes for the distinct scenarios
 hai-sim validate <scenario.yaml> | --from-cache <stem>
 ```
 

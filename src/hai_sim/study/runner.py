@@ -140,30 +140,38 @@ def run_study(
     long_rows: list[TidyRow] = []
     metric_paths: list[str] = []
 
+    keyed = [(_fingerprint(run), run) for run in runs]
     unique: dict[str, Run] = {}
-    for run in runs:
-        unique.setdefault(_fingerprint(run), run)
+    for fp, run in keyed:
+        unique.setdefault(fp, run)
     cache: dict[str, dict[str, dict[str, Any]]] = {}
-    if workers > 1 and len(unique) > 1:
+    # Windows caps a process pool at 61 workers; anything below 2 means sequential.
+    n_workers = min(max(int(workers), 1), 61, len(unique))
+    if n_workers > 1:
         from concurrent.futures import ProcessPoolExecutor, as_completed
 
-        with ProcessPoolExecutor(max_workers=min(workers, len(unique))) as pool:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
             futures = {
                 pool.submit(_execute, r.scenario, bundles, study.by): fp
                 for fp, r in unique.items()
             }
-            for k, fut in enumerate(as_completed(futures)):
-                cache[futures[fut]] = fut.result()
-                if progress is not None:
-                    progress(k + 1, len(unique))
+            try:
+                for k, fut in enumerate(as_completed(futures)):
+                    cache[futures[fut]] = fut.result()
+                    if progress is not None:
+                        progress(k + 1, len(unique))
+            except BaseException:
+                # fail fast: do not run the scenarios still queued behind a broken one
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
     else:
         for k, (fp, r) in enumerate(unique.items()):
             cache[fp] = _execute(r.scenario, bundles, study.by)
             if progress is not None:
                 progress(k + 1, len(unique))
 
-    for run in runs:
-        grouped = cache[_fingerprint(run)]
+    for fp, run in keyed:
+        grouped = cache[fp]
 
         for group, report in grouped.items():
             flat = flatten_report(report)

@@ -30,6 +30,7 @@ from hai_sim.analysis.capture_figures import (
     _pretty,
     _wrap,
 )
+from hai_sim.study.stats import _t_critical
 from hai_sim.personas import PERSONA_LIBRARY
 
 NEUTRAL = "#8a8983"
@@ -175,14 +176,11 @@ def render_queue_load(
 # --- E4 -----------------------------------------------------------------------------------
 
 RULE_NAME = {"linear_pool": "average the probabilities", "log_odds_fusion": "add the evidence"}
-_T95 = {2: 12.71, 3: 4.30, 4: 3.18, 5: 2.78, 6: 2.57, 7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26}
-
-
 def _mean_ci(values: list[float]) -> tuple[float, float, float]:
     arr = np.asarray(values, dtype=float)
     if arr.size < 2:
         return float(arr.mean()), float("nan"), float("nan")
-    half = _T95.get(arr.size, 1.96) * arr.std(ddof=1) / np.sqrt(arr.size)
+    half = _t_critical(arr.size - 1) * arr.std(ddof=1) / np.sqrt(arr.size)
     return float(arr.mean()), float(arr.mean() - half), float(arr.mean() + half)
 
 
@@ -388,8 +386,8 @@ def render_actor_errors(long_csv: str | Path, out: str | Path, ai: str = "ensemb
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 0.40 * len(labels) + 2.55), sharey=True)
     total = int(gen.get("n_patients", 0))
-    panels = (("n_fn", "Missed findings" + chr(10) + "% of the n patients with the finding"),
-              ("n_fp", "False alarms" + chr(10) + f"% of the {total:,} - n patients without it"))
+    panels = (("n_fn", "Missed findings\n% of the n patients with the finding"),
+              ("n_fp", f"False alarms\n% of the {total:,} - n patients without it"))
     for ax, (stat, title) in zip(axes, panels, strict=True):
         n = len(labels)
         for k, label in enumerate(labels):

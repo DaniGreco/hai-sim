@@ -138,12 +138,16 @@ def cmd_study(args: argparse.Namespace) -> int:
     from hai_sim.study import expand_runs
 
     n_runs = len(expand_runs(study))
+    if args.workers < 1:
+        console.print("[red]--workers must be at least 1[/red]")
+        return 2
     console.print(
         f"[bold]study[/bold]: {study.name}  design={study.design}  "
         f"factors={list(study.factors)}  reps={len(study.replications)}  runs={n_runs}"
+        f"  workers={args.workers}"
     )
 
-    progress = _make_progress("run")
+    progress = _make_progress("scenario")
 
     t0 = time.time()
     result = run_study(study, progress, workers=args.workers)

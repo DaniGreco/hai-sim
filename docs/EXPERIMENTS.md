@@ -10,8 +10,8 @@ fitted on (odd rows; calibrations are fitted on the even ones).
 |---|---|---|---|
 | E1 | Which reading order meets the sick patients first? | `hai-sim capture configs/studies/capture.yaml` | uncertainty + ordering |
 | E2 | Which AI orders the worklist best? | same command, same table | swappable models, cache matrix |
-| E3 | Under load, do sick patients really wait less? | `hai-sim study configs/studies/queue_load.yaml` then `hai-sim plot queue_load <summary.csv>` | the queue simulator |
-| E4 | What does a reader gain from seeing the AI? | `hai-sim study configs/studies/team_effect.yaml` then `hai-sim plot team_effect <long.csv>` | personas, calibration, fusion |
+| E3 | Under load, do sick patients really wait less? | `hai-sim study configs/studies/queue_load.yaml --workers 20` then `hai-sim plot queue_load <summary.csv>` | the queue simulator |
+| E4 | What does a reader gain from seeing the AI? | `hai-sim study configs/studies/team_effect.yaml --workers 20` then `hai-sim plot team_effect <long.csv>` | personas, calibration, fusion |
 | G | Do readers and the AI fail on the same images? | see `STUDY_reader_ai_coupling.md` | justifies independent personas |
 
 Preparation, once: `scripts/fit_calibration.py --method platt_per_label --split even ...`
