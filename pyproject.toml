@@ -44,12 +44,6 @@ models = [
 analysis = [
     "matplotlib>=3.8",
 ]
-# The result browser: `hai-sim ui`. Reads what is already on disk; runs nothing.
-# Streamlit pulls pandas, which is why it is an extra and not a core dependency —
-# the simulator itself must stay installable without it.
-ui = [
-    "streamlit>=1.40",
-]
 
 [project.scripts]
 hai-sim = "hai_sim.cli:main"
@@ -77,10 +71,6 @@ filterwarnings = [
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
-# The Streamlit page is a view: two untyped third-party imports and no logic worth
-# checking. Everything it does that could be wrong lives in `ui/results.py`, which is
-# checked, has no Streamlit import, and is covered by the normal test suite.
-exclude = "src/hai_sim/ui/app.py"
 
 # Third-party libraries without type stubs / py.typed markers.
 [[tool.mypy.overrides]]

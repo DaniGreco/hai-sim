@@ -4,24 +4,29 @@
 # DROPPED on purpose — it is trained on this very NIH evaluation set, so it would leak
 # in-domain (and, on our random sample, partly memorized) predictions. See thesis §6.2.
 #
+# This is the scenario of the NIH ensemble cells used in the thesis: NIH ChestX-ray14 full,
+# PA + AP, one image per patient -> 30,805 images (data/nih_full/). The MedGemma NIH
+# scenarios (v5_medgemma_nih_*.yaml) select the same pool, so all NIH cells align.
+#
 # Live inference is cacheable: build the per-member cells once on the GPU server
 #   uv run python scripts/materialize_cache.py --scenario <this> --limit 0 --device cuda:0
 # then set ai.cache_mode: require to replay them (data/cache/nih__<member>).
 
-name: v1_nih_ensemble
+name: nih_full_ensemble
 seed: 42
 label_schema: xrv
 
 patient_generator:
   kind: xrv_dataset
   dataset: nih
-  imgpath: data/nih_sample/images          # repo-relative; run hai-sim from the repo root
-  csvpath: data/nih_sample/sample_labels.csv
+  imgpath: data/nih_full/images            # repo-relative; run hai-sim from the repo root
+  csvpath: data/nih_full/Data_Entry_2017.csv
   arrival_rate: 0.5
   n_patients: 200
-  sample_mode: random
+  sample_mode: sequential
   views: [PA, AP]          # include AP (portable/ICU) frontals, not just PA
-  unique_patients: true    # one image per patient → independent samples
+  unique_patients: true    # one image per patient → independent samples (~30.8k)
+  resize: 224
 
 ai:
   kind: torchxrv
