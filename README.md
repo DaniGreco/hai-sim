@@ -157,10 +157,13 @@ portable, repo-relative paths instead of machine-specific absolute ones.
 ```
 data/
 ├── nih_full/                        # NIH ChestX-ray14: one image per patient, 30,805 images
-│   ├── images/
+│   ├── images/                      # not kept, see "Getting the images back"
 │   ├── Data_Entry_2017.csv
 │   └── provenance/                  # id list, checksums, the script that built the pool
-├── vindr/                           # VinDr-CXR labels (labels.csv, difficulty.csv, readers.csv)
+├── vindr/                           # VinDr-CXR: the 15,000 training images
+│   ├── images                       # link to the kagglehub download, not kept
+│   ├── labels.csv, difficulty.csv, readers.csv
+│   └── provenance/                  # id list, checksums, the Kaggle annotation files
 └── cache/                           # inference caches (build once, replay forever)
     ├── <dataset>__<cell>.{npz,json} # one model on one dataset: chex, mimic_ch, pc, rsna,
     │                                #   medgemma-1 (MedGemma 1.5 4B), medgemma-27b
@@ -184,6 +187,18 @@ four `v5_medgemma_*.yaml`.
 
 `scripts/build_vindr_labels.py` turns the raw VinDr-CXR annotations into the label files
 above, and `scripts/fit_calibration.py` fits the calibration files.
+
+### Getting the images back
+
+The experiments of the thesis read only `data/cache`, so the images were deleted once the
+last cell was built. They are needed again only to build new cells or to run a scenario
+that reads the pixels. The cells hold exactly the image ids listed in the two
+`provenance/` folders.
+
+| dataset | source | how | check |
+|---|---|---|---|
+| NIH ChestX-ray14, Wang et al., CVPR 2017, [doi:10.1109/CVPR.2017.369](https://doi.org/10.1109/CVPR.2017.369) | Kaggle dataset `nih-chest-xrays/data`, version 3 (all 112,120 images, ~42 GB) | `python data/nih_full/provenance/build_nih_full_pool.py --ids data/nih_full/provenance/nih_pool_ids.txt --out nih_full_pool` downloads it with kagglehub and copies the 30,805 images of the pool; move `nih_full_pool/nih_full/images` to `data/nih_full/images` | from `data/`: `sha256sum -c nih_full/provenance/SHA256SUMS.txt` |
+| VinDr-CXR, Nguyen et al., Scientific Data 2022, [doi:10.1038/s41597-022-01498-w](https://doi.org/10.1038/s41597-022-01498-w) | Kaggle dataset `awsaf49/vinbigdata-1024-image-dataset`, version 1 (the training images as 1024 px PNG) | `kagglehub.dataset_download("awsaf49/vinbigdata-1024-image-dataset")`; `data/vindr/images` points to its `vinbigdata/train` folder | from the download's `vinbigdata/`: `sha256sum -c <repo>/data/vindr/provenance/SHA256SUMS.txt` |
 
 ## Scenario reference
 
@@ -800,6 +815,9 @@ carries its own seed, so the result does not depend on the order of execution.
   order.
 - `configs/studies/team_effect.yaml` — experiment E4: four personas × two fusion rules ×
   three AIs, 20 seeds, every KPI per finding.
+- `configs/studies/team_effect_extra.yaml` — E4 with the weights of advice swapped (a
+  senior at 0.65, a junior at 0.20), same reads; not in the thesis, it is the figure of the
+  defense slide "E4 · WHO GAINS".
 
 ---
 
