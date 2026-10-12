@@ -55,6 +55,8 @@ class AIModelConfig(_Strict):
     kind: Literal["random_mock", "torchxrv", "cached", "medgemma", "fixed_accuracy"] = (
         "random_mock"
     )
+    # A label for study tables when a whole `ai` block is a factor level. No effect on a run.
+    name: str | None = None
     service_time: float = 0.05
     # fixed_accuracy params: a synthetic signal-detection AI whose skill is a dial, for the
     # "AI performs well — is it trusted?" study (§3, RQ3). Give `d_prime` to set skill
@@ -89,7 +91,12 @@ class AIModelConfig(_Strict):
     ensemble_measure: Literal[
         "mutual_information", "predictive_entropy", "mean_entropy", "std"
     ] = "mutual_information"
-    decision_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # The AI's own call, used for its stand-alone errors and the reliance metrics (the reader
+    # is shown the probability, not this call). A number, or "prevalence_matched": per
+    # finding, the cut at which the model calls as many positives as there are, read from
+    # the calibration file. A calibrated probability of a rare finding almost never reaches
+    # 0.5, so a fixed 0.5 would make a calibrated AI call nothing at all.
+    decision_threshold: float | Literal["prevalence_matched"] = 0.5
     device: str = "cpu"
     # medgemma params — a generative vision-language model as the AI reader.
     # `readout` is how a probability is elicited from a model that emits text:
@@ -244,7 +251,7 @@ class PersonaConfig(_Strict):
 
 
 class SortConfig(_Strict):
-    kind: Literal["random", "uncertainty_desc"]
+    kind: Literal["random", "uncertainty_desc", "probability_desc"]
     aggregator: Literal["mean", "max", "weighted"] = "mean"
     weights: tuple[float, ...] | None = None
 
@@ -446,7 +453,8 @@ class PatientGenConfig(_Strict):
     # annotation CSVs" dataset (VinDr, ...); see `LabelSourceConfig`.
     label_sources: tuple[LabelSourceConfig, ...] = ()
     image_ext: str = ".png"
-    sample_mode: Literal["sequential", "random"] = "sequential"
+    # "permutation" (inference_cache only): every image once, in a random order.
+    sample_mode: Literal["sequential", "random", "permutation"] = "sequential"
     # inference_cache only: restrict the patient pool to the even- or odd-indexed cache
     # rows. A calibration fitted on one half must be studied on the other
     # (scripts/fit_calibration.py --split even  ->  split: odd).
@@ -468,7 +476,9 @@ class KPIGroupConfig(_Strict):
     """One conditioning axis for the KPI bundles: every bundle is computed per subgroup.
 
     ``key`` is either the literal ``"label"`` — one subgroup per pathology, which turns
-    a macro-averaged bundle into a per-pathology one — or something readable off a
+    a macro-averaged bundle into a per-pathology one — the literal ``"truth"`` — for every
+    pathology, the patients who have it and the patients who do not, which is how a time
+    metric is asked "do the sick wait less?" — or something readable off a
     record: a plain field (``severity``, ``priority_key``, ``ts_arrival``) or an
     observation (``ctx.sex``, ``load.in_system_at_arrival``, ``ai.uq_method``).
 

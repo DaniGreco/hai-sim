@@ -1,0 +1,75 @@
+# Experiment E4: what does a reader gain from seeing the AI, per pathology?
+#
+#   hai-sim study configs/studies/team_effect.yaml
+#
+# Four library personas (senior or junior, skeptical or trusting) read the same patients
+# with and without the AI's calibrated advice. Two rules combine the opinions: the linear
+# pool averages probabilities, the logarithmic pool adds evidence after putting both
+# opinions on the same prior (docs/STUDY_calibrated_advice.md). Three AIs give the advice.
+# Every read keeps the reader's own unaided call next to the team's (`actors.doctor` vs
+# `actors.hybrid`), so the effect of the advice is measured on the same read, same noise. The team calls a finding present at 0.5, an
+# arbitrary and declared operating point. Patients come from the cache rows the
+# calibrations were not fitted on.
+name: team_effect
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4   # ids and ground truth are shared by every cell
+    arrival_rate: 0.5
+    n_patients: 7500                    # the whole evaluation half of VinDr-CXR ...
+    sample_mode: permutation            # ... each image once, in a random order per run
+    split: odd
+  ai: &ensemble
+    name: ensemble
+    kind: cached
+    cache_stem: data/cache/composed/vindr__ens4
+    uq: ensemble
+    ensemble_measure: mean_entropy
+    service_time: 0.25
+    decision_threshold: prevalence_matched   # the AI's own call: as many positives as there are
+    calibration: {kind: platt, path: data/cache/calibration/vindr__ens4.json}
+  persona: senior_trusting
+  fusion: {kind: log_odds_fusion, beta: 0.0}
+  sort: {kind: random}
+
+factors:
+  ai:
+    - *ensemble
+    - name: medgemma-4b
+      kind: cached
+      cache_stem: data/cache/vindr__medgemma-1
+      service_time: 0.25
+      decision_threshold: prevalence_matched
+      calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-4b.json}
+    - name: medgemma-27b
+      kind: cached
+      cache_stem: data/cache/vindr__medgemma-27b
+      service_time: 0.25
+      decision_threshold: prevalence_matched
+      calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-27b.json}
+  fusion.kind: [linear_pool, log_odds_fusion]
+  persona: [senior_skeptical, senior_trusting, junior_skeptical, junior_trusting]
+
+design: grid
+replications: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+kpis: [actors, team]
+
+by:
+  - key: label
+
+report:
+  - actors.ai.n_fn
+  - actors.ai.n_fp
+  - actors.doctor.recall_macro
+  - actors.doctor.n_fn
+  - actors.doctor.n_fp
+  - actors.hybrid.recall_macro
+  - actors.hybrid.n_fn
+  - actors.hybrid.n_fp
+  - team.rair
+  - team.rsr

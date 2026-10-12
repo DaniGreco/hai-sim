@@ -363,6 +363,8 @@ def save_platt_file(
     n_positive: np.ndarray,
     prevalence: np.ndarray,
     provenance: dict[str, object],
+    threshold_raw: np.ndarray | None = None,
+    threshold_calibrated: np.ndarray | None = None,
 ) -> None:
     """Write a per-label Platt calibration next to the cache it was fitted on.
 
@@ -382,12 +384,33 @@ def save_platt_file(
                 # The base rate the calibrated probability is anchored to: what an
                 # evidence-based fusion subtracts to recover the likelihood ratio.
                 "prevalence": None if not np.isfinite(prevalence[k]) else float(prevalence[k]),
+                # The model's own operating point: the cut at which it calls as many positives
+                # as there are (prevalence-matched). Needs no cost, and the raw and the
+                # calibrated value are the same cut on two scales.
+                "threshold_raw": _opt(threshold_raw, k),
+                "threshold_calibrated": _opt(threshold_calibrated, k),
             }
             for k, name in enumerate(pathologies)
         },
     }
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _opt(values: np.ndarray | None, k: int) -> float | None:
+    return None if values is None or not np.isfinite(values[k]) else float(values[k])
+
+
+def load_thresholds(path: str | Path, labels: Sequence[str], *, calibrated: bool) -> np.ndarray:
+    """Per-label prevalence-matched decision threshold; 0.5 where the file has none."""
+    per_label = json.loads(Path(path).read_text(encoding="utf-8"))["per_label"]
+    key = "threshold_calibrated" if calibrated else "threshold_raw"
+    out = np.full(len(labels), 0.5)
+    for k, name in enumerate(labels):
+        value = per_label.get(name, {}).get(key)
+        if value is not None:
+            out[k] = float(value)
+    return out
 
 
 def load_prevalence(path: str | Path, labels: Sequence[str]) -> np.ndarray:

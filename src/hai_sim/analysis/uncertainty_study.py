@@ -1,6 +1,6 @@
 ﻿"""RQ1 at scale: does ordering by uncertainty surface the AI's errors first?
 
-The harness for `literature/STUDY_uncertainty_sweep.md`. Everything here is derived from
+The harness for `docs/STUDY_uncertainty_sweep.md`. Everything here is derived from
 the on-disk inference caches — no model calls. Three pieces the standard dashboard
 (`error_curve.py`) does not provide:
 

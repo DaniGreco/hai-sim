@@ -21,7 +21,7 @@ advice when it should have?".
 >
 > **The *why* — research questions, state of the art, decisions, roadmap and open
 > questions — lives in [`../TESI.md`](../TESI.md)**, the project's single descriptive
-> document. Raw literature reviews are archived in `../literature/`.
+> document.
 
 **Founding constraint: no training from scratch.** Pre-trained models, inference only.
 The CXR dataset is the simulation's *patient generator*, not a training set.
@@ -116,7 +116,7 @@ Two design seams worth knowing:
 
 ```
 hai-sim run <scenario.yaml>   [--out-dir out]
-hai-sim study <study.yaml>    [--out-dir out]
+hai-sim study <study.yaml>    [--out-dir out] [--workers N]   # N processes for the distinct scenarios
 hai-sim validate <scenario.yaml> | --from-cache <stem>
 ```
 

@@ -66,7 +66,7 @@ from hai_sim.doctors.assisted import (
 from hai_sim.doctors.mock import RandomMockDoctor
 from hai_sim.doctors.simple import FixedAccuracyDoctor
 from hai_sim.labels import ProjectedActor, build_projection, project_generator
-from hai_sim.metrics.slicing import Grouping, LabelGrouping, ValueGrouping
+from hai_sim.metrics.slicing import Grouping, LabelGrouping, TruthGrouping, ValueGrouping
 from hai_sim.models.mock import RandomMockAI
 from hai_sim.personas import resolve_persona
 from hai_sim.severity.models import (
@@ -78,7 +78,7 @@ from hai_sim.severity.models import (
 from hai_sim.sim.dataset_generator import DatasetPatientGenerator
 from hai_sim.sim.patient_generator import PoissonPatientGenerator
 from hai_sim.sort.random import RandomSort
-from hai_sim.sort.uncertainty import UncertaintyDescSort
+from hai_sim.sort.uncertainty import ProbabilityDescSort, UncertaintyDescSort
 
 
 def build_label_schema(name: str) -> LabelSchema:
@@ -127,6 +127,24 @@ def build_calibrator(
     raise ValueError(f"unknown calibration.kind: {cfg.kind}")
 
 
+def _decision_threshold(cfg: AIModelConfig, labels: Sequence[str]) -> Any:
+    """The AI's decision cut: a number, or the per-finding prevalence-matched cuts."""
+    if cfg.decision_threshold != "prevalence_matched":
+        value = float(cfg.decision_threshold)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"ai.decision_threshold must be in [0, 1], got {value}")
+        return value
+    cal = cfg.calibration
+    if cal is None or cal.path is None:
+        raise ValueError(
+            "ai.decision_threshold: prevalence_matched reads the cuts from the calibration "
+            "file, so ai.calibration.path must be set"
+        )
+    from hai_sim.uq.calibration import load_thresholds
+
+    return load_thresholds(cal.path, labels, calibrated=cal.kind == "platt")
+
+
 def _build_uq(cfg: AIModelConfig, labels: Sequence[str] | None = None) -> Any:
     """The run's UQ method, wrapped in its calibrator when the scenario asks for one.
 
@@ -167,7 +185,7 @@ def build_ai(
             schema=schema,
             weights=cfg.weights,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
             device=cfg.device,
             emit_embedding=emit_embedding,
@@ -210,7 +228,7 @@ def build_ai(
                 readout=readout,
                 prompt_set=cfg.prompt_set,
                 uq=_build_uq(cfg, schema.labels),
-                decision_threshold=cfg.decision_threshold,
+                decision_threshold=_decision_threshold(cfg, schema.labels),
                 service_time=cfg.service_time,
             )
 
@@ -222,7 +240,7 @@ def build_ai(
             readout=readout,
             prompt_set=cfg.prompt_set,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
             device=cfg.device,
             dtype=cfg.dtype,
@@ -238,7 +256,7 @@ def build_ai(
             cache=cache,
             schema=schema,
             uq=_build_uq(cfg, schema.labels),
-            decision_threshold=cfg.decision_threshold,
+            decision_threshold=_decision_threshold(cfg, schema.labels),
             service_time=cfg.service_time,
         )
     if cfg.kind == "fixed_accuracy":
@@ -317,7 +335,7 @@ def build_cached_ai(
         caches,
         schema,
         uq=_build_uq(cfg, schema.labels),
-        decision_threshold=cfg.decision_threshold,
+        decision_threshold=_decision_threshold(cfg, schema.labels),
         service_time=cfg.service_time,
     )
 
@@ -576,6 +594,10 @@ def build_kpi_groupings(
             if cfg.edges:
                 raise ValueError("kpi_groups 'label' takes no edges: it is categorical")
             groupings.append(LabelGrouping(label_names=schema.labels))
+        elif cfg.key == "truth":
+            if cfg.edges:
+                raise ValueError("kpi_groups 'truth' takes no edges: it is categorical")
+            groupings.append(TruthGrouping(label_names=schema.labels))
         else:
             groupings.append(
                 ValueGrouping(
@@ -590,6 +612,8 @@ def build_sort(cfg: SortConfig, rng: np.random.Generator) -> SortStrategy:
         return RandomSort(rng=rng)
     if cfg.kind == "uncertainty_desc":
         return UncertaintyDescSort(aggregator=cfg.aggregator, weights=cfg.weights)
+    if cfg.kind == "probability_desc":
+        return ProbabilityDescSort(aggregator=cfg.aggregator, weights=cfg.weights)
     raise ValueError(f"unknown sort.kind: {cfg.kind}")
 
 
@@ -822,6 +846,8 @@ def build_patient_generator(
             sample_mode=cfg.sample_mode,
             gt_source=cfg.gt_source,
         )
+    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
+        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     if cfg.kind == "inference_cache":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.sim.cache_generator import CachedPatientGenerator

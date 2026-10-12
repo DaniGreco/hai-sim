@@ -144,3 +144,11 @@ def test_run_study_produces_tidy_rows(tmp_path):
     header = csv_path.read_text(encoding="utf-8").splitlines()[0].split(",")
     assert header == ["persona", "seed", "team.rair", "actors.hybrid.n_fn"]
     assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 1 + 4
+
+
+def test_run_study_in_a_process_pool_matches_the_sequential_rows():
+    study = _study(replications=[1, 2])
+    sequential = run_study(study)
+    parallel = run_study(study, workers=2)
+    assert parallel.rows == sequential.rows
+    assert parallel.n_executed == sequential.n_executed

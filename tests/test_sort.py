@@ -42,3 +42,19 @@ def test_uncertainty_weighted_requires_weights():
     sort = UncertaintyDescSort(aggregator="weighted")
     with pytest.raises(ValueError):
         sort.priority(_output((0.5,) * 5), _patient())
+
+
+def test_probability_desc_serves_the_most_suspicious_patient_first():
+    from hai_sim.sort.uncertainty import ProbabilityDescSort
+
+    def out(conf: tuple[float, ...]) -> ModelOutput:
+        n = len(conf)
+        return ModelOutput(
+            diagnosis=Diagnosis(labels=tuple([0] * n), confidence=conf),
+            uncertainty=tuple([0.0] * n),
+        )
+
+    sort = ProbabilityDescSort(aggregator="max")
+    calm = sort.priority(out((0.01, 0.02, 0.01, 0.01, 0.01)), _patient())
+    alarming = sort.priority(out((0.01, 0.40, 0.01, 0.01, 0.01)), _patient())
+    assert alarming < calm, "the queue serves the lowest priority value first"

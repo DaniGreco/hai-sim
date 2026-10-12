@@ -138,15 +138,19 @@ def cmd_study(args: argparse.Namespace) -> int:
     from hai_sim.study import expand_runs
 
     n_runs = len(expand_runs(study))
+    if args.workers < 1:
+        console.print("[red]--workers must be at least 1[/red]")
+        return 2
     console.print(
         f"[bold]study[/bold]: {study.name}  design={study.design}  "
         f"factors={list(study.factors)}  reps={len(study.replications)}  runs={n_runs}"
+        f"  workers={args.workers}"
     )
 
-    progress = _make_progress("run")
+    progress = _make_progress("scenario")
 
     t0 = time.time()
-    result = run_study(study, progress)
+    result = run_study(study, progress, workers=args.workers)
     wall = time.time() - t0
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -591,6 +595,37 @@ def cmd_ui(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_plot(args: argparse.Namespace) -> int:
+    """Figure of a simulation study, from the CSV the study wrote."""
+    from hai_sim.analysis.study_figures import (
+        render_actor_errors,
+        render_queue_load,
+        render_team_effect,
+        render_team_rules,
+    )
+
+    out = args.out or f"out/figures/{args.kind}"
+    if args.kind == "queue_load":
+        path = render_queue_load(args.csv, out, mean_read=args.mean_read)
+    elif args.kind == "team_rules":
+        path = render_team_rules(args.csv, out)
+    elif args.kind == "actor_errors":
+        path = render_actor_errors(args.csv, out, ai=args.ai, persona=args.persona, fusion=args.fusion)
+    else:
+        path = render_team_effect(args.csv, out, persona=args.persona, fusion=args.fusion)
+    print(f"figure -> {path}.png / .pdf")
+    return 0
+
+
+def cmd_capture(args: argparse.Namespace) -> int:
+    """Offline capture study over the cache matrix: tidy table + figures."""
+    from hai_sim.analysis.capture_study import load_config, run_and_write
+
+    out = run_and_write(load_config(args.config), args.out_dir)
+    print(f"capture study -> {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hai-sim", description="Human-AI sim runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -603,7 +638,27 @@ def main(argv: list[str] | None = None) -> int:
     study_p = sub.add_parser("study", help="run a parameter study (factor grid → tidy KPI table)")
     study_p.add_argument("study", help="path to study YAML")
     study_p.add_argument("--out-dir", default="out", help="output directory (default: out/)")
+    study_p.add_argument("--workers", type=int, default=1,
+                         help="run distinct scenarios in parallel on this many processes (default 1)")
     study_p.set_defaults(func=cmd_study)
+
+    cap_p = sub.add_parser(
+        "capture", help="capture study: does an ordering put the right cases first?"
+    )
+    cap_p.add_argument("config", help="capture study YAML")
+    cap_p.add_argument("--out-dir", default="out/capture")
+    cap_p.set_defaults(func=cmd_capture)
+
+    plot_p = sub.add_parser("plot", help="draw the figure of a simulation study from its CSV")
+    plot_p.add_argument("kind", choices=["queue_load", "team_effect", "team_rules", "actor_errors"])
+    plot_p.add_argument("csv", help="queue_load: the *_summary.csv; team_effect: the *_long.csv")
+    plot_p.add_argument("--out", default=None, help="output stem (default: out/figures/<kind>)")
+    plot_p.add_argument("--persona", default="senior_trusting", help="team_effect only")
+    plot_p.add_argument("--fusion", default="log_odds_fusion", help="team_effect / actor_errors")
+    plot_p.add_argument("--ai", default="ensemble", help="actor_errors: which AI gives the advice")
+    plot_p.add_argument("--mean-read", type=float, default=13.2,
+                        help="queue_load: the reader's mean reading time, the unit waits are shown in")
+    plot_p.set_defaults(func=cmd_plot)
 
     val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
     val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")

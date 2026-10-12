@@ -49,6 +49,29 @@ def _aggregate(uncertainty: tuple[float, ...], how: Aggregator, weights: tuple[f
     raise ValueError(f"unknown aggregator: {how}")
 
 
+class ProbabilityDescSort:
+    """Most-suspicious-first: order by the AI's probability that a finding is present.
+
+    The capture study shows that for rare findings this is the ordering that meets the
+    positive cases earliest, and that an entropy of a calibrated probability reduces to it.
+    Collapsing the per-pathology vector needs probabilities on one scale, which is what
+    calibration provides: ``max`` then reads "the most likely finding of this patient".
+    """
+
+    def __init__(
+        self,
+        aggregator: Aggregator = "max",
+        weights: tuple[float, ...] | None = None,
+    ) -> None:
+        self.aggregator: Aggregator = aggregator
+        self.weights = weights
+        self.name: str = f"ProbabilityDescSort({aggregator})"
+
+    def priority(self, output: ModelOutput, patient: Patient) -> float:
+        # Lowest priority value is served first, so negate (see UncertaintyDescSort).
+        return -_aggregate(tuple(output.diagnosis.confidence), self.aggregator, self.weights)
+
+
 class UncertaintyDescSort:
     """Most-uncertain-first. Descending uncertainty, hence the name."""
 

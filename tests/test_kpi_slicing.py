@@ -265,3 +265,32 @@ def test_waiting_time_can_finally_be_conditioned_on_congestion():
     # The single unconditioned number sits inside a spread it conceals: that gap is
     # exactly what an order study needs to see and previously could not.
     assert min(waits) < overall["mean_wait_to_doctor"] < max(waits)
+
+
+# ── Patients with / without each finding ───────────────────────────────────────
+
+
+def test_truth_grouping_splits_patients_by_their_ground_truth_per_pathology():
+    from hai_sim.metrics.slicing import TruthGrouping
+
+    records = [
+        _rec((1, 0), (0, 0), (0, 0), t=10.0),
+        _rec((0, 0), (0, 0), (0, 0), t=2.0),
+        _rec((-1, 1), (0, 0), (0, 0), t=4.0),
+    ]
+    slices = {s.key: s.records for s in TruthGrouping(label_names=_SCHEMA.labels).split(records)}
+    assert set(slices) == {"truth=A:positive", "truth=A:negative", "truth=B:positive", "truth=B:negative"}
+    assert [r.ts_doctor_end for r in slices["truth=A:positive"]] == [10.0]
+    assert [r.ts_doctor_end for r in slices["truth=A:negative"]] == [2.0], "-1 is in neither"
+    assert len(slices["truth=B:negative"]) == 2
+    # records are left whole: a time metric needs the patient, not a projected label
+    assert slices["truth=A:positive"][0].ground_truth == (1, 0)
+
+
+def test_truth_is_a_buildable_kpi_group():
+    from hai_sim.metrics.slicing import TruthGrouping
+
+    (grouping,) = build_kpi_groupings([KPIGroupConfig(key="truth")], _SCHEMA)
+    assert isinstance(grouping, TruthGrouping)
+    with pytest.raises(ValueError, match="truth"):
+        build_kpi_groupings([KPIGroupConfig(key="truth", edges=(0.5,))], _SCHEMA)

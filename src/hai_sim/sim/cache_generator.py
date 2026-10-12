@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from hai_sim.core.protocols import ArrivalProcess
     from hai_sim.core.types import LabelSchema
 
-SampleMode = Literal["sequential", "random"]
+SampleMode = Literal["sequential", "random", "permutation"]
 
 
 class CachedPatientGenerator:
@@ -73,6 +73,11 @@ class CachedPatientGenerator:
         n = int(self._rows.size)
         if self.sample_mode == "random":
             picks = self.rng.integers(0, n, size=self.n_patients)
+        elif self.sample_mode == "permutation":
+            # Every row once, in a random order; with n_patients equal to the pool this is
+            # "the whole dataset arrives, shuffled". Longer streams start a new shuffle.
+            rounds = -(-self.n_patients // n)
+            picks = np.concatenate([self.rng.permutation(n) for _ in range(rounds)])[: self.n_patients]
         else:
             picks = np.arange(self.n_patients) % n
         return [int(self._rows[i]) for i in picks]

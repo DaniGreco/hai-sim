@@ -153,6 +153,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.method == "platt_per_label":
         a, b, n_pos = fit_platt_per_label(fit_p, fit_y)
         calibrator = PlattCalibrator(a, b)
+        thr_raw = np.full(fit_p.shape[1], np.nan)
+        for k in range(fit_p.shape[1]):
+            ok = np.isfinite(fit_p[:, k]) & (fit_y[:, k] >= 0)
+            if ok.any() and fit_y[ok, k].sum() > 0:
+                thr_raw[k] = np.quantile(fit_p[ok, k], 1.0 - fit_y[ok, k].mean())
+        thr_cal = calibrator.calibrate(np.tile(thr_raw, (1, 1)))[0]
         before_k = _per_label_ece(test_p, test_y)
         after_k = _per_label_ece(calibrator.calibrate(test_p), test_y)
         print(f"\n{'pathology':28s} {'n_pos(fit)':>10s} {'a':>7s} {'b':>7s} {'ECE raw':>8s} {'ECE cal':>8s}")
@@ -176,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
                         for k in range(fit_y.shape[1])
                     ]
                 ),
+                threshold_raw=thr_raw,
+                threshold_calibrated=thr_cal,
                 provenance={
                     "caches": list(args.cache),
                     "model_fingerprints": [c.model_fingerprint for c in caches],
