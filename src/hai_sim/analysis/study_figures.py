@@ -91,7 +91,6 @@ def render_queue_load(
     out: str | Path,
     metric: str = "system.mean_wait_to_doctor",
     mean_read: float = 13.2,
-    show_title: bool = True,
 ) -> Path:
     """Mean wait of the patients who HAVE each finding, per ordering, at each load.
 
@@ -118,8 +117,7 @@ def render_queue_load(
              ("probability_desc", SERIES[0], "D", "Most suspicious first")]
     cell = {(r["patient_generator.arrival_rate"], r["sort.kind"], r["group"]): r for r in rows}
 
-    height = 0.27 * len(findings) + (2.3 if show_title else 1.56)  # 0.74 in of title band
-    fig, axes = plt.subplots(1, len(rates), figsize=(7.2, height), sharey=True)
+    fig, axes = plt.subplots(1, len(rates), figsize=(7.2, 0.27 * len(findings) + 2.3), sharey=True)
     load_name = {0: "Half idle", 1: "At capacity", 2: "Overloaded"}
     for j, (ax, rate) in enumerate(zip(np.atleast_1d(axes), rates, strict=True)):
         for i, f in enumerate(findings):
@@ -154,15 +152,14 @@ def render_queue_load(
     first.set_yticks(range(len(findings)))
     first.set_yticklabels([_row_label(f, counts) for f in reversed(findings)], fontsize=7.4, color=INK)
     h = fig.get_figheight()
-    if show_title:
-        fig.suptitle("Waiting time of patients with a finding, by worklist order and reader load",
-                     x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
-        fig.text(0.01, 1 - 0.27 / h,
-                 _wrap(f"{_data_line(study)} AI ordering the worklist: {MODEL_NAME.get(ai_key, ai_key)}"
-                       f"{calibrated}. {_reader_line(str(base.get('persona', '')))[:-1]}, one reader. "
-                       "Patients arrive at random times. Utilisation = work arriving / work the reader can "
-                       "do: 0.5 half idle, 1 at capacity, 2 overloaded."),
-                 ha="left", va="top", fontsize=7.6, color=INK_2, linespacing=1.35)
+    fig.suptitle("Waiting time of patients with a finding, by worklist order and reader load",
+                 x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
+    fig.text(0.01, 1 - 0.27 / h,
+             _wrap(f"{_data_line(study)} AI ordering the worklist: {MODEL_NAME.get(ai_key, ai_key)}{calibrated}. "
+                   f"{_reader_line(str(base.get('persona', '')))[:-1]}, one reader. Patients arrive at random "
+                   "times. Utilisation = work arriving / work the reader can do: 0.5 half idle, 1 at capacity, "
+                   "2 overloaded."),
+             ha="left", va="top", fontsize=7.6, color=INK_2, linespacing=1.35)
     fig.supxlabel("mean wait of the patients who have the finding, in reads (1 read = the mean reading time)",
                   fontsize=8, color=INK_2, y=0.54 / h)
     handles = [Line2D([], [], color=c, marker=m, ls="none", ms=4.6, label=lab) for _k, c, m, lab in sorts]
@@ -171,7 +168,7 @@ def render_queue_load(
     handles.append(Line2D([], [], color=RULE, lw=1.6, label="Grey bar: guide joining the three orders"))
     fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False, fontsize=7.0,
                labelcolor=INK_2, handletextpad=0.4, columnspacing=1.4)
-    fig.tight_layout(rect=(0, 0.62 / h, 1, 1 - 0.74 / h if show_title else 1), w_pad=1.0)
+    fig.tight_layout(rect=(0, 0.62 / h, 1, 1 - 0.74 / h), w_pad=1.0)
     out = Path(out)
     _save(fig, out)
     plt.close(fig)
