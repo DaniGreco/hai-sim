@@ -10,16 +10,16 @@ Why this lives at the top level, imported by *both* the doctor and the synthetic
 are the same observer at different skill. A model that "performs well" is one with a large
 ``d'``; a junior reader is one with a small ``d'``. Sharing the generative core is what
 lets a study put either at either station and compare them on identical terms
-(``../TESI.md`` §5, §8.1).
+(thesis §5.7).
 
 **What this buys over a fixed-rate coin flip** (`FixedAccuracyDoctor`): a genuine,
 case-varying belief ``P(finding present | evidence)``. A reader who happens to draw strong
 evidence is confident; one near the fence is not. That per-case variation is precisely
 what turns an `IntegrationPolicy` from a *step* into a *curve* — with a constant confidence
 the AI either always or never overturns a call, so a reliance study measures a threshold
-rather than a reliance curve (the measured Δ=0 of ``../TESI.md`` §8.1).
+rather than a reliance curve (a Δ=0 measured during development).
 
-The generative model, per finding, following ``../TESI.md`` §8.1:
+The generative model, per finding, following thesis §5.7:
 
     x       = d'_eff · y + ε           ε ~ N(0, 1),  y ∈ {0, 1}
     call    = 1[ x ≥ k ]

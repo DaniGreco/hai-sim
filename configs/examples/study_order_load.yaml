@@ -2,7 +2,7 @@
 #
 #   hai-sim study configs/examples/study_order_load.yaml
 #
-# Methodological ground rule (../TESI.md §3): the MEAN wait is permutation-invariant —
+# Methodological ground rule (thesis §5.6): the MEAN wait is permutation-invariant —
 # reordering the queue cannot change it, it only changes WHO waits. Ordering effects
 # therefore exist only under saturation and only in severity-conditioned metrics. Hence:
 #   - load is an explicit factor: arrival_rate sweeps below / at / above the single

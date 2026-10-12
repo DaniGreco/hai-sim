@@ -8,8 +8,8 @@
 #   2. Readers are the library personas, which are SDT observers (they used to be
 #      FixedAccuracyDoctor). A fixed-accuracy reader's
 #      confidence is a two-valued constant, so a linear pool flips a label only past a
-#      fixed margin — the measured Δ = 0.0000 artifact on the senior arms (TESI.md
-#      §8.1). The SDT belief varies per case, so trust becomes a curve.
+#      fixed margin — the Δ = 0.0000 artifact measured on the senior arms during
+#      development (thesis §5.7). The SDT belief varies per case, so trust becomes a curve.
 #
 # `by: label` computes every KPI per pathology: the macro numbers hide that AI help is
 # concentrated where the reader's d' meets a pathology the ensemble ranks well.

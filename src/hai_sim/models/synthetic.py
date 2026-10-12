@@ -2,7 +2,7 @@
 
 AI = artificial intelligence (the automated reader). The studies this serves ask what a
 doctor does when the AI *performs well*: whether it is trusted, and how that varies with the
-doctor's own capability (``../TESI.md`` §3, RQ3). Answering that cleanly wants the AI's
+doctor's own capability (thesis §5.5). Answering that cleanly wants the AI's
 skill to be a **controlled variable**, not whatever a particular pre-trained network happens
 to score on a particular sample — so the AI here is a signal-detection observer
 (`hai_sim.sdt`) whose discriminability ``d'`` the scenario sets, and can sweep. A large
@@ -13,8 +13,8 @@ Being an SDT observer, it emits a **genuine, calibrated probability**, not a dec
 detached confidence — which is what an `IntegrationPolicy` needs from the AI side and what a
 log-odds fusion assumes. Its errors are drawn from its own noise, independent of the
 doctor's, which is the low-``rho`` regime where a team can genuinely beat its members
-(§5, §8.4): the complementarity a good real model showed by measurement, here by
-construction.
+(thesis §5.7): the independence two real models showed by measurement during
+development, here by construction.
 
 **How it sees the truth without cheating.** A *real* image model must never read the ground
 truth, and the engine enforces that by handing the AI stage a context with none. A synthetic

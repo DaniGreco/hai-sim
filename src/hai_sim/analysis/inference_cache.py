@@ -181,7 +181,7 @@ def _ground_truth_row(lab: np.ndarray) -> np.ndarray:
     (``0`` / ``1`` / ``NaN`` = not annotated) and a `DatasetExample` vector already in
     ``{1, 0, -1}`` (``-1`` = not annotated). Both ``NaN`` and an existing ``-1`` map to
     ``-1``, so a "not annotated" label is never silently turned into an annotated
-    negative — the M\\D labels of ``../TESI.md`` §6.4-bis must stay unknown, not zero.
+    negative — the M\\D labels of thesis §5.9 must stay unknown, not zero.
     """
     lab = np.asarray(lab, dtype=float).ravel()
     out = np.full(lab.shape, -1, dtype=np.int8)

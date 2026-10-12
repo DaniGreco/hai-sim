@@ -15,7 +15,7 @@ four questions that a single accuracy figure cannot separate:
 3. **Do two models fail on the same cases?** The error-overlap composition and its
    agreement coefficient κ. This is the one that matters most here: a pair only beats
    its members where their mistakes *differ*, so the overlap is the substrate of the
-   whole human-AI complementarity argument (``../TESI.md`` §5). With two real models it
+   whole human-AI complementarity argument (thesis §5.7). With two real models it
    can be measured instead of assumed.
 4. **Does its uncertainty find its errors?** Cumulative error capture: walk the entries
    from most to least uncertain and count mistakes. A curve above the diagonal means the

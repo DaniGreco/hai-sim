@@ -74,7 +74,7 @@ class ActorKPIs:
     """Total false negatives (FN) = (patient, label) pairs where the truth is 1 but the
     actor predicted 0. Clinically: a **missed** pathology — the expensive mistake, and
     the reason this simulator never judges a change by one combined score. Weighing FN
-    against FP explicitly is the planned cost model (``../TESI.md`` §9)."""
+    against FP explicitly is a cost model (thesis §2.4), left to the analysis."""
 
     n_fp: int
     """Total false positives (FP) = (patient, label) pairs where the truth is 0 but the

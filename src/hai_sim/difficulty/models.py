@@ -1,10 +1,10 @@
 """Five answers to "how hard is this case?", behind one contract.
 
-Difficulty is the latent ``delta`` of ``../TESI.md`` §8.1: the per-case quantity that
+Difficulty is the latent ``delta`` of thesis §5.7: the per-case quantity that
 drives *both* the AI's error and the reader's, and therefore the only mechanism by
-which their errors can be made to correlate. §10 declares openly that radiology has
+which their errors can be made to correlate. Thesis §8.3 states openly that there is
 no canonical model of case difficulty and that the ``Beta(2, 5)`` prior used in the
-design is a modelling choice rather than a derived result. The honest response to "no
+design is chosen by hand rather than derived. The honest response to "no
 canonical model" is not to pick one and hide it — it is to make the choice a
 configuration line and report the sensitivity.
 
@@ -15,14 +15,14 @@ The five, ordered by how much they claim:
     attribute to difficulty disappears when difficulty is switched off.
 
 ``PriorDifficulty``
-    A fresh ``Beta(a, b)`` draw per case — the §8.1 placeholder, and the *only* one
+    A fresh ``Beta(a, b)`` draw per case — the control of thesis §5.7, and the *only* one
     here that is unrelated to the image. Useful precisely because it is: it gives a
     reader case-to-case variation with zero coupling to the AI, i.e. the ``rho = 0``
     end of the sweep, by construction rather than by hoping.
 
 ``UncertaintyDifficulty``
-    The AI's own predictive uncertainty. §8.1 calls this the natural observable proxy
-    for difficulty, and §10 names it as the escape route from the arbitrary prior:
+    The AI's own predictive uncertainty. Thesis §5.7 uses it as the observable proxy
+    for difficulty, the alternative to the hand-chosen prior (§8.3):
     with it the human-AI error correlation is **induced from real model behaviour**
     instead of imposed by a parameter.
 
@@ -102,10 +102,10 @@ class ConstantDifficulty:
 
 
 class PriorDifficulty:
-    """A ``Beta(a, b)`` draw per case — §8.1's placeholder, and the rho = 0 control.
+    """A ``Beta(a, b)`` draw per case — the rho = 0 control of thesis §5.7.
 
     ``Beta(2, 5)`` is the design default: right-skewed, most cases easy, a thin tail
-    of hard ones. It is **not** derived from radiology data (§10, hole 2) and must be
+    of hard ones. It is **not** derived from radiology data (thesis §8.3) and must be
     reported as an assumption. Its value is as a control: because the draw ignores
     the image entirely, a reader driven by it errs independently of the AI whatever
     the coupling parameter says, which is the baseline any complementarity claim has
@@ -158,9 +158,9 @@ class PriorDifficulty:
 class UncertaintyDifficulty:
     """The AI's predictive uncertainty as the observable proxy for difficulty.
 
-    ``../TESI.md`` §8.1: *"per l'AI reale, la sua incertezza predittiva è il proxy
-    osservabile naturale della difficoltà -> l'accoppiamento si può indurre invece che
-    imporre"*. This is that sentence as code, and using it means the human-AI error
+    Thesis §5.7: *"the AI's own predictive uncertainty [...] make[s] the reader's hard
+    cases the AI's hard cases, so the coupling is induced from data rather than
+    imposed"*. This is that sentence as code, and using it means the human-AI error
     correlation reported by a study is a **measurement of a real model's behaviour**
     rather than a number typed into a config.
 
@@ -371,8 +371,8 @@ def disagreement_table(
     they were unanimous, 1.0 at an even split. Labels nobody annotated are skipped;
     images where nothing was annotated get 0.0.
 
-    This is the operational definition of "hard case" that ``../TESI.md`` §4.8
-    already settled on for *error* — a read that diverges from the adjudicated
+    This is the operational definition of "hard case" that thesis §2.1
+    already uses for *error* — a read that diverges from the adjudicated
     consensus — pointed at difficulty instead: rather than asking who was wrong, ask
     how much the panel split. It needs no model, no training and no new data.
     """

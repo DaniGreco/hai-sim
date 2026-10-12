@@ -11,7 +11,7 @@ image, and now the doctor reads it while seeing what the AI concluded. An
 **The base opinion is always formed first, unaided.** That ordering is not incidental:
 keeping the solo verdict alongside the aided one is what lets the metrics layer ask
 whether the advice was taken *when it should have been*, instead of only whether the
-final answer was right. Design and literature: ``../TESI.md`` §4.5, §6.6.
+final answer was right. Design and literature: thesis §3.2, §5.8.
 
 Policies are interchangeable — a fixed-weight blend, a confidence gate, log-odds
 fusion, later a trust that moves with experience — and swapping one touches neither the
@@ -229,9 +229,8 @@ class LogOddsFusionPolicy:
 
     ⚠️ **This one assumes the AI's probabilities mean what they say.** Adding log-odds
     gives an over-confident AI an unbounded voice, so an uncalibrated model can drag the
-    team *below* the doctor alone. Calibration (temperature scaling) is not implemented
-    yet — see ``../TESI.md`` §8.2, which flags this as blocking for this policy. Prefer
-    `LinearPoolPolicy` until then.
+    team *below* the doctor alone. Calibrate the AI first with the ``ai.calibration``
+    block, as every experiment of the thesis does (thesis §2.4, §7.2.1).
     """
 
     def __init__(

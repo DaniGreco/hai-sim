@@ -10,7 +10,7 @@ Deliberately split in two, and the split is the point:
   logic that a test would want to assert on.
 
 **This browser never runs a simulation and never writes into a run's output.** It is a
-reader. A run is defined by its YAML and its seed (``../TESI.md`` §2: determinism is a
+reader. A run is defined by its YAML and its seed (thesis §5.10: determinism is a
 requirement, not a nicety), so anything that produced a result already left the file
 that reproduces it — the browser's job is to show you that file next to its numbers,
 not to become an alternative way of getting numbers without one.

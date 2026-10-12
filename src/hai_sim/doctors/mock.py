@@ -7,7 +7,7 @@ with a *chosen* skill level use `FixedAccuracyDoctor`; for one that consults the
 
 Reading time is lognormal (right-skewed: most reads quick, a few much slower), and
 confidence is drawn from Beta(5, 2), leaning decisive. There is no fatigue: skill here
-does not drift with time or workload (``../TESI.md`` §8.6).
+does not drift with time or workload (fatigue: thesis §5.7).
 
 This class also carries its own small, self-contained way of consulting the AI, kept
 because tests exercise it — ``use_ai_hint`` plus one of:
