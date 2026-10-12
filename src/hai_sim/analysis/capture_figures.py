@@ -148,7 +148,8 @@ def _grid(plt: Any, n: int, cols: int = 4) -> tuple[Any, list[Any]]:
     return fig, flat[:n]
 
 
-def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, out: Path) -> None:
+def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, out: Path,
+            show_title: bool = True) -> None:
     from matplotlib.lines import Line2D
 
     refs = [
@@ -156,9 +157,11 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
         Line2D([], [], color=IDEAL, lw=1.0, ls=(0, (2, 2)), label="Random ordering"),
     ]
     h = fig.get_figheight()
-    fig.suptitle(title, x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK, weight="bold")
-    fig.text(0.01, 1 - 0.27 / h, _wrap(subtitle), ha="left", va="top", fontsize=7.6, color=INK_2,
-             linespacing=1.35)
+    if show_title:
+        fig.suptitle(title, x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK,
+                     weight="bold")
+        fig.text(0.01, 1 - 0.27 / h, _wrap(subtitle), ha="left", va="top", fontsize=7.6, color=INK_2,
+                 linespacing=1.35)
     fig.legend(
         handles=handles + refs,
         loc="lower center",
@@ -171,7 +174,8 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
     )
     fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2, y=0.52 / h)
     fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    fig.tight_layout(rect=(0.015, 0.62 / h, 1, 1 - 0.78 / h), h_pad=1.1, w_pad=0.8)
+    top = 1 - 0.78 / h if show_title else 1
+    fig.tight_layout(rect=(0.015, 0.62 / h, 1, top), h_pad=1.1, w_pad=0.8)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -230,18 +234,25 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
 
 def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: str, target: str, out: Path,
                   split: str = "odd", names_of: dict[str, str] | None = None,
-                  ordering: str = "probability", kind: str = "raw") -> None:
-    """One line per model, every model ordering by the same criterion."""
+                  ordering: str = "probability", kind: str = "raw",
+                  pathologies: list[str] | None = None, cols: int = 4, show_title: bool = True) -> None:
+    """One line per model, every model ordering by the same criterion.
+
+    ``pathologies`` keeps only those panels, in that order (the same set and order on two
+    datasets); by default every pathology with enough targets, most frequent first.
+    """
     from matplotlib.lines import Line2D
 
     plt = _plt()
     key = (ordering, kind)
-    names = [p for p in _pathologies(curves, dataset, target)
+    names = [p for p in (pathologies or _pathologies(curves, dataset, target))
              if all((dataset, m, p, target, *key) in curves for m in models)]
     if not names or len(models) < 2:
         return
     shown = models[: len(SERIES)]
-    fig, axes = _grid(plt, len(names))
+    fig, axes = _grid(plt, len(names), cols)
+    if not show_title:
+        fig.set_figheight(fig.get_figheight() - 0.78)  # the band the title would use
     for ax, pathology in zip(axes, names, strict=True):
         first = curves[(dataset, shown[0], pathology, target, *key)]
         _frame(ax, first)
@@ -260,7 +271,7 @@ def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: st
         f"{what} met along the reading order, by model",
         f"{_data_line(curves, dataset, split)} Each model orders the images by its own {crit}. "
         f"One panel per finding; n = {unit}.{meaning}" + ("" if target == "positive" else THRESHOLD_TEXT),
-        TARGET_TITLE[target], out,
+        TARGET_TITLE[target], out, show_title,
     )
     plt.close(fig)
 

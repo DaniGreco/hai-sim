@@ -1,0 +1,63 @@
+# Experiment E3 with MedGemma 27B: the waiting-time study of the ICSE-SEIS 2027 paper (RQ3).
+#
+#   hai-sim study configs/studies/queue_load_medgemma27b.yaml
+#
+# queue_load.yaml with the model that orders the cases of its own errors best (RQ2) in
+# place of the ensemble. Same patients, loads, reader and seeds. MedGemma 27B is one model,
+# so it has no member disagreement: the most-uncertain-first order uses the predictive
+# entropy of its calibrated probability, the measure of RQ2 (`stage: members` calibrates the
+# single member before the entropy is taken; the probability itself is the same as at the
+# output stage). Scores and priority use only the ten findings both datasets annotate.
+name: queue_load_medgemma27b
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4   # ids and ground truth are shared by every cell
+    arrival_rate: 0.075
+    n_patients: 7500                    # the whole evaluation half of VinDr-CXR ...
+    sample_mode: permutation            # ... each image once, in a random order per run
+    split: odd
+  ai:
+    name: medgemma-27b
+    kind: cached
+    cache_stem: data/cache/vindr__medgemma-27b
+    uq: entropy
+    decision_threshold: 0.5
+    service_time: 0.25
+    calibration:
+      kind: platt
+      stage: members
+      path: data/cache/calibration/vindr__medgemma-27b.json
+  # The ten findings annotated on both VinDr-CXR and NIH ChestX-ray14 (Lung Opacity is
+  # VinDr-only), so the priority is never set by a label without ground truth.
+  label_view:
+    mode: subset
+    targets: [Cardiomegaly, Effusion, Consolidation, Atelectasis, Infiltration, Nodule, Mass,
+              Pleural_Thickening, Pneumothorax, Fibrosis]
+  persona: solo_senior
+  sort:
+    kind: random
+    aggregator: max
+
+factors:
+  patient_generator.arrival_rate: [0.04, 0.075, 0.15]
+  sort.kind: [random, uncertainty_desc, probability_desc]
+
+design: grid
+replications: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+baseline:
+  sort.kind: random
+
+kpis: [system]
+
+by:
+  - key: truth
+
+report:
+  - system.mean_wait_to_doctor
+  - system.mean_time_in_system
