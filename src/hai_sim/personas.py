@@ -13,8 +13,8 @@ team's outcome and whether it relies on the AI appropriately?".
 
 Capability is a sensitivity/specificity operating point (senior 0.95/0.95, junior
 0.85/0.88), the same for every finding, driving a signal-detection reader (`SDTDoctor`).
-The reader is blind to the image, so its errors are independent of the AI's; the measured
-size of that approximation is in ``docs/STUDY_reader_ai_coupling.md``. Trust is the **weight of advice (WOA)** — how much of an advisor's
+The reader is blind to the image, so its errors are independent of the AI's, and the
+benefit of the advice is an upper bound (thesis §8.3). Trust is the **weight of advice (WOA)** — how much of an advisor's
 opinion a judge adopts, 0 = ignored, 1 = adopted wholesale — applied here as the AI's
 share of a linear pool:
 

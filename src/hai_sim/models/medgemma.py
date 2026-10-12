@@ -20,8 +20,8 @@ generative model gets the same total / aleatoric / epistemic decomposition as th
 Ensemble — no new uncertainty code, and the two backends stay comparable.
 
 **Cost.** On a CPU one forward pass of the 4B model takes tens of seconds, so a K-prompt
-ensemble over a few thousand images is measured in days. Build an `InferenceCache` once
-(``scripts/build_inference_cache.py``) and replay it; that is the supported workflow, not
+ensemble over a few thousand images is measured in days. Build the cache cells once
+(``scripts/materialize_cache.py``) and replay them; that is the supported workflow, not
 an optimisation.
 
 ``transformers`` is imported lazily, so this module imports fine without it — the error

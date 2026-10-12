@@ -31,7 +31,7 @@ A calibrated probability contains the base rate. On NIH (odd rows) the median ca
 probability among the *true positives* is 0.01 to 0.12 and it reaches 0.5 for about 0% of
 them: no image justifies "more likely present than absent" for a 1% finding, which is the
 honest answer. A linear pool averages that number with the reader's belief and cuts at
-0.5, so a calibrated AI always votes "absent". Measured (`study_nih_persona_sdt`,
+0.5, so a calibrated AI always votes "absent". Measured (a development study on NIH, since removed,
 senior_trusting vs the unaided senior, sum over 14 findings, 1000 patients, 5 seeds):
 
 | advice | fusion | delta missed findings | delta false alarms |

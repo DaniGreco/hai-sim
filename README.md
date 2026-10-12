@@ -38,7 +38,7 @@ The CXR dataset is the simulation's *patient generator*, not a training set.
 - [Study reference](#study-reference) — factor grids, paired contrasts
 - [Output](#output) · [KPI definitions](#kpi-definitions)
 - [What is implemented](#what-is-implemented) — protocols, implementations, scripts
-- [Determinism](#determinism) · [Tests](#tests) · [Not implemented yet](#not-implemented-yet)
+- [Determinism](#determinism) · [Tests](#tests) · [Future work](#future-work)
 
 ---
 
@@ -65,17 +65,15 @@ crashes the console (`cp1252` cannot render its block characters).
 ```powershell
 uv run pytest
 
-# three scenarios, same seed — directly comparable
-uv run hai-sim run configs/examples/v0_smoke_random.yaml
-uv run hai-sim run configs/examples/v0_smoke_uncertainty.yaml
-uv run hai-sim run configs/examples/v0_smoke_hybrid.yaml
+# the four experiments of the thesis (they replay the caches in data/cache, see below)
+uv run hai-sim capture configs/studies/capture.yaml                 # E1 + E2
+uv run hai-sim study configs/studies/queue_load.yaml --workers 8    # E3
+uv run hai-sim study configs/studies/team_effect.yaml --workers 8   # E4
 
-# real NIH images through the pre-trained DenseNet121 (needs the [models] extra + data)
-uv run hai-sim run configs/examples/v1_nih_torchxrv.yaml
-uv run hai-sim run configs/examples/v1_nih_ensemble.yaml
-
-# a full persona sweep (30 runs → one tidy table)
-uv run hai-sim study configs/examples/study_persona_grid.yaml
+# the figures of E3 and E4, from the tables the studies wrote
+uv run hai-sim plot queue_load out/study_queue_load_<stamp>_summary.csv
+uv run hai-sim plot team_rules out/study_team_effect_<stamp>_long.csv
+uv run hai-sim plot actor_errors out/study_team_effect_<stamp>_long.csv --ai medgemma-27b
 ```
 
 Always run from the repo root so the repo-relative paths in the scenarios resolve.
@@ -118,6 +116,8 @@ Two design seams worth knowing:
 ```
 hai-sim run <scenario.yaml>   [--out-dir out]
 hai-sim study <study.yaml>    [--out-dir out] [--workers N]   # N processes for the distinct scenarios
+hai-sim capture <capture.yaml> [--out-dir out/capture]
+hai-sim plot <kind> <study.csv> [--out stem] [--persona P] [--fusion F] [--ai A] [--mean-read T]
 hai-sim validate <scenario.yaml> | --from-cache <stem>
 ```
 
@@ -125,6 +125,14 @@ hai-sim validate <scenario.yaml> | --from-cache <stem>
 
 **`study`** — expand a factor grid → one run per cell per seed → a tidy KPI table
 (CSV + JSON).
+
+**`capture`** — the offline capture study of experiments E1 and E2: read the images of a
+cache in the order a model proposes and count the positive cases (or the model's own
+errors) met along the way, per pathology. No simulation; the cache cells only.
+
+**`plot`** — the figure of a simulation study from the CSV it wrote: `queue_load` (E3,
+reads the `*_summary.csv`), `team_effect`, `team_rules` and `actor_errors` (E4, read the
+`*_long.csv`). Figures go to `out/figures/<kind>.{png,pdf}` unless `--out` says otherwise.
 
 **`validate`** — score a model's labels and Grad-CAM heatmaps against expert ground truth
 (ChestX-Det masks). Two modes: a validation scenario YAML (runs inference), or
@@ -148,36 +156,34 @@ portable, repo-relative paths instead of machine-specific absolute ones.
 
 ```
 data/
-├── nih_sample/                      # NIH ChestX-ray14 sample (~5.6k images)
+├── nih_full/                        # NIH ChestX-ray14: one image per patient, 30,805 images
 │   ├── images/
-│   ├── sample_labels.csv            # original Kaggle labels
-│   └── sample_labels.xrvclean.csv   # auto-generated (numeric Patient Age) — safe to delete
-├── cache/                           # inference caches (build once, replay forever)
-│   └── nih_ensemble.{npz,json}
-├── nih_rad_labels/                  # NIH adjudicated consensus GT (4,375 rows, 4 findings)
-└── chexpert_test_labels/            # CheXpert majority GT + 8 per-reader reads (500 studies)
-```
-
-**Get the images** — needs a Kaggle API token (`%USERPROFILE%\.kaggle\kaggle.json`, or the
-`KAGGLE_API_TOKEN` env var):
-
-```bash
-uv run python scripts/download_nih_sample.py      # NIH sample → data/nih_sample/
-uv run python scripts/download_chestxdet.py       # ChestX-Det masks (localization GT)
-uv run python scripts/download_reader_labels.py   # NIH adjudicated + CheXpert reader labels (no gate)
+│   ├── Data_Entry_2017.csv
+│   └── provenance/                  # id list, checksums, the script that built the pool
+├── vindr/                           # VinDr-CXR labels (labels.csv, difficulty.csv, readers.csv)
+└── cache/                           # inference caches (build once, replay forever)
+    ├── <dataset>__<cell>.{npz,json} # one model on one dataset: chex, mimic_ch, pc, rsna,
+    │                                #   medgemma-1 (MedGemma 1.5 4B), medgemma-27b
+    ├── composed/<dataset>__ens4.*   # the four DenseNet members in one cache (E3, E4)
+    ├── calibration/<dataset>__*.json  # per-pathology Platt maps, fitted on the even rows
+    └── provenance/                  # how the MedGemma cells were built (server, logs)
 ```
 
 **Model weights are not here.** TorchXRayVision manages them; they auto-download to
 `~/.torchxrayvision/models_data/` on first use (~80 MB each) and are shared across projects.
 
-**Caches are the reason real studies are fast.** `scripts/build_inference_cache.py` runs the
-5-member cross-domain ensemble once over a dataset and stores the per-member probabilities;
-afterwards `ai.kind: cached` + `patient_generator.kind: inference_cache` replay them, so a
-30-run persona study over 1,000 real images finishes in seconds instead of hours. The cache
-is resumable and guarded by a model fingerprint, so a stale cache cannot be silently
-replayed against different weights.
+**Caches are the reason real studies are fast.** Each cache cell holds the probabilities
+of one model over one dataset, keyed by image id. `scripts/materialize_cache.py` builds
+the cells of a scenario (`--mode fill`, on a GPU machine) or checks that they are complete
+(`--mode report`); afterwards `ai.kind: cached` + `patient_generator.kind: inference_cache`
+replay them, so a study over thousands of real images finishes in seconds instead of
+hours. A cell is resumable and guarded by a model fingerprint, so a stale cache cannot be
+silently replayed against different weights. The scenarios that built the cells of the
+thesis are `configs/examples/nih_full_ensemble.yaml`, `v4_vindr_ensemble.yaml` and the
+four `v5_medgemma_*.yaml`.
 
----
+`scripts/build_vindr_labels.py` turns the raw VinDr-CXR annotations into the label files
+above, and `scripts/fit_calibration.py` fits the calibration files.
 
 ## Scenario reference
 
@@ -259,7 +265,7 @@ the dataset-agnostic path without torch:
 | param | default | effect |
 |---|---|---|
 | `dataset` | `nih` \| `rsna` \| `chexpert` | which TorchXRayVision loader; sets the available GT labels (unlabeled → `-1`, skipped by metrics) |
-| `imgpath` | **required** | image folder, e.g. `data/nih_sample/images` |
+| `imgpath` | **required** | image folder, e.g. `data/nih_full/images` |
 | `csvpath` | `null` | labels csv. Required for `chexpert`; for `nih` the sample's `Patient Age` is auto-cleaned |
 | `sample_mode` | `sequential` \| `random` | `random` draws with replacement (use when `n_patients` > dataset size); `sequential` wraps around in order |
 | `gt_source` | `native` | which GT source to use. **Capability-gated**: only sources the dataset *advertises* are accepted |
@@ -268,7 +274,7 @@ the dataset-agnostic path without torch:
 
 | param | effect |
 |---|---|
-| `cache_stem` | path stem, e.g. `data/cache/nih_ensemble` (reads `.npz` + `.json`) |
+| `cache_stem` | path stem, e.g. `data/cache/composed/vindr__ens4` (reads `.npz` + `.json`) |
 | `sample_mode` | as above |
 
 ### `ai` — the model under test
@@ -334,7 +340,7 @@ Ensemble — the generative analogue of member disagreement, at 3× the inferenc
 ⚠️ **Gated, and slow on CPU.** Accept the Health AI Developer Foundations terms on
 Hugging Face and `huggingface-cli login` first. One forward pass of the 4B model takes
 tens of seconds on a CPU, so **build a cache once and replay it** rather than running
-this backend inside a simulation — see `configs/examples/v2_medgemma_nih.yaml`. A
+this backend inside a simulation — see `configs/examples/v5_medgemma_nih_4b.yaml`. A
 MedGemma cache is an ordinary `InferenceCache`, so every study and metric works on it
 unchanged.
 
@@ -393,7 +399,7 @@ persona:                            # inline
 (over-call); both scalar or per-label. `service_time_*` set the reading-time lognormal; the
 doctor is usually the bottleneck, so raising `mu` lengthens queues and makes sort order
 matter more. `source: reader` would calibrate capability on a real radiologist's reads —
-**currently raises**; see [Not implemented yet](#not-implemented-yet).
+**currently raises**; see [Future work](#future-work).
 
 **visibility** — `sees_ai: false` = solo reader (the medico-solo baseline); `true` =
 consults the AI.
@@ -505,8 +511,8 @@ kpi_groups:
 Several entries **cross**: `severity × label` yields one subgroup per (band, pathology).
 The console prints one column per axis; the full grid goes to the JSON under
 `kpis_by_group`. Because a grouping just splits the records and re-runs the unchanged
-bundle, *any* bundle is conditionable — including your own. Example:
-`configs/examples/v2_conditioned_kpis.yaml`.
+bundle, *any* bundle is conditionable — including your own. The studies in `configs/studies/`
+condition every metric on the ground truth (`by: truth`) or on the finding (`by: label`).
 
 ### `n_ai_workers` / `n_doctor_workers`
 
@@ -628,13 +634,11 @@ levels are out of scope rather than silently approximated.
 
 #### Examples
 
-- `configs/examples/study_nih_persona_grid.yaml` — the sweep on **real NIH images via cache
-  replay**: 5 personas × 2 aggregators × 3 seeds = 30 runs in seconds, no inference.
-- `configs/examples/study_nih_persona_contrast.yaml` — the same population as a *paired*
-  comparison against the unaided senior. On the current stack the senior arms come back at
-  delta 0.0000 with a zero-width interval (the AI never flips a senior's call), while
-  `junior_trusting` loses 0.197 macro recall `[-0.204, -0.189]` and gains 112.6 false
-  negatives — over-reliance on a weak AI degrading a competent reader, with an interval on it.
+- `configs/studies/queue_load.yaml` — experiment E3: three arrival rates × three worklist
+  orders, 20 seeds, every time metric split by ground truth and paired against the random
+  order.
+- `configs/studies/team_effect.yaml` — experiment E4: four personas × two fusion rules ×
+  three AIs, 20 seeds, every KPI per finding.
 
 ---
 
@@ -773,9 +777,9 @@ test: the AI in series, before the doctor).
 
 | Protocol | Method | Implementations |
 |---|---|---|
-| `DiagnosticActor` | `diagnose(images, *, context, ai_hint) → ModelOutput` | `RandomMockAI`, `TorchXRayVisionAI`, `CachedEnsembleAI`, `RandomMockDoctor`, `FixedAccuracyDoctor`, `AssistedDoctor`, `ProjectedActor` |
+| `DiagnosticActor` | `diagnose(images, *, context, ai_hint) → ModelOutput` | `RandomMockAI`, `FixedAccuracyAI` (synthetic), `TorchXRayVisionAI`, `MedGemmaAI`, `VLLMMedGemmaAI`, `CachedEnsembleAI`, `CompositeCachedAI`, `RandomMockDoctor`, `FixedAccuracyDoctor`, `SDTDoctor`, `AssistedDoctor`, `ProjectedActor` |
 | `IntegrationPolicy` | `combine(doctor_out, ai_hint, context)` | `LinearPoolPolicy`, `ConfidenceGatedPoolPolicy`, `LogOddsFusionPolicy` |
-| `SortStrategy` | `priority(output, patient) → float` | `RandomSort`, `UncertaintyDescSort` |
+| `SortStrategy` | `priority(output, patient) → float` | `RandomSort`, `UncertaintyDescSort`, `ProbabilityDescSort` |
 | `UQMethod` | `estimate(member_probs) → (probs, unc, extra)` | `EntropyUQ`, `EnsembleUQ`, `CalibratedUQ` |
 | `Calibrator` | `calibrate(probs) → probs` | `IdentityCalibrator`, `TemperatureScaling`, `PlattCalibrator`, `IsotonicCalibrator` |
 | `ArrivalProcess` | `next_delay(now) → float` | `PoissonArrival`, `DeterministicArrival`, `NHPPArrival` (+ `PiecewiseConstantRate`) |
@@ -783,7 +787,7 @@ test: the AI in series, before the doctor).
 | `DifficultyModel` | `score(*, patient, ai_output, context)` | `ConstantDifficulty`, `PriorDifficulty`, `UncertaintyDifficulty`, `ImageQualityDifficulty`, `TableDifficulty` |
 | `FatigueCurve` | `level(state) → float` | `NoFatigue`, `LinearFatigue`, `VigilanceFatigue`, `CircadianFatigue`, `CompositeFatigue` |
 | `ServiceTimeModel` | `sample(images, context) → float` | `ConstantServiceTime`, `LognormalServiceTime`, `ScaledServiceTime`, `FatigueModulatedServiceTime` |
-| `Dataset` | `__len__` / `__getitem__` + `capabilities` | `MockDataset`, `XRVDataset` |
+| `Dataset` | `__len__` / `__getitem__` + `capabilities` | `MockDataset`, `XRVDataset`, `ImageFolderDataset` |
 | `SaliencyProvider` | `heatmap(image, label_index)` | `GradCAMSaliency` (all-NaN = not localizable) |
 | `LocalizationDataset` | | `ChestXDetDataset` |
 | `LocalizationMetric` | `score(heatmap, gt_mask)` | `PointingGame`, `EnergyInMask`, `IoU`, `Dice` |
@@ -795,67 +799,49 @@ Two more Protocols live in `metrics/`:
 | `KPIBundle` (`metrics/registry.py`) | `compute(records) → Any` | `SystemBundle`, `ActorsBundle`, `TeamBundle`, `JointTableBundle` — **plus anything you reference from a scenario as `file.py:Attribute`** |
 | `Grouping` (`metrics/slicing.py`) | `split(records) → [RecordSlice]` | `ValueGrouping`, `LabelGrouping` |
 
-### Browsing results — `hai-sim ui`
-
-```bash
-uv pip install -e ".[ui]"
-hai-sim ui                     # http://localhost:8501, reads out/
-hai-sim ui --out-dir out/other --port 8600
-```
-
-A Streamlit page over whatever is already in the output directory. It **reads only**:
-it never simulates, and it never writes into a run's output. Four tabs, each answering
-something the terminal answers badly:
-
-| Tab | Question |
-|---|---|
-| **Explore** | what did this sweep do? — pick a metric and two factors, get a chart |
-| **Contrasts** | did the arm actually beat the baseline? — paired deltas with intervals, read as *does it clear zero* |
-| **Signals** | what did the signal plane produce? — per-read distributions of `sig.difficulty`, `sig.fatigue`, `load.*` |
-| **Compare** | two runs disagree — *what was different about them?* — a configuration diff beside the metric deltas |
-
-Artefacts are classified by their **content**, not their filename, so a renamed or
-hand-named file still shows up; unreadable JSON in the directory is skipped rather than
-being allowed to stop the page.
-
-The split is deliberate: `ui/results.py` holds every reshaping decision, has no
-Streamlit import and is covered by the normal test suite; `ui/app.py` is widgets and
-layout only. A future front end reuses the first and replaces the second.
-
 ### Module map — `src/hai_sim/`
 
 ```
-core/protocols.py           the 9 Protocols = the public contract (KPIBundle and
-                            Grouping live in metrics/, for 11 in total)
+core/protocols.py           the 14 Protocols = the public contract (KPIBundle and
+                            Grouping live in metrics/)
 core/types.py               frozen dataclasses: LabelSchema, Diagnosis, ModelOutput,
                             Patient(Context), Localization/DatasetExample, DatasetCapabilities
 core/base.py                BaseDiagnosticActor ABC
-cli.py                      `hai-sim` entrypoint → run | study | validate
+cli.py                      `hai-sim` entrypoint → run | study | capture | plot | validate
 factory.py                  ScenarioConfig → runtime objects (all the registries live here)
 labels.py                   LabelProjection / ProjectedActor — remap actor schema → dataset schema
 personas.py                 PERSONA_LIBRARY: the 2×3 capability × attitude grid
+sdt.py                      the signal-detection core shared by the SDT reader and the synthetic AI
 config/scenario.py          strict pydantic models + load_scenario / load_validation_scenario
-models/{mock,torchxrv,cached}.py     the three AI backends
-doctors/{mock,simple,assisted}.py    the three doctors + the 3 integration policies
-sort/{random,uncertainty}.py         the two triage policies
-uq/methods.py                        EntropyUQ, EnsembleUQ
-severity/models.py                   the four severity models
-data/{mock,xrv}.py                   MockDataset | XRVDataset ({1,0,-1} sentinel convention)
-sim/engine.py                        the SimPy engine
+models/                     AI backends: mock, synthetic (SDT, skill as a dial), torchxrv,
+                            cached (single and composite), medgemma + readout + vllm_backend
+doctors/                    mock, simple (FixedAccuracyDoctor), sdt (SDTDoctor), assisted
+                            (AssistedDoctor + the 3 integration policies)
+sort/{random,uncertainty}.py  the triage policies (random, uncertainty, probability)
+uq/methods.py               EntropyUQ, EnsembleUQ
+uq/calibration.py           the four calibrators + CalibratedUQ
+arrivals/processes.py       Poisson, deterministic, NHPP by thinning
+severity/, difficulty/      per-patient signals computed between the two stations
+fatigue/                    fatigue curves and reading-time models
+data/                       MockDataset | XRVDataset | ImageFolderDataset, CSV label sources
+sim/engine.py               the SimPy engine
 sim/{patient,dataset,cache}_generator.py   the three patient streams
-metrics/collector.py                 PatientRecord + MetricsCollector — fixed core plus the
-                                     open, namespaced observation bag (ai./doc./ctx./load.)
-metrics/kpi.py                       the four built-in bundles + compute_(grouped_)report
-metrics/registry.py                  open bundle registry: name | module:Attr | file.py:Attr
-metrics/slicing.py                   conditioned metrics: split the records, rerun the bundle
-metrics/report.py                    flatten a report to dotted path → scalar
-study/{spec,runner}.py               factor grid → tidy long table (+ wide, + summary)
-study/stats.py                       replication statistics and paired contrasts
-analysis/inference_cache.py          resumable per-member probability cache
-analysis/calibration.py              per-pathology threshold fitting
-analysis/error_curve.py              error-capture curves, AUROC, dashboards (the RQ1 apparatus)
-analysis/localization/*              cache, cam, chestxdet, evaluate, metrics, report,
-                                     saliency, validator
+metrics/collector.py        PatientRecord + MetricsCollector — fixed core plus the
+                            open, namespaced observation bag (ai./doc./ctx./load./sig.)
+metrics/kpi.py              the four built-in bundles + compute_(grouped_)report
+metrics/registry.py         open bundle registry: name | module:Attr | file.py:Attr
+metrics/slicing.py          conditioned metrics: split the records, rerun the bundle
+metrics/report.py           flatten a report to dotted path → scalar
+study/{spec,runner}.py      factor grid → tidy long table (+ wide, + summary)
+study/stats.py              replication statistics and paired contrasts
+analysis/inference_cache.py resumable per-member probability cache
+analysis/cache_matrix.py    one cell per (model, dataset), composed into ensembles by image id
+analysis/cache_build.py     fill the missing cells of a scenario
+analysis/capture_study.py   the capture study of E1 and E2 (+ capture_figures.py)
+analysis/study_figures.py   the figures of E3 and E4 (`hai-sim plot`)
+analysis/error_curve.py     error-capture curves and their skill
+analysis/localization/*     the validation harness of `hai-sim validate`: cache, cam,
+                            chestxdet, evaluate, metrics, report, saliency, validator
 ```
 
 ### Uncertainty measures — `uq/methods.py`
@@ -876,41 +862,11 @@ every pathology. Binary entropy in nats.
 
 | script | purpose |
 |---|---|
-| `build_inference_cache.py` | run **any** real backend once over a dataset → per-member probabilities (checkpointed, resumable). The scenario's `ai.kind` picks the backend |
-| `compare_models.py` | **compare several AI readers on the same images** — see below |
-| `build_localization_cache.py` | forward-only feature maps (~2.8 GB fp32) for offline Grad-CAM |
-| `calibrate.py` | per-pathology thresholds (recall-target and cost-weighted), held-out evaluation |
-| `compare_aggregator.py` | mean vs max triage collapse |
-| `compare_single_vs_ensemble.py` | single model vs Deep Ensemble |
-| `plot_dashboard.py` | the RQ1 figures |
-| `download_nih_sample.py` / `download_chestxdet.py` / `download_reader_labels.py` | data |
-
-#### Comparing models of different natures
-
-`scripts/compare_models.py` puts several caches side by side, matched image by image and
-pathology by pathology, and renders four figures that a single accuracy number cannot
-separate. A convolutional ensemble and a generative model sit in the same figure.
-
-```bash
-# one ensemble member against the ensemble it belongs to (needs only the NIH cache)
-python scripts/compare_models.py \
-    --cache "data/cache/nih_ensemble#0" --name "DenseNet (NIH)" \
-    --cache "data/cache/nih_ensemble"   --name "Deep Ensemble (5)"
-```
-
-Append `#i` (or `#i,j`) to a stem to use only those members, which is how one cache
-supplies more than one model.
-
-| figure | the question it answers |
-|---|---|
-| `discrimination.png` | per-pathology AUROC — does it *rank* positives above negatives? |
-| `calibration.png` | of the cases it called 0.8, were ~80% positive? Independent of ranking, and where a generative model is expected to look worst |
-| `error_overlap.png` | **do two models fail on the same cases?** Composition plus Cohen's κ. A pair only beats its members where their mistakes differ, so this is the substrate of the whole complementarity argument (thesis §5.7) — measured rather than assumed |
-| `error_capture.png` | does the model's own uncertainty rank its errors to the front? The premise triage rests on |
-
-When this figure was first drawn on the NIH cache, both the single model and the raw
-5-member ensemble sat at ECE ≈ 0.26, which is why every probability is calibrated before
-a log-odds fusion (thesis §2.4, §7.2.1).
+| `materialize_cache.py` | build (`--mode fill`) or check (`--mode report`) the cache cells of a scenario |
+| `fit_calibration.py` | fit the per-pathology Platt maps on the even rows of a cache (`--split even`) |
+| `build_vindr_labels.py` | VinDr-CXR raw annotations → `labels.csv`, `difficulty.csv`, `readers.csv` |
+| `download_chestxdet.py` | ChestX-Det images and masks, the ground truth of `hai-sim validate` |
+| `build_localization_cache.py` | forward-only feature maps (~2.8 GB fp32) for offline Grad-CAM (`validate --from-cache`) |
 
 ---
 
@@ -924,28 +880,14 @@ random numbers.
 
 ## Tests
 
-188 test functions across 30 files. `uv run pytest`.
+485 tests across 48 files. `uv run pytest`.
 
-Largest: `test_severity` (20), `test_labels` (16), `test_localization_metrics` (11),
-`test_personas` (10), `test_integration_policy` (10), `test_study` / `test_dataset` (9),
-`test_uq` / `test_kpi_report` / `test_error_curve` (8). `test_protocol_compliance.py`
-asserts runtime conformance to the Protocols. `test_real_models.py` is gated behind the
-`models` extra.
+`test_protocol_compliance.py` asserts runtime conformance to the Protocols.
+`test_real_models.py` is gated behind the `models` extra.
 
-**Coverage gaps**: no direct tests for `cli.py`, `factory.py`, or `config/scenario.py`;
-`sim/engine.py` is covered only by `test_engine_smoke.py`.
+## Future work
 
-## Not implemented yet
-
-Thesis §8.4 lists the future work.
-
-| Missing | Note |
-|---|---|
-| **`SDTDoctor`** + shared case difficulty `δ` / coupling `ρ` | the priority; today the doctor is `FixedAccuracyDoctor` (fixed sens/spec, Bernoulli on GT) and the headline `ρ`-sweep experiment cannot run |
-| **Temperature scaling** | `analysis/calibration.py` only fits thresholds. **Blocking for `log_odds_fusion`** — without calibration the fusion can be worse than the doctor alone |
-| **Reader-calibrated personas** | `build_capability` **raises** on `source="reader"`; `DatasetCapabilities` advertises `has_per_reader` but nothing is wired. The NIH `individual_readers.csv` is Google-Form-gated, so only adjudicated consensus labels are obtainable unattended |
-| **Feature-space UQ** | Mahalanobis / DDU / deep k-NN / energy on the penultimate embedding — derivable from the localization cache at zero inference cost (RQ2) |
-| **MedGemma-4B backend** | the planned second AI actor |
-| Fatigue, trust dynamics, MRMC reader population | optional realism modulators, after the core |
-| NHPP arrivals | today homogeneous Poisson only |
-| MC Dropout, X-ray machine model | future comparison / scope extension |
+Thesis §8.4 lists the future work: replay the reads of real physicians, measure the weight
+of advice instead of setting it, and test which uncertainty measures shorten the time to
+diagnosis of the positive cases. Fatigue and case difficulty are implemented and tested
+but no experiment of the thesis uses them (thesis §8.3).
