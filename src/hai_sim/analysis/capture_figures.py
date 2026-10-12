@@ -172,10 +172,11 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
         handlelength=2.6,
         columnspacing=1.6,
     )
-    fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2, y=0.52 / h)
+    fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2,
+                  y=(0.52 if show_title else 0.46) / h)
     fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    top = 1 - 0.78 / h if show_title else 1
-    fig.tight_layout(rect=(0.015, 0.62 / h, 1, top), h_pad=1.1, w_pad=0.8)
+    top, bottom = (1 - 0.78 / h, 0.62 / h) if show_title else (1, 0.3 / h)
+    fig.tight_layout(rect=(0.015, bottom, 1, top), h_pad=1.1, w_pad=0.8)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -252,7 +253,7 @@ def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: st
     shown = models[: len(SERIES)]
     fig, axes = _grid(plt, len(names), cols)
     if not show_title:
-        fig.set_figheight(fig.get_figheight() - 0.78)  # the band the title would use
+        fig.set_figheight(1.2 * math.ceil(len(names) / cols) + 0.5)  # no title band, tighter rows
     for ax, pathology in zip(axes, names, strict=True):
         first = curves[(dataset, shown[0], pathology, target, *key)]
         _frame(ax, first)
