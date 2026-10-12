@@ -2,7 +2,7 @@
 
 Composes the 4-member DenseNet ensemble for each dataset from its per-member cache cells,
 then renders the figure set and the master tables described in
-``literature/STUDY_uncertainty_sweep.md``.
+``docs/STUDY_uncertainty_sweep.md``.
 
     uv run python scripts/run_uncertainty_study.py
     uv run python scripts/run_uncertainty_study.py --out-dir out/analysis/uncertainty_study
