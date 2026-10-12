@@ -462,7 +462,7 @@ def build_arrivals(
         if not cfg.rates:
             raise ValueError(
                 "arrivals.kind=nhpp requires arrivals.rates: one rate per slot. For the "
-                "day-of-week stratification §4.9 calls necessary, that is 168 hourly "
+                "day-of-week stratification of thesis §5.4, that is 168 hourly "
                 "rates with period 168."
             )
         rate = PiecewiseConstantRate(cfg.rates, period=cfg.period)

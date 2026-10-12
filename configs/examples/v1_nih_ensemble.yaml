@@ -2,7 +2,7 @@
 # (CheXpert/MIMIC/PadChest/RSNA) vote per image, and their disagreement (mutual
 # information) is the uncertainty signal the triage sorts on. The NIH-trained member is
 # DROPPED on purpose — it is trained on this very NIH evaluation set, so it would leak
-# in-domain (and, on our random sample, partly memorized) predictions. See TESI.md §6.4-bis.
+# in-domain (and, on our random sample, partly memorized) predictions. See thesis §6.2.
 #
 # Live inference is cacheable: build the per-member cells once on the GPU server
 #   uv run python scripts/materialize_cache.py --scenario <this> --limit 0 --device cuda:0

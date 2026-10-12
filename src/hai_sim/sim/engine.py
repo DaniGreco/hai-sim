@@ -52,7 +52,7 @@ They travel to the doctor in ``PatientContext.signals`` and to the telemetry as
 ``sig.*``. Two properties are load-bearing. First, they are computed **after** AI
 inference, so a difficulty model may use the model's own predictive uncertainty and
 thereby *induce* the human-AI error correlation from real behaviour instead of imposing
-it (``../TESI.md`` §8.1, §10). Second, fatigue is stamped **per read rather than per
+it (thesis §5.7, §8.3). Second, fatigue is stamped **per read rather than per
 patient**, because it belongs to the reader and the clock: two doctor workers on the
 same queue tire independently, so each owns its own `ReaderState`.
 

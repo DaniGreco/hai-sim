@@ -7,14 +7,14 @@ anything else that scores images.
 
 **Source 1: inter-reader disagreement** (``--readers``). A case is hard exactly when
 expert readers disagree about it. This is the most defensible operational definition
-available and it needs no model — ``../TESI.md`` §4.8 already settled on divergence from
-a consensus as the definition of *error*; this points the same idea at difficulty and
+available and it needs no model — thesis §2.1 already takes divergence from a panel
+consensus as the definition of *error*; this points the same idea at difficulty and
 asks how much the panel split rather than who was wrong. The CheXpert test set ships
 eight radiologists' reads of 500 studies, which is on disk today.
 
-**Source 2: AI predictive uncertainty** (``--cache``). §8.1 names this the natural
-observable proxy for difficulty, and §10 names it as the escape from the arbitrary
-``Beta(2, 5)`` prior — with it the human-AI error correlation is *induced* from real
+**Source 2: AI predictive uncertainty** (``--cache``). Thesis §5.7 uses it to make the
+reader's hard cases the AI's hard cases, the alternative to the hand-chosen
+``Beta(2, 5)`` prior (§8.3) — with it the human-AI error correlation is *induced* from real
 model behaviour rather than imposed.
 
 Producing both is the point. They are two independent estimates of the same latent

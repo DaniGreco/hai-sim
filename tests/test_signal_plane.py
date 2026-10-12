@@ -4,7 +4,7 @@ The last two tests are the ones that matter. Everything else checks plumbing; th
 check the claim the plumbing exists for — that a simulated reader whose accuracy reads
 the difficulty signal stops erring independently of the AI, so the human-AI error
 correlation `rho` becomes a parameter instead of being pinned at zero by construction
-(``../TESI.md`` §5, §8.1).
+(thesis §5.7).
 """
 
 from __future__ import annotations
@@ -275,8 +275,8 @@ def test_the_service_time_model_sees_the_fatigue_signal():
 def _error_correlation(records: list[PatientRecord]) -> float:
     """Pearson correlation between the doctor's and the AI's per-case error counts.
 
-    This is `rho_HM`: the quantity §5 calls the experimental lever and §8.1 designs the
-    shared-difficulty model to control.
+    This is `rho_HM`: the quantity thesis §5.7 calls the experimental lever and controls
+    through the shared-difficulty model.
     """
     doc = np.asarray([_errors(r) for r in records], dtype=float)
     ai = np.asarray([_ai_errors(r) for r in records], dtype=float)
@@ -294,7 +294,7 @@ def _coupled_scenario(difficulty_slope: float) -> ScenarioConfig:
             "prevalence": 0.1,
         },
         # Difficulty *is* the AI's uncertainty: the coupling is induced from the
-        # model's own behaviour rather than imposed by a parameter (§8.1, §10 hole 2).
+        # model's own behaviour rather than imposed by a parameter (thesis §5.7).
         difficulty={"kind": "uncertainty", "source": "uncertainty", "aggregator": "mean"},
         persona={
             "name": "coupled",

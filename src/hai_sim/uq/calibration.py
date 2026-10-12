@@ -1,16 +1,15 @@
 """Making a model's probabilities mean what they say. Plus how to fit them.
 
 **Discrimination and calibration are independent, and here spectacularly so.** Measured
-on 200 shared NIH images (``../TESI.md`` §8.4): MedGemma reaches an expected calibration
+during development on 200 shared NIH images: MedGemma reaches an expected calibration
 error (ECE) of 0.798 — of the cases it calls 0.95, about 4% are positive — while
 *beating* the DenseNet ensemble on several pathologies by area under the receiver
 operating characteristic curve (AUROC). It ranks well and its numbers are nearly
 meaningless. The ensemble is better but still badly over-confident at ECE 0.266.
 
 That matters because every rule that mixes the doctor's belief with the AI's on a
-common scale is only as sound as the number. §8.2 calls temperature scaling *"the most
-significant technical debt in the code"* and states that without it a log-odds fusion
-**can be worse than the doctor alone** — an over-confident model contributes a huge
+common scale is only as sound as the number. Without calibration a log-odds fusion
+**can be worse than the doctor alone** (thesis §2.4) — an over-confident model contributes a huge
 log-odds term and simply overrides its partner. With ECE 0.8 the fusion is not a
 compromise, it is a takeover.
 
@@ -467,8 +466,9 @@ def expected_calibration_error(
 ) -> float:
     """ECE: mean |confidence - accuracy| over equal-width bins, weighted by bin size.
 
-    The number quoted in §8.4. Reported on the *positive-class* probability rather than
-    on max(p, 1-p), which is the right convention for multi-label detection where the
+    The number quoted at the top of this module. Reported on the *positive-class*
+    probability rather than on max(p, 1-p), which is the right convention for multi-label
+    detection where the
     negative class dominates and the max would be near-perfectly calibrated by default.
     """
     p, y = _valid(probs, labels)

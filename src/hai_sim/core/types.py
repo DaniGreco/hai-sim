@@ -47,7 +47,7 @@ class LabelSchema:
 
     @classmethod
     def single(cls) -> LabelSchema:
-        """One label — the single-target study frame of ``../TESI.md`` §9.
+        """One label — the single-target study frame.
 
         A synthetic single-finding task, aligned with classical signal detection theory
         (one binary target) and the cleanest frame for a trust study, where a
@@ -251,7 +251,7 @@ class PatientContext:
     implementations each. Well-known keys:
 
     - ``difficulty`` — how hard this case is to read, from a `DifficultyModel`.
-      The latent ``delta`` of ``../TESI.md`` §8.1, and the only route by which a
+      The latent ``delta`` of thesis §5.7, and the only route by which a
       simulated reader's error can be made to correlate with the AI's.
     - ``fatigue`` — how worn the reader is *at the moment it picks this patient
       up*, from a `FatigueCurve` over the station's `ReaderState`. A property of

@@ -2,8 +2,8 @@
 
 > Documento di **disegno** dello studio. Definisce, per ogni scelta, *cosa* è, *perché* la
 > facciamo così, e *a cosa* si applica. Non è codice: è la specifica da cui nascono sia lo
-> script di sweep sia la sezione di tesi. Il contesto è in `TESI.md` (§3, RQ1).
-> Lingua: italiano, come `TESI.md`; acronimi espansi alla prima occorrenza.
+> script di sweep sia la sezione di tesi. Gli esperimenti che ne sono nati sono nella
+> tesi, §7.3 e §7.4. Lingua: italiano; acronimi espansi alla prima occorrenza.
 
 **Stato deciso con Daniele (2026-08-07).** Calibrazione = **Platt per-patologia**. Costo
 degli errori = **falso negativo : falso positivo = 10 : 1**, uniforme sulle 18 patologie.
@@ -14,7 +14,7 @@ Fase: **solo progettazione** (nessuno script scritto ancora).
 ## 0. La domanda (RQ1)
 
 > **Ordinare i casi per incertezza del modello fa emergere per primi quelli su cui l'AI
-> sbaglia?** (`TESI.md` §3). Se sì, un triage che mostra al medico prima i casi "dubbi" è
+> sbaglia?** (tesi, §7.1). Se sì, un triage che mostra al medico prima i casi "dubbi" è
 > giustificato.
 
 Lo studio estende RQ1 lungo tre assi che i dati raccolti ora permettono e che prima non
@@ -43,7 +43,7 @@ definizione di errore.
 
 - **Perché 4 membri e non 5:** il quinto membro (`densenet121-res224-nih`) è addestrato
   sullo stesso NIH su cui valutiamo → *leakage* in-dominio (e in parte memorizzazione sul
-  nostro campione). Scartato di proposito (`TESI.md` §6.4-bis).
+  nostro campione). Scartato di proposito (tesi, §6.2).
 - **Perché MedGemma è a un membro solo:** costruito con `prompt_set=single` (una sola
   parafrasi di prompt). Conseguenza da dichiarare: per MedGemma **non esiste incertezza
   epistemica** (vedi §2). È un risultato, non un difetto: un ensemble sa dire "questo caso
@@ -289,7 +289,7 @@ calcolano una volta sola.
 - **`ece`** — *expected calibration error*: media di |confidenza − frequenza osservata| a bin,
   pesata per popolazione del bin. **0** = calibrato. Si muove con la calibrazione (le altre no).
 
-**Per il confronto tra modelli (pannello opzionale, §5 complementarità di `TESI.md`):**
+**Per il confronto tra modelli (pannello opzionale, complementarità: tesi §5.7):**
 
 - **`kappa`** — κ di Cohen sull'**overlap degli errori** di due modelli: `0` = sbagliano su
   casi indipendenti (la coppia può aiutare), `1` = sbagliano sugli stessi casi, `<0` =

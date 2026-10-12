@@ -15,7 +15,7 @@ single scalar (applied to every label) or a per-label vector.
 accuracies it draws its errors from a coin that has never seen the image, which pins
 the human-AI error correlation at zero no matter what a scenario asks for — the
 measured consequence being that the AI never once flipped a senior's call over 1000
-reads (``../TESI.md`` §8.1). Wiring ``difficulty_slope`` to the engine's
+reads (measured during development). Wiring ``difficulty_slope`` to the engine's
 ``sig.difficulty`` makes accuracy fall on hard cases, and when the difficulty model is
 the AI's own uncertainty, human and machine errors concentrate on the same images.
 That is a *coupling*, and it is the first version of this reader that can produce one.
@@ -23,7 +23,7 @@ That is a *coupling*, and it is the first version of this reader that can produc
 ⚠️ **It is still not a signal-detection observer.** Accuracy now varies with the case,
 but the reported confidence is a parameter rather than a belief formed from evidence:
 there is no latent decision variable, so over-confidence on hard cases has to be
-configured rather than emerging. §8.1's `SDTDoctor` is what fixes that; this is the
+configured rather than emerging. The `SDTDoctor` of thesis §5.7 is what fixes that; this is the
 honest intermediate, and any result from it should say which of the two produced it.
 """
 
@@ -64,7 +64,7 @@ class FixedAccuracyDoctor(BaseDiagnosticActor):
     held fixed. A pure criterion shift — reading more or less liberally without seeing
     any better — is the other half of what Skinner & Giesbrecht (2025) report for the
     vigilance decrement, and it is not representable here: this reader has no criterion
-    to shift. Another reason §8.1 supersedes it.
+    to shift. Another reason the `SDTDoctor` supersedes it.
     """
 
     def __init__(

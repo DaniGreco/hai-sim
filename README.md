@@ -19,9 +19,10 @@ advice when it should have?".
 > **Every acronym and term of art is defined once in [`GLOSSARY.md`](GLOSSARY.md)** —
 > start there if a word here is unfamiliar.
 >
-> **The *why* — research questions, state of the art, decisions, roadmap and open
-> questions — lives in [`../TESI.md`](../TESI.md)**, the project's single descriptive
-> document.
+> **The *why* — design, experiments and results — lives in the thesis**: D. Greco,
+> *A Framework to Study the Cooperation Between Human and Machine Learning Algorithms
+> in Diagnostic Decisions*, Master's thesis, University of Bergamo, 2026. A "thesis
+> §x.y" in the code or in this README points to a section of it.
 
 **Founding constraint: no training from scratch.** Pre-trained models, inference only.
 The CXR dataset is the simulation's *patient generator*, not a training set.
@@ -904,12 +905,12 @@ supplies more than one model.
 |---|---|
 | `discrimination.png` | per-pathology AUROC — does it *rank* positives above negatives? |
 | `calibration.png` | of the cases it called 0.8, were ~80% positive? Independent of ranking, and where a generative model is expected to look worst |
-| `error_overlap.png` | **do two models fail on the same cases?** Composition plus Cohen's κ. A pair only beats its members where their mistakes differ, so this is the substrate of the whole complementarity argument (`../TESI.md` §5) — measured rather than assumed |
+| `error_overlap.png` | **do two models fail on the same cases?** Composition plus Cohen's κ. A pair only beats its members where their mistakes differ, so this is the substrate of the whole complementarity argument (thesis §5.7) — measured rather than assumed |
 | `error_capture.png` | does the model's own uncertainty rank its errors to the front? The premise triage rests on |
 
-On the current NIH cache the calibration figure already reports both the single model and
-the 5-member ensemble at ECE ≈ 0.26 — badly over-confident — which is the empirical form
-of the calibration debt `../TESI.md` §8.2 flags as blocking for log-odds fusion.
+When this figure was first drawn on the NIH cache, both the single model and the raw
+5-member ensemble sat at ECE ≈ 0.26, which is why every probability is calibrated before
+a log-odds fusion (thesis §2.4, §7.2.1).
 
 ---
 
@@ -936,7 +937,7 @@ asserts runtime conformance to the Protocols. `test_real_models.py` is gated beh
 
 ## Not implemented yet
 
-See [`../TESI.md`](../TESI.md) §8 for the roadmap and the reasoning.
+Thesis §8.4 lists the future work.
 
 | Missing | Note |
 |---|---|

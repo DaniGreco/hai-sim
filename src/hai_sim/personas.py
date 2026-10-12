@@ -21,7 +21,7 @@ share of a linear pool:
     skeptical:  senior 0.20 < junior 0.40      trusting: senior 0.45 < junior 0.65
 
 **What is anchored and what is not** — the two axes differ sharply, and papers should say
-so (see ../TESI.md §6.7-bis):
+so (see thesis §5.8 and §8.3):
 
 - `weight_ai` default 0.39 = the pooled mean WOA of Bailey et al. 2023 (346 effects,
   N~17,000). Anchored, but that meta-analysis covers *generic* numeric-estimate
@@ -57,7 +57,7 @@ _JUNIOR = (0.85, 0.88)
 
 def _cap(sens_spec: tuple[float, float]) -> CapabilityConfig:
     # An SDT reader, not a fixed-bias coin: its belief varies case by case, which is what
-    # lets a trust weight act as a reliance curve instead of a step (../TESI.md §8.1).
+    # lets a trust weight act as a reliance curve instead of a step (thesis §5.7).
     return CapabilityConfig(kind="sdt", sensitivity=sens_spec[0], specificity=sens_spec[1])
 
 

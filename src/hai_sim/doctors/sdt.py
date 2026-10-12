@@ -1,6 +1,6 @@
 """The signal-detection doctor: a genuine observer, not a coin flip.
 
-This is the base reader ``../TESI.md`` §8.1 names as *the priority* — the successor to
+This is the SDT doctor of thesis §5.7 — the successor to
 `FixedAccuracyDoctor`. Both are *simulated readers* that derive their decision from the
 ground truth the engine injects into the doctor stage; the difference is what happens in
 between. `FixedAccuracyDoctor` keeps or flips each label on a coin whose bias is a fixed
@@ -9,7 +9,7 @@ realized call. `SDTDoctor` instead draws noisy evidence for the case and forms a
 belief from it (`hai_sim.sdt`), so:
 
 - its confidence is a probability that **varies case by case** — the property that makes an
-  `IntegrationPolicy` a smooth reliance curve instead of a step (the measured Δ=0 of §8.1);
+  `IntegrationPolicy` a smooth reliance curve instead of a step (a Δ=0 measured in development);
 - a strong reader (large ``d'``) more often lands on confident evidence and so *resists* a
   wrong AI, while a weak reader sits near the fence and is *moved* by it — appropriate
   reliance that scales with capability emerges from the model rather than being asserted;
@@ -21,10 +21,10 @@ belief from it (`hai_sim.sdt`), so:
 ``fatigue_slope`` subtract from ``d'`` in proportion to the signal-plane values the engine
 supplies (``sig.difficulty`` / ``sig.fatigue``), lowering the *generating* ``d'`` while the
 belief keeps using the base one — so a reader worn down by a hard case stays as confident
-as if it were easy, the over-confidence §8.1 wants to emerge. With both slopes at 0 (the
+as if it were easy, the over-confidence thesis §5.7 lets emerge. With both slopes at 0 (the
 default) the reader is a pure observer whose errors are independent of the AI's; a scenario
 that couples them through a shared `DifficultyModel` is what turns the human-AI error
-correlation ``rho`` into a tunable lever (§5, the flagship experiment).
+correlation ``rho`` into a tunable lever (thesis §5.7).
 """
 
 from __future__ import annotations

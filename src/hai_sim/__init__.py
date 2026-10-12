@@ -78,7 +78,7 @@ WHERE TO START
     hai-sim ui                                            browse what previous runs left
     GLOSSARY.md                                           every acronym, defined once
     README.md                                             every knob and every metric
-    ../TESI.md                                            why any of it is arranged so
+    the thesis                                            why any of it is arranged so
 
 ``hai-sim ui`` opens a result browser (optional ``[ui]`` extra). It **reads only** — it
 never simulates and never writes into a run's output. A result is reproducible because a

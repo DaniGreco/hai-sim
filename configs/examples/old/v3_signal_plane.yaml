@@ -29,7 +29,7 @@ patient_generator:
     # A non-homogeneous Poisson process by thinning (Lewis & Shedler 1979). Twelve
     # slots over a period of 12 time units: a quiet stretch, a morning peak, a lull,
     # an evening peak. Real work would use 168 hourly rates stratified by day of week
-    # (TESI.md §4.9 calls that stratification necessary, not optional) — this is small
+    # (De Santis et al. 2022; thesis §2.5) — this is small
     # enough to read.
     #
     # ⚠️ This is where a triage study lives or dies. Reordering a queue can only change
@@ -58,10 +58,10 @@ ai:
     kind: temperature
     temperature: 0.5651
 
-# The latent difficulty of TESI.md §8.1, taken from the model's own epistemic
+# The latent difficulty of thesis §5.7, taken from the model's own epistemic
 # uncertainty. That choice is what makes the human-AI error coupling *induced from real
-# model behaviour* rather than imposed by a parameter — the escape route §10 names for
-# the arbitrary Beta(2,5) prior.
+# model behaviour* rather than imposed by a parameter — the alternative to the
+# hand-chosen Beta(2,5) prior (thesis §8.3).
 #
 # Swap `kind: prior` for the rho = 0 control (a Beta draw ignores the image entirely),
 # or `kind: table` with a CSV from scripts/build_difficulty_table.py to drive difficulty
@@ -71,7 +71,7 @@ difficulty:
   source: mutual_information
   aggregator: mean
 
-# No analytic fatigue curve exists for radiology (TESI.md §10, hole 1) — only isolated
+# No analytic fatigue curve exists for radiology (thesis §5.7, §8.3) — only isolated
 # pre/post points — so the shape is a configuration line and a sensitivity analysis over
 # it is mandatory. `composite` runs two clocks at once, which is what a night shift is:
 # a vigilance decrement that accumulates with cases read, and a circadian rhythm that
@@ -101,7 +101,7 @@ persona:
     # THE line that makes rho a parameter. At 0.0 this reader flips labels from a coin
     # that never saw the image, so its errors are independent of the AI's by
     # construction and no scenario can make them otherwise — the defect behind the
-    # measured "the AI never flips a senior's call" result (§8.1). At 0.4 a maximally
+    # "the AI never flips a senior's call" result measured during development. At 0.4 a maximally
     # hard case costs 0.4 of both sensitivity and specificity.
     difficulty_slope: 0.4
     fatigue_slope: 0.1
@@ -110,11 +110,11 @@ persona:
       kind: lognormal
       mu: 0.5
       sigma: 0.4
-      # A worn reader takes up to 40% longer. This is the time dimension §6.7 records
-      # as missing from the doctor model — and note it feeds back: slower reads deepen
+      # A worn reader takes up to 40% longer. This is the time dimension of the doctor
+      # model (thesis §5.7) — and note it feeds back: slower reads deepen
       # the queue, which raises the load, which is itself the experimental condition.
       fatigue_slope: 0.4
-      # The sign of the AI's effect on reading time is unresolved (§9): Seah 2021
+      # The sign of the AI's effect on reading time is unresolved (thesis §5.7): Seah 2021
       # measured 81s -> 56s, the verification-cost argument predicts the opposite.
       # Sweep this rather than picking one.
       factor: 1.0

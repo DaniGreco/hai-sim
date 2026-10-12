@@ -10,10 +10,10 @@ a study of a *loaded* department, and load is exactly what the arrival process
 controls. Getting arrivals wrong does not add noise to a triage result — it removes the
 phenomenon.
 
-``../TESI.md`` §6.5 sets the policy, and it is a *testable* one: start from a
+Thesis §5.4 sets the policy, and it is a *testable* one: start from a
 homogeneous Poisson process, escalate to a non-homogeneous one (NHPP) with a
 piecewise-constant 24x7 rate, and go further only if a conditional
-Kolmogorov-Smirnov test rejects — test, don't assume. §4.9 explains why the caution:
+Kolmogorov-Smirnov test rejects — test, don't assume. Kim & Whitt (2014) explain the caution:
 much of the "burstiness" reported in hospital arrivals is an **artefact of
 aggregation**, since pooling the same hour across weeks of differing intensity
 manufactures overdispersion that was never in the data. A framework that hardcoded an
@@ -22,7 +22,7 @@ overdispersed process would bake that artefact in.
 The three:
 
 ``PoissonArrival``
-    Constant rate, exponential gaps, memoryless. The baseline §6.5 keeps for
+    Constant rate, exponential gaps, memoryless. The baseline thesis §5.4 keeps for
     comparison even after escalating.
 
 ``NHPPArrival``
@@ -81,11 +81,12 @@ class DeterministicArrival:
 class PiecewiseConstantRate:
     """A rate that is constant within each slot and repeats with a period.
 
-    The shape ``../TESI.md`` §6.5 asks for: 24 hourly rates per day of week, i.e. 168
-    slots over a period of 168 time units when one unit is one hour. §4.9 stresses
-    that stratifying by day of week is *necessary rather than optional* — a Monday
-    morning and a Sunday morning are not draws from the same distribution, and pooling
-    them is one of the ways aggregation manufactures overdispersion.
+    The shape thesis §5.4 describes: 24 hourly rates per day of week, i.e. 168
+    slots over a period of 168 time units when one unit is one hour. Following De
+    Santis et al. (2022), stratifying by day of week is *necessary rather than
+    optional* — a Monday morning and a Sunday morning are not draws from the same
+    distribution, and pooling them is one of the ways aggregation manufactures
+    overdispersion.
 
     Callable, so it can be handed straight to `NHPPArrival`, and it exposes ``peak``
     so thinning needs no separate bound.

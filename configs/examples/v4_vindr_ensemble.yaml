@@ -5,7 +5,7 @@
 # VinDr's own 14-finding vocabulary, then mapped INTO the model's xrv schema *here* (a
 # config line via `map: vindr14->xrv`, not baked into the CSV). Difficulty is the real
 # inter-reader disagreement on the same images, so rho_HM is measured on-sample rather
-# than transferred (../TESI.md §8.1).
+# than transferred (thesis §5.7).
 #
 # The DenseNet ensemble has no VinDr-trained member, so this run is deliberately
 # OUT-OF-DOMAIN: NIH (in-domain) vs VinDr (OOD) is a study axis, not a confound.
@@ -14,7 +14,7 @@
 # build the per-model caches once on the GPU server:
 #   uv run python scripts/materialize_cache.py --scenario <this> --limit 0 --device cuda:0
 # and flip `ai.cache_mode: require` below — studies then replay the cells transparently.
-# The matrix keys one file per member as data/cache/vindr__<member> (../TESI.md 6.4-bis).
+# The matrix keys one file per member as data/cache/vindr__<member> (thesis §6.5).
 name: v4_vindr_ensemble
 seed: 42
 label_schema: xrv
@@ -40,7 +40,7 @@ patient_generator:
       map: vindr14->xrv              # rename / split into the 18-pathology xrv schema
 
 # Score only the findings VinDr and the model share (VinDr's D∩M). The NIH∩VinDr common
-# set is these minus Lung Opacity (not an NIH-14 label) — see ../TESI.md §6.4-bis.
+# set is these minus Lung Opacity (not an NIH-14 label) — see thesis §5.9.
 label_view:
   mode: subset
   targets:
@@ -61,7 +61,7 @@ ai:
   # A 4-member cross-domain Deep Ensemble. The NIH-trained member is DROPPED on purpose:
   # it is trained on our NIH evaluation set, so keeping it would leak in-domain (and, on
   # our random NIH sample, partly memorized) predictions. VinDr is out-of-domain for all
-  # four remaining members. See ../TESI.md §6.4-bis.
+  # four remaining members. See thesis §6.2.
   weights:
     - densenet121-res224-chex
     - densenet121-res224-mimic_ch

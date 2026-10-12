@@ -1,12 +1,12 @@
 """How worn a reading station is: four shapes plus a way to combine them.
 
-**Why this is a seam and not a constant.** ``../TESI.md`` §10 declares as one of the
-three methodological holes that *no analytic fatigue curve exists for radiology* — the
-literature offers isolated pre/post measurements (Krupinski 2010/2012, Vosshenrich
-2021, Hanna 2023) and no functional form. Its own conclusion is that the shape must be
-imported from the human-factors literature and that **a sensitivity analysis over the
-shape is mandatory**. A mandatory sensitivity analysis over shapes is a requirement
-that the shape be swappable, which is what this module provides.
+**Why this is a seam and not a constant.** Thesis §8.3 lists among its limitations
+that *no analytic fatigue curve exists for radiology* — the literature offers isolated
+pre/post measurements (Krupinski 2010/2012, Vosshenrich 2021, Hanna 2023) and no
+functional form. The shape must therefore be imported from the human-factors
+literature, and thesis §5.7 treats it as **a mandatory sensitivity axis**. A mandatory
+sensitivity analysis over shapes is a requirement that the shape be swappable, which is
+what this module provides.
 
 The level is always in ``[0, 1]``: 0 = fresh, 1 = as worn as this curve goes. What it
 *does* is deliberately elsewhere — it reaches the reader as
@@ -42,7 +42,7 @@ which makes ``period: 24`` a day. State the convention in any write-up: a fatigu
 quoted without its time unit is uninterpretable.
 
 ⚠️ **Skinner & Giesbrecht (2025) is the reason a single "accuracy multiplier" is not
-enough** (§4.2): the vigilance decrement is a shift in *both* discriminability and
+enough**: the vigilance decrement is a shift in *both* discriminability and
 criterion, not a uniform drop in detection rate. These curves produce the level; a
 reader that treats it as a pure sensitivity penalty is modelling only half the effect,
 and should say so.
