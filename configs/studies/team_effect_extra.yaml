@@ -1,0 +1,81 @@
+# Experiment E4, swapped weights of advice: is the gain a matter of skill or of trust?
+#
+#   hai-sim study configs/studies/team_effect_extra.yaml
+#
+# The same reads as team_effect.yaml (same patients, same seeds, logarithmic pool), with two
+# personas that are not in the library: a senior who weighs the advice like the trusting
+# junior (0.65) and a junior who weighs it like the skeptical senior (0.20). Next to the four
+# library personas of team_effect.yaml they separate the effect of the reader's skill from
+# the effect of the weight given to the AI. Not in the thesis: it is the figure of the defense
+# slide "E4 · WHO GAINS". Each persona reading alone matches its library twin (about 152 missed
+# findings per run for the senior, 457 for the junior), so the two tables can be compared.
+name: team_effect_extra
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4   # ids and ground truth are shared by every cell
+    arrival_rate: 0.5
+    n_patients: 7500                    # the whole evaluation half of VinDr-CXR ...
+    sample_mode: permutation            # ... each image once, in a random order per run
+    split: odd
+  ai: &ensemble
+    name: ensemble
+    kind: cached
+    cache_stem: data/cache/composed/vindr__ens4
+    uq: ensemble
+    ensemble_measure: mean_entropy
+    service_time: 0.25
+    decision_threshold: prevalence_matched   # the AI's own call: as many positives as there are
+    calibration: {kind: platt, path: data/cache/calibration/vindr__ens4.json}
+  persona: senior_trusting
+  fusion: {kind: log_odds_fusion, beta: 0.0}
+  sort: {kind: random}
+
+factors:
+  ai:
+    - *ensemble
+    - name: medgemma-4b
+      kind: cached
+      cache_stem: data/cache/vindr__medgemma-1
+      service_time: 0.25
+      decision_threshold: prevalence_matched
+      calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-4b.json}
+    - name: medgemma-27b
+      kind: cached
+      cache_stem: data/cache/vindr__medgemma-27b
+      service_time: 0.25
+      decision_threshold: prevalence_matched
+      calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-27b.json}
+  persona:
+    - name: senior_w065                 # senior skill, the trusting junior's weight
+      capability: {kind: sdt, sensitivity: 0.95, specificity: 0.95}
+      sees_ai: true
+      trust: {kind: linear_pool, weight_ai: 0.65}
+    - name: junior_w020                 # junior skill, the skeptical senior's weight
+      capability: {kind: sdt, sensitivity: 0.85, specificity: 0.88}
+      sees_ai: true
+      trust: {kind: linear_pool, weight_ai: 0.20}
+
+design: grid
+replications: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+kpis: [actors, team]
+
+by:
+  - key: label
+
+report:
+  - actors.ai.n_fn
+  - actors.ai.n_fp
+  - actors.doctor.recall_macro
+  - actors.doctor.n_fn
+  - actors.doctor.n_fp
+  - actors.hybrid.recall_macro
+  - actors.hybrid.n_fn
+  - actors.hybrid.n_fp
+  - team.rair
+  - team.rsr
