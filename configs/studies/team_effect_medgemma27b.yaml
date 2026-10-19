@@ -1,0 +1,61 @@
+# Experiment E4 with MedGemma 27B: the human-AI team study of the ICSE-SEIS 2027 paper (RQ4).
+#
+#   hai-sim study configs/studies/team_effect_medgemma27b.yaml
+#
+# team_effect.yaml with the model that orders the cases of its own errors best (RQ2) as the
+# only AI. Same patients, readers, rules and seeds. Scores and calls use only the ten
+# findings both datasets annotate (Lung Opacity is VinDr-only), as in RQ3. The AI is kept as a
+# one-level factor so that every row of the CSV names it.
+name: team_effect_medgemma27b
+
+base:
+  name: base
+  seed: 0
+  label_schema: xrv
+  patient_generator:
+    kind: inference_cache
+    cache_stem: data/cache/composed/vindr__ens4   # ids and ground truth are shared by every cell
+    arrival_rate: 0.5
+    n_patients: 7500                    # the whole evaluation half of VinDr-CXR ...
+    sample_mode: permutation            # ... each image once, in a random order per run
+    split: odd
+  ai: &medgemma27b
+    name: medgemma-27b
+    kind: cached
+    cache_stem: data/cache/vindr__medgemma-27b
+    service_time: 0.25
+    decision_threshold: prevalence_matched   # the AI's own call: as many positives as there are
+    calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-27b.json}
+  label_view:
+    mode: subset
+    targets: [Cardiomegaly, Effusion, Consolidation, Atelectasis, Infiltration, Nodule, Mass,
+              Pleural_Thickening, Pneumothorax, Fibrosis]
+  persona: senior_trusting
+  fusion: {kind: log_odds_fusion, beta: 0.0}
+  sort: {kind: random}
+
+factors:
+  ai:
+    - *medgemma27b
+  fusion.kind: [linear_pool, log_odds_fusion]
+  persona: [senior_skeptical, senior_trusting, junior_skeptical, junior_trusting]
+
+design: grid
+replications: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+kpis: [actors, team]
+
+by:
+  - key: label
+
+report:
+  - actors.ai.n_fn
+  - actors.ai.n_fp
+  - actors.doctor.recall_macro
+  - actors.doctor.n_fn
+  - actors.doctor.n_fp
+  - actors.hybrid.recall_macro
+  - actors.hybrid.n_fn
+  - actors.hybrid.n_fp
+  - team.rair
+  - team.rsr
