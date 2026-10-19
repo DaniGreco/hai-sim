@@ -36,6 +36,7 @@ than as a fabricated zero, and downstream code keeps it out of the metrics.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Literal
 
@@ -45,7 +46,7 @@ _EPS = 1e-12
 
 
 @contextmanager
-def _silence_allnan():
+def _silence_allnan() -> Iterator[None]:
     """Suppress numpy's 'Mean of empty slice' / all-NaN RuntimeWarnings.
 
     A pathology covered by no ensemble member yields an all-NaN column; nanmean

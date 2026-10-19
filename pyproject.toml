@@ -83,5 +83,8 @@ module = [
     "skimage.*",
     "kagglehub.*",
     "matplotlib.*",
+    "pandas",
+    "pandas.*",
+    "scipy.*",
 ]
 ignore_missing_imports = true

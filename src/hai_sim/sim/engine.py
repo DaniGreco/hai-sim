@@ -63,8 +63,9 @@ doctor is the bottleneck, which is the situation of interest.
 from __future__ import annotations
 
 import math
+from collections.abc import Generator
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import simpy
@@ -168,7 +169,7 @@ class SimulationEngine:
         collector = MetricsCollector()
         state = {"emitted": 0, "completed": 0, "done_emitting": False}
 
-        def arrival_proc():
+        def arrival_proc() -> Generator[Any, Any, None]:
             for delay, patient in self.patient_generator:
                 yield env.timeout(delay)
                 ts_arrival = env.now
@@ -189,7 +190,7 @@ class SimulationEngine:
                 state["emitted"] += 1
             state["done_emitting"] = True
 
-        def model_worker():
+        def model_worker() -> Generator[Any, Any, None]:
             while True:
                 inflight: _InFlight = yield input_queue.get()
                 inflight.ts_model_start = env.now
@@ -230,7 +231,7 @@ class SimulationEngine:
                     simpy.PriorityItem(priority=inflight.priority_key, item=inflight)
                 )
 
-        def doctor_worker():
+        def doctor_worker() -> Generator[Any, Any, None]:
             # One state per worker, not per doctor object: two readers sharing a queue
             # tire independently, and a state owned by the actor would merge them.
             reader_state = ReaderState(clock=env.now, shift_start=env.now)

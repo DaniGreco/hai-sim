@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -524,7 +524,7 @@ def build_capability(
 
 
 def build_trust_policy(
-    cfg: TrustConfig, ai_prior: Sequence[float] | None = None
+    cfg: TrustConfig, ai_prior: Sequence[float] | np.ndarray | None = None
 ) -> IntegrationPolicy:
     """Build the swappable AI-integration policy that models the persona's trust.
 
@@ -564,7 +564,7 @@ def build_persona(
     rng: np.random.Generator,
     *,
     fusion: FusionConfig | None = None,
-    ai_prior: Sequence[float] | None = None,
+    ai_prior: Sequence[float] | np.ndarray | None = None,
 ) -> DiagnosticActor:
     """Assemble a doctor persona = capability x visibility x trust into an actor.
 
@@ -742,7 +742,7 @@ def _xrv_preprocess(resize: int) -> Any:
 
     def preprocess(image: np.ndarray) -> np.ndarray:
         norm = xrv.datasets.normalize(image, maxval=255, reshape=True)
-        return transform(norm)
+        return cast(np.ndarray, transform(norm))
 
     return preprocess
 
@@ -794,7 +794,12 @@ def build_patient_generator(
 ) -> Iterable[tuple[float, Patient]]:
     """Build the patient stream: *who* arrives (this function) driven by *when* they
     arrive (an `ArrivalProcess`, built here from ``cfg.arrivals``)."""
+    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
+        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     arrivals = build_arrivals(cfg.arrivals, cfg.arrival_rate, arrival_rng or rng)
+    dataset_mode: Literal["sequential", "random"] = (
+        "random" if cfg.sample_mode == "random" else "sequential"
+    )
     if cfg.kind == "poisson":
         if cfg.gt_source != "native":
             raise ValueError(
@@ -823,7 +828,7 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
     if cfg.kind == "xrv_dataset":
@@ -833,7 +838,7 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
     if cfg.kind == "image_folder":
@@ -842,11 +847,9 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
-    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
-        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     if cfg.kind == "inference_cache":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.sim.cache_generator import CachedPatientGenerator

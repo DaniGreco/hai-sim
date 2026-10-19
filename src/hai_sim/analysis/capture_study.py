@@ -157,7 +157,7 @@ def _scores(
     if ordering == "mutual_information":
         if covering < 2:
             return None
-        return np.clip(np.asarray(binary_entropy(p_raw)) - mean_h, 0.0, None)
+        return np.asarray(np.clip(np.asarray(binary_entropy(p_raw)) - mean_h, 0.0, None))
     raise ValueError(f"unknown ordering {ordering!r}")
 
 

@@ -54,7 +54,7 @@ def pool_embedding_from_feature_maps(feature_maps: np.ndarray) -> np.ndarray:
         raise ValueError(f"expected (M, C, h, w) feature maps, got shape {feature_maps.shape}")
     relu = np.maximum(feature_maps, 0.0)  # (M, C, h, w)
     per_member = relu.reshape(relu.shape[0], relu.shape[1], -1).mean(axis=2)  # (M, C)
-    return per_member.mean(axis=0).astype(np.float32)  # (C,)
+    return np.asarray(per_member.mean(axis=0), dtype=np.float32)  # (C,)
 
 
 class TorchXRayVisionAI(BaseDiagnosticActor):

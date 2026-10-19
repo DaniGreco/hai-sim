@@ -256,7 +256,7 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
         table.add_column("ai", justify="right")
         table.add_column("doctor", justify="right")
         table.add_column("hybrid", justify="right")
-        for row, getter in [
+        rows: list[tuple[str, Callable[[Any], Any]]] = [
             ("F1 macro", lambda a: a.f1_macro),
             ("precision macro", lambda a: a.precision_macro),
             ("recall macro", lambda a: a.recall_macro),
@@ -266,7 +266,8 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
             ("TTFE", lambda a: a.ttfe),
             ("MTTF", lambda a: a.mttf),
             ("mean t-to-FN", lambda a: a.mttfn),
-        ]:
+        ]
+        for row, getter in rows:
             table.add_row(
                 row,
                 _fmt(getter(actors["ai"])),

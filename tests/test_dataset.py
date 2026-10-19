@@ -132,3 +132,27 @@ def test_build_from_scenario_mock_dataset_runs():
     ).run()
     assert len(res.collector.records) == 12
     assert all(len(r.ground_truth) == schema.n for r in res.collector.records)
+
+
+def test_permutation_is_refused_for_an_image_dataset():
+    """`permutation` exists for cached streams only; elsewhere it must fail, not run sequentially."""
+    sc = ScenarioConfig.model_validate(
+        {
+            "name": "perm_test",
+            "seed": 0,
+            "label_schema": "default_v0",
+            "patient_generator": {
+                "kind": "mock_dataset",
+                "arrival_rate": 0.5,
+                "n_patients": 12,
+                "n_examples": 20,
+                "prevalence": 0.3,
+                "sample_mode": "permutation",
+            },
+            "ai": {"kind": "random_mock"},
+            "persona": {"capability": {"kind": "random_mock"}},
+            "sort": {"kind": "random"},
+        }
+    )
+    with pytest.raises(ValueError, match="permutation"):
+        build_from_scenario(sc)

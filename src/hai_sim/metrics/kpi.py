@@ -36,7 +36,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from hai_sim.metrics.collector import PatientRecord
 from hai_sim.metrics.registry import register_bundle, resolve_bundle
@@ -624,7 +624,8 @@ def compute_report(
         # ``_actor_cache`` kwarg, so a custom bundle that happens to subclass one of them
         # (against the registry's no-inheritance contract) still takes the plain path.
         if type(bundle) in (ActorsBundle, TeamBundle):
-            report[bundle.name] = bundle.compute(records, _actor_cache=actor_cache)
+            builtin = cast(ActorsBundle | TeamBundle, bundle)
+            report[bundle.name] = builtin.compute(records, _actor_cache=actor_cache)
         else:
             report[bundle.name] = bundle.compute(records)
     return report

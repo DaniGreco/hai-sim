@@ -125,7 +125,7 @@ class InferenceCache:
 
         tmp_npz = npz_path.with_name(npz_path.name + ".tmp")
         # Pass a file handle so np.savez does NOT append its own ".npz" suffix.
-        arrays: dict[str, np.ndarray] = {
+        arrays: dict[str, Any] = {
             "member_probs": self.member_probs,
             "inference_seconds": self.inference_seconds,
             "dataset_indices": self.dataset_indices,

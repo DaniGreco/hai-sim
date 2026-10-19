@@ -241,7 +241,7 @@ class LogOddsFusionPolicy:
         name: str = "log_odds_fusion",
         decision_threshold: float = 0.5,
         ai_weight: float = 1.0,
-        ai_prior: Sequence[float] | None = None,
+        ai_prior: Sequence[float] | np.ndarray | None = None,
     ) -> None:
         if ai_weight < 0.0:
             raise ValueError(f"ai_weight must be >= 0, got {ai_weight}")
