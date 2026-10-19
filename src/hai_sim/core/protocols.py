@@ -30,8 +30,6 @@ probability can be believed) · `SeverityModel` (per-patient clinical weight) ·
 `ServiceTimeModel` (how long a read takes) · `ArrivalProcess` (when patients arrive) ·
 `Dataset` (images and ground truth).
 
-**Validation plane** — `SaliencyProvider`, `LocalizationDataset`, `LocalizationMetric`.
-
 Two more live next to what they serve, in `hai_sim.metrics`: `KPIBundle` (a metric) and
 `Grouping` (a conditioning axis).
 
@@ -56,7 +54,6 @@ from hai_sim.core.types import (
     DatasetExample,
     Image,
     LabelSchema,
-    LocalizationExample,
     ModelOutput,
     Patient,
     PatientContext,
@@ -315,8 +312,8 @@ class Dataset(Protocol):
 
     A dataset provides indexable `DatasetExample`s (image + native ground truth,
     plus optional masks / per-reader reads / metadata) and *declares* what it
-    provides via `DatasetCapabilities`. The simulation patient stream, persona
-    calibration and localization validation all read this one contract and gate
+    provides via `DatasetCapabilities`. The simulation patient stream and persona
+    calibration both read this one contract and gate
     their features on the declared capabilities — so adding a dataset means
     implementing this contract and declaring its provisions, nothing else.
     """
@@ -328,65 +325,3 @@ class Dataset(Protocol):
     def __len__(self) -> int: ...
 
     def __getitem__(self, index: int) -> DatasetExample: ...
-
-
-# --- Validation plane -------------------------------------------------------
-# The three contracts below make *offline component validation* (heatmap /
-# label fidelity against expert ground truth) as swappable as the simulation
-# modules above. They are the "lightweight spine": a model, a saliency method, a
-# ground-truth dataset, and a metric compose into a validation run the same way
-# an actor, a sort strategy and a queue compose into a simulation run.
-
-
-@runtime_checkable
-class SaliencyProvider(Protocol):
-    """Optional model capability: a per-label spatial saliency map.
-
-    Implemented *alongside* `DiagnosticActor` by models that can explain *where*
-    they looked (e.g. Grad-CAM on a CNN). ``heatmap`` returns a ``(H, W)`` float
-    array in the model's own input geometry, larger = more attributed to
-    ``label_index`` (a position into the model's `LabelSchema`). A model that does
-    not implement this stays label-validatable but not localization-validatable.
-
-    Convention: return an **all-NaN** map to signal ``label_index`` is *not
-    localizable* by this model (e.g. no ensemble member was trained on it). The
-    validator skips such instances, keeping non-localizable findings out of every
-    metric's denominator — as opposed to an all-zero map, which is a real (if
-    degenerate) saliency and is scored like any other.
-    """
-
-    name: str
-
-    def heatmap(self, image: Image, label_index: int) -> np.ndarray: ...
-
-
-@runtime_checkable
-class LocalizationDataset(Protocol):
-    """A ground-truth source for spatial + label validation.
-
-    Yields `LocalizationExample`s whose image-level labels and per-label masks are
-    aligned to ``schema`` and co-registered with the model input geometry. Swap
-    the concrete dataset (ChestX-Det, VinDr-CXR, CheXlocalize) without touching
-    the validator.
-    """
-
-    name: str
-    schema: LabelSchema
-
-    def __len__(self) -> int: ...
-
-    def __getitem__(self, index: int) -> LocalizationExample: ...
-
-
-@runtime_checkable
-class LocalizationMetric(Protocol):
-    """Scores how well a heatmap agrees with an expert mask (both in the same
-    geometry): pointing-game hit-rate, IoU, Dice, energy-in-mask, ...
-
-    Returns a scalar; higher = better agreement (``0..1`` for the built-ins). The
-    metric owns any thresholding of the raw heatmap it needs.
-    """
-
-    name: str
-
-    def score(self, heatmap: np.ndarray, gt_mask: np.ndarray) -> float: ...

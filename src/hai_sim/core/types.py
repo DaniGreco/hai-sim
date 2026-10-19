@@ -355,43 +355,13 @@ class Patient:
 
 
 @dataclass(frozen=True)
-class LocalizationExample:
-    """One image for spatial + label validation: model-ready pixels, expert
-    image-level labels, and expert per-label localization masks, all aligned to a
-    `LabelSchema`.
-
-    ``image`` is preprocessed to the model's input geometry (e.g. ``(1, 224, 224)``
-    for the xrv DenseNet). ``masks[i]`` is a boolean array **co-registered with
-    that geometry** (same HxW as the model's saliency map) marking where label
-    ``i`` is localized, or ``None`` when this dataset does not localize label ``i``
-    for this image. ``labels[i]`` is the expert image-level call in the
-    ``{1, 0, -1}`` convention (``-1`` = not annotated for label ``i`` by this
-    dataset). Keeping masks in model geometry is deliberate: the concrete dataset
-    owns the fiddly crop/resize co-registration, so the validator can overlay
-    heatmap and mask without knowing the transform.
-    """
-
-    image_id: str
-    image: Image
-    labels: tuple[int, ...]
-    masks: tuple[np.ndarray | None, ...]
-
-    def __post_init__(self) -> None:
-        if len(self.labels) != len(self.masks):
-            raise ValueError(
-                f"labels (n={len(self.labels)}) and masks (n={len(self.masks)}) "
-                f"must have the same length (one entry per schema label)"
-            )
-
-
-@dataclass(frozen=True)
 class DatasetCapabilities:
     """Declarative descriptor of what a dataset provides.
 
     The framework *gates* features on this descriptor instead of hardcoding
     dataset names: which ground-truth sources are selectable (``gt_sources``),
     whether a persona can be calibrated on per-reader reads (``has_per_reader`` /
-    ``reader_ids``), whether localization can be validated (``has_masks``), and
+    ``reader_ids``), whether it carries per-finding masks (``has_masks``), and
     what extra per-example metadata is available (``metadata_fields``). A scenario
     requesting a capability the dataset lacks fails fast with a clear error.
     """

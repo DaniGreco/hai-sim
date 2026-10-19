@@ -30,8 +30,8 @@ from hai_sim.analysis.capture_figures import (
     _pretty,
     _wrap,
 )
-from hai_sim.study.stats import _t_critical
 from hai_sim.personas import PERSONA_LIBRARY
+from hai_sim.study.stats import _t_critical
 
 NEUTRAL = "#8a8983"
 BAND = "#f4f3ef"  # alternate-row band: separates the rows without drawing lines

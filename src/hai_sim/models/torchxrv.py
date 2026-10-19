@@ -229,10 +229,8 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
 
         ``probs`` is the usual per-member probability vector (``NaN`` for uncovered
         pathologies); ``feature_maps`` is the spatial output of the DenseNet's last
-        conv block, captured for free during the same forward. Forward only, no
-        autograd: together with `member_classifier_weights` this is the raw material
-        to reconstruct *any* label's Grad-CAM offline (the head is linear, so the
-        Grad-CAM weights are analytic — see `cam_from_features`).
+        conv block, captured for free during the same forward (forward only, no
+        autograd). `pool_embedding_from_feature_maps` turns it into the image embedding.
         """
         torch = self._torch
         arr = self._to_model_input(image)  # (1, 224, 224)
@@ -245,7 +243,7 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
 
             # Clone in the hook: the xrv head does ``F.relu(features, inplace=True)``
             # right after, which would otherwise mutate the captured tensor to its
-            # ReLU. We need the *raw* feature map (with negatives) for the CAM.
+            # ReLU. The raw feature map (with negatives) is kept; the embedding applies the ReLU.
             def _hook(_mod: Any, _inp: Any, out: Any, _c: dict[str, Any] = captured) -> None:
                 _c["A"] = out.detach().clone()
 
@@ -264,15 +262,6 @@ class TorchXRayVisionAI(BaseDiagnosticActor):
             probs[m, mask] = vals[mask]
         assert maps is not None  # at least one member always runs
         return probs, maps
-
-    def member_classifier_weights(self) -> np.ndarray:
-        """Per-member final linear-head weights, shape ``(M, L, C)`` (for offline CAMs)."""
-        return np.stack(
-            [
-                np.asarray(m.classifier.weight.detach().cpu().numpy(), dtype=np.float32)
-                for m in self._models
-            ]
-        )
 
     def diagnose(
         self,
