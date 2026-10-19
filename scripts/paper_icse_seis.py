@@ -271,6 +271,7 @@ def render_team(long_csv: Path, out: Path) -> None:
     ink, ink_2, rule = capture_figures.INK, capture_figures.INK_2, capture_figures.RULE
     rates, counts = _team_rates(long_csv)
     findings = sorted(COMMON, key=lambda f: -counts[f][0])
+    share = {f: 100 * counts[f][0] / sum(counts[f]) for f in findings}
     actors = [("ai", "AI alone", capture_figures.SERIES[1], "s"),
               ("doctor", "Reader alone", NEUTRAL, "o"),
               ("linear_pool", "Reader + AI, linear pool", capture_figures.SERIES[2], "^"),
@@ -278,7 +279,7 @@ def render_team(long_csv: Path, out: Path) -> None:
     n = len(findings)
     fig = plt.figure(figsize=(7.16, 0.17 * n * 2 + 1.2))
     quarters = fig.add_gridspec(2, 2, wspace=0.07, hspace=0.36)
-    panels = (("n_fn", "Missed findings, % of n"), ("n_fp", "False alarms, %"))
+    panels = (("n_fn", "Missed findings, %"), ("n_fp", "False alarms, %"))
     for q, (persona, title) in enumerate(PERSONAS):
         pair = quarters[q // 2, q % 2].subgridspec(1, 2, wspace=0.06)
         for s, (stat, what) in enumerate(panels):
@@ -313,7 +314,8 @@ def render_team(long_csv: Path, out: Path) -> None:
                          pad=3, linespacing=1.3)
             ax.set_yticks(range(n))
             if q % 2 == 0 and s == 0:
-                ax.set_yticklabels([f"{NAME.get(f, f)} (n = {counts[f][0]})" for f in reversed(findings)],
+                # finding name, then its share of the patients, as in the RQ3 figure
+                ax.set_yticklabels([f"{NAME.get(f, f)}  {share[f]:.1f} %" for f in reversed(findings)],
                                    fontsize=6.4, color=ink)
             else:
                 ax.set_yticklabels([])
