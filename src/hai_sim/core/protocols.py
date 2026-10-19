@@ -41,7 +41,7 @@ under test here (AI in series, before the doctor).
 
 Acronyms: AI = artificial intelligence (the automated reader) · UQ = uncertainty
 quantification · KPI = key performance indicator · NHPP = non-homogeneous Poisson
-process. Full list in ``GLOSSARY.md``.
+process. Full list in ``docs/glossary.md``.
 """
 
 from __future__ import annotations

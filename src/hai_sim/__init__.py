@@ -1,4 +1,4 @@
-"""hai_sim — a playground for testing an AI placed *in series* with a doctor.
+"""HaiSIM (package ``hai_sim``) — a playground for testing an AI placed *in series* with a doctor.
 
 AI = artificial intelligence; here it always means the automated reader (a chest X-ray
 classifier), never a person.
@@ -74,11 +74,13 @@ complementarity argument turns on, and it is a knob only once this plane exists.
 
 WHERE TO START
 --------------
-    hai-sim study configs/studies/queue_load.yaml         experiment E3 of the thesis
-    hai-sim capture configs/studies/capture.yaml          experiments E1 and E2
-    GLOSSARY.md                                           every acronym, defined once
-    README.md                                             every knob and every metric
-    the thesis                                            why any of it is arranged so
+    hai-sim run configs/examples/quickstart.yaml          one run, in seconds
+    hai-sim capture configs/studies/capture.yaml          RQ1 and RQ2 of the paper
+    hai-sim study configs/studies/queue_load_medgemma27b.yaml   RQ3
+    hai-sim study configs/studies/team_effect_medgemma27b.yaml  RQ4
+    docs/scenarios.md                                     every knob
+    docs/outputs.md                                       every metric
+    docs/glossary.md                                      every acronym, defined once
 
 Reading the code in pipeline order: ``sim/patient_generator.py`` → ``models/`` →
 ``sort/`` → ``doctors/`` → ``metrics/``, with ``sim/engine.py`` as the spine that runs

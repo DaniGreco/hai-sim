@@ -1,7 +1,7 @@
 """The built-in metrics, computed from a run's `PatientRecord` telemetry.
 
 KPI = key performance indicator; GT = ground truth (the reference answer); AI =
-artificial intelligence, here the automated reader. See ``GLOSSARY.md`` for the rest.
+artificial intelligence, here the automated reader. See ``docs/glossary.md`` for the rest.
 
 **Three verdicts, always compared.** Because the AI reads *before* the doctor and the
 doctor keeps its own opinion, every patient leaves behind three answers, and every

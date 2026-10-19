@@ -565,7 +565,7 @@ wheels = [
 
 [[package]]
 name = "hai-sim"
-version = "0.0.1"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
@@ -577,7 +577,10 @@ dependencies = [
 
 [package.optional-dependencies]
 analysis = [
+    { name = "kagglehub" },
     { name = "matplotlib" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 dev = [
     { name = "mypy" },
@@ -599,6 +602,7 @@ models = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'models'", specifier = ">=0.30" },
+    { name = "kagglehub", marker = "extra == 'analysis'", specifier = ">=0.3" },
     { name = "kagglehub", marker = "extra == 'models'", specifier = ">=0.3" },
     { name = "matplotlib", marker = "extra == 'analysis'", specifier = ">=3.8" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
@@ -611,6 +615,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "scikit-image", marker = "extra == 'models'", specifier = ">=0.22" },
+    { name = "scipy", marker = "extra == 'analysis'", specifier = ">=1.11" },
     { name = "simpy", specifier = ">=4.1.1" },
     { name = "torch", marker = "extra == 'models'", specifier = ">=2.2" },
     { name = "torchvision", marker = "extra == 'models'", specifier = ">=0.17" },

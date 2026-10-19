@@ -6,13 +6,17 @@ per label. Bridging that gap is a **modelling choice with consequences**, not a 
 detail, so it lives behind its own seam: swap the readout and you have changed how the
 model's opinion was elicited, with everything else held fixed.
 
-Two readouts ship here, and they disagree on purpose:
+Three readouts ship here, and they disagree on purpose:
 
-`TeacherForcedLogprobReadout` (the default)
-    Asks the model to fill in ``yes``/``no`` after each pathology name, then reads **the
-    model's own probability** of those two tokens instead of letting it write an answer
-    down. Costs a single forward pass per image, which on a CPU is the difference between
-    a feasible experiment and an infeasible one.
+`IndependentQuestionReadout` (the default, used for the shipped caches)
+    Asks one ``yes``/``no`` question per pathology, each off the same reading of the
+    image, and reads **the model's own probability** of the ``yes`` token instead of
+    letting it write an answer down. No question can see another's answer.
+
+`TeacherForcedLogprobReadout`
+    Its predecessor: one checklist with every pathology, ``yes``/``no`` filled in after
+    each name, read the same way in a single forward pass. Cheaper, but the answer at
+    position *k* depends on the answers forced before it.
 
 `GeneratedJsonReadout`
     Lets the model write a JSON report with its own stated confidences, and parses those.

@@ -1,9 +1,11 @@
 """Figures, table and numbers of the paper (RQ1 to RQ4), from the caches.
 
-    uv run python scripts/paper_figures.py \
-        --queue-summary out/study_queue_load_medgemma27b_<stamp>_summary.csv \
-        --team-long out/study_team_effect_medgemma27b_<stamp>_long.csv \
-        --out ../overleaf-paper/images
+    uv run hai-sim study configs/studies/queue_load_medgemma27b.yaml --workers 8   # RQ3
+    uv run hai-sim study configs/studies/team_effect_medgemma27b.yaml --workers 8  # RQ4
+    uv run python scripts/paper_figures.py                                        # all four
+
+By default the RQ3 and RQ4 tables are the newest ones the two studies wrote in out/;
+``--queue-summary`` and ``--team-long`` pick others. The figures go to out/paper/.
 
 Every figure fits one column of the paper (3.5 in), except the RQ4 one, which spans both.
 RQ1 and RQ2 rerun the capture study of configs/studies/capture.yaml (about a minute) and keep
@@ -373,20 +375,34 @@ def rq4(long_csv: Path, out: Path) -> None:
                   f"on {len(better['n_fp'])}/10; misses not reduced: {worse_fn}")
 
 
+def _newest(pattern: str) -> Path:
+    """The newest table a study wrote in out/, by the time stamp in its name."""
+    found = sorted(Path("out").glob(pattern))
+    if not found:
+        raise SystemExit(
+            f"no out/{pattern}: run the study first (see the top of this script)"
+        )
+    return found[-1]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--queue-summary", type=Path, required=True, help="*_summary.csv of the RQ3 study")
-    ap.add_argument("--team-long", type=Path, required=True, help="*_long.csv of the RQ4 study")
+    ap.add_argument("--queue-summary", type=Path, default=None,
+                    help="*_summary.csv of the RQ3 study (default: the newest in out/)")
+    ap.add_argument("--team-long", type=Path, default=None,
+                    help="*_long.csv of the RQ4 study (default: the newest in out/)")
     ap.add_argument("--out", type=Path, default=Path("out/paper"), help="folder of the figures")
     args = ap.parse_args()
+    queue = args.queue_summary or _newest("study_queue_load_medgemma27b_*_summary.csv")
+    team = args.team_long or _newest("study_team_effect_medgemma27b_*_long.csv")
     args.out.mkdir(parents=True, exist_ok=True)
     cfg = load_config("configs/studies/capture.yaml")
     result = run_capture_study(cfg)
     capture_figures.PRETTY.update(NAME)  # the paper's names on the panels
     rq1(result, cfg.split, args.out)
     rq2(result, cfg.split, args.out)
-    rq3(args.queue_summary, args.out)
-    rq4(args.team_long, args.out)
+    rq3(queue, args.out)
+    rq4(team, args.out)
 
 
 if __name__ == "__main__":

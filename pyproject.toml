@@ -3,13 +3,30 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hai_sim"
-version = "0.0.1"
-description = "Human-AI diagnostic workflow simulator (thesis: Daniele Greco, UniBg)"
+name = "hai-sim"
+version = "1.0.0"
+description = "HaiSIM: a discrete-event simulator for studying how AI changes clinical diagnostic workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Daniele Greco" }]
+authors = [{ name = "The HaiSIM authors" }]
+keywords = [
+    "simulation", "discrete-event simulation", "human-AI collaboration", "medical imaging",
+    "chest X-ray", "radiology workflow", "uncertainty", "socio-technical systems",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
 dependencies = [
     "simpy>=4.1.1",
     "numpy>=1.26",
@@ -40,9 +57,11 @@ models = [
     "accelerate>=0.30",
     "pillow>=10.0",
 ]
-# Offline analysis / plotting (inference cache → error-capture curves).
+# Figures and statistical tests of the studies, and the download of the VinDr-CXR labels.
 analysis = [
     "matplotlib>=3.8",
+    "scipy>=1.11",
+    "kagglehub>=0.3",
 ]
 
 [project.scripts]
@@ -50,6 +69,9 @@ hai-sim = "hai_sim.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+hai_sim = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
