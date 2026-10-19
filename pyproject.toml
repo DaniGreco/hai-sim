@@ -56,6 +56,7 @@ models = [
     "transformers>=4.50",
     "accelerate>=0.30",
     "pillow>=10.0",
+    "httpx>=0.27",            # the vLLM HTTP backend
 ]
 # Figures and statistical tests of the studies, and the download of the VinDr-CXR labels.
 analysis = [
@@ -105,6 +106,7 @@ module = [
     "skimage.*",
     "kagglehub.*",
     "matplotlib.*",
+    "httpx",
     "pandas",
     "pandas.*",
     "scipy.*",

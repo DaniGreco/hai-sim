@@ -49,7 +49,7 @@ patient and per finding.
 You need Python 3.11 or newer and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
-git clone <this repository> hai-sim
+git clone <this repository> hai-sim     # or download the repository and unzip it
 cd hai-sim
 uv sync
 uv run hai-sim run configs/examples/quickstart.yaml
