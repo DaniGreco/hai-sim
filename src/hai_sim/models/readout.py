@@ -21,7 +21,7 @@ Two readouts ship here, and they disagree on purpose:
     diverge on the same images is a result worth reporting, not a bug to fix.
 
 Neither is calibrated. A probability read off token logits is still the model's raw
-belief, and generative models are known to be over-confident — see thesis §2.4 and §7.2.1.
+belief, and generative models are known to be over-confident.
 Compare against the reliability curves before trusting any absolute value.
 """
 
@@ -242,7 +242,7 @@ QUESTION_TEMPLATE = "\n\nQuestion: Is {label} present in this chest X-ray?\nAnsw
 # with an underscore, "Effusion", the NIH-era "Infiltration"). A medical model answers a
 # natural radiological phrasing more reliably, so each label maps to the phrase used *in
 # the question* — the schema and the cached columns stay `xrv`, only the wording changes.
-# This is a modelling choice (how the opinion is elicited, thesis §6.6),
+# This is a modelling choice (how the opinion is elicited),
 # held identical across MedGemma variants for comparability and versioned with this
 # readout; a label not listed (a non-xrv schema) falls back to its own name.
 CLINICAL_PHRASING: dict[str, str] = {

@@ -5,7 +5,7 @@ Reads one row per box (columns ``image_id, class_name, rad_id, ...``) and writes
 raw 14-finding VinDr vocabulary:
 
   labels.csv      ``image_id`` + one column per VinDr finding, presence at ``k``-of-N readers
-  difficulty.csv  ``example_id`` + inter-reader disagreement columns (the delta of thesis §5.7)
+  difficulty.csv  ``example_id`` + inter-reader disagreement columns (the case difficulty ``delta``)
   readers.csv     ``image_id, rad_id`` + per-finding presence for each reader (used later by
                   reader-calibrated personas / a ``reader_panel`` source)
 

@@ -23,7 +23,7 @@ That is a *coupling*, and it is the first version of this reader that can produc
 ⚠️ **It is still not a signal-detection observer.** Accuracy now varies with the case,
 but the reported confidence is a parameter rather than a belief formed from evidence:
 there is no latent decision variable, so over-confidence on hard cases has to be
-configured rather than emerging. The `SDTDoctor` of thesis §5.7 is what fixes that; this is the
+configured rather than emerging. The `SDTDoctor` is what fixes that; this is the
 honest intermediate, and any result from it should say which of the two produced it.
 """
 

@@ -1,4 +1,5 @@
-# Experiment E3: under load, do the patients who have a finding wait less?
+# The waiting-time study with the DenseNet-121 ensemble: under load, do the patients who
+# have a finding wait less? (RQ3 of the paper runs it with MedGemma 27B.)
 #
 #   hai-sim study configs/studies/queue_load.yaml
 #

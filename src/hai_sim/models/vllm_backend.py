@@ -8,8 +8,8 @@ the same two contracts, so nothing downstream changes:
 - `CacheableModel` (via `VLLMMedGemmaAI`) — `materialize_cache` builds the same per-model
   cells, addressed by the same `<dataset>__<model>` stem.
 
-The point is **deployment, not a new model**: use this when the GPU lives in a cluster (the
-k3s node's vLLM pods) rather than in this process, which also means the 27B fits on one
+The point is **deployment, not a new model**: use this when the GPU lives in a cluster
+(a vLLM server) rather than in this process, which also means the 27B fits on one
 96 GB card with no in-process sharding.
 
 **Only `independent_question` is supported over HTTP.** That readout needs one probability

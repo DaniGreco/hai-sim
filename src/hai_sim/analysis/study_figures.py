@@ -1,10 +1,10 @@
-"""Figures for the simulation studies, drawn from a study's CSV. English only.
+"""Figures for the simulation studies, drawn from a study's CSV.
 
-``hai-sim plot queue_load <summary.csv>``   experiment E3
-``hai-sim plot team_effect <long.csv>``     experiment E4
+``hai-sim plot queue_load <summary.csv>``   the waiting-time study
+``hai-sim plot team_effect <long.csv>``     the human-AI team study
 
-Same look as the capture figures (`hai_sim.analysis.capture_figures`), so the chapter
-reads as one system.
+Same look as the capture figures (`hai_sim.analysis.capture_figures`), so all the
+figures read as one system.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def _save(fig: Any, out: Path) -> None:
     fig.savefig(out.with_suffix(".pdf"))
 
 
-# --- E3 -----------------------------------------------------------------------------------
+# --- the waiting-time study --------------------------------------------------------------
 
 
 def render_queue_load(
@@ -175,7 +175,7 @@ def render_queue_load(
     return out
 
 
-# --- E4 -----------------------------------------------------------------------------------
+# --- the human-AI team study -------------------------------------------------------------
 
 RULE_NAME = {"linear_pool": "average the probabilities", "log_odds_fusion": "add the evidence"}
 def _mean_ci(values: list[float]) -> tuple[float, float, float]:
@@ -337,7 +337,7 @@ def render_team_rules(long_csv: str | Path, out: str | Path) -> Path:
     return out
 
 
-# --- E4: the three actors side by side ---------------------------------------------------------
+# --- the team study: the three actors side by side ------------------------------------------
 
 
 def _row_label(name: str, counts: dict[str, tuple[int, int]]) -> str:

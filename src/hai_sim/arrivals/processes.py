@@ -10,7 +10,7 @@ a study of a *loaded* department, and load is exactly what the arrival process
 controls. Getting arrivals wrong does not add noise to a triage result — it removes the
 phenomenon.
 
-Thesis §5.4 sets the policy, and it is a *testable* one: start from a
+The policy is a *testable* one: start from a
 homogeneous Poisson process, escalate to a non-homogeneous one (NHPP) with a
 piecewise-constant 24x7 rate, and go further only if a conditional
 Kolmogorov-Smirnov test rejects — test, don't assume. Kim & Whitt (2014) explain the caution:
@@ -22,7 +22,7 @@ overdispersed process would bake that artefact in.
 The three:
 
 ``PoissonArrival``
-    Constant rate, exponential gaps, memoryless. The baseline thesis §5.4 keeps for
+    Constant rate, exponential gaps, memoryless. The baseline, kept for
     comparison even after escalating.
 
 ``NHPPArrival``
@@ -81,7 +81,7 @@ class DeterministicArrival:
 class PiecewiseConstantRate:
     """A rate that is constant within each slot and repeats with a period.
 
-    The shape thesis §5.4 describes: 24 hourly rates per day of week, i.e. 168
+    The usual shape is 24 hourly rates per day of week, i.e. 168
     slots over a period of 168 time units when one unit is one hour. Following De
     Santis et al. (2022), stratifying by day of week is *necessary rather than
     optional* — a Monday morning and a Sunday morning are not draws from the same

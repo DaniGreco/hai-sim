@@ -1,6 +1,6 @@
 """The signal-detection doctor: a genuine observer, not a coin flip.
 
-This is the SDT doctor of thesis §5.7 — the successor to
+This is the signal-detection theory (SDT) doctor — the successor to
 `FixedAccuracyDoctor`. Both are *simulated readers* that derive their decision from the
 ground truth the engine injects into the doctor stage; the difference is what happens in
 between. `FixedAccuracyDoctor` keeps or flips each label on a coin whose bias is a fixed
@@ -21,10 +21,10 @@ belief from it (`hai_sim.sdt`), so:
 ``fatigue_slope`` subtract from ``d'`` in proportion to the signal-plane values the engine
 supplies (``sig.difficulty`` / ``sig.fatigue``), lowering the *generating* ``d'`` while the
 belief keeps using the base one — so a reader worn down by a hard case stays as confident
-as if it were easy, the over-confidence thesis §5.7 lets emerge. With both slopes at 0 (the
+as if it were easy, so over-confidence emerges instead of being configured. With both slopes at 0 (the
 default) the reader is a pure observer whose errors are independent of the AI's; a scenario
 that couples them through a shared `DifficultyModel` is what turns the human-AI error
-correlation ``rho`` into a tunable lever (thesis §5.7).
+correlation ``rho`` into a tunable lever.
 """
 
 from __future__ import annotations

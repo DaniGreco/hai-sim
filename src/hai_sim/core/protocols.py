@@ -181,7 +181,7 @@ class SeverityModel(Protocol):
 
 @runtime_checkable
 class DifficultyModel(Protocol):
-    """How hard this case is to read — the latent ``delta`` of thesis §5.7.
+    """How hard this case is to read — the latent ``delta`` of the reader model.
 
     Same shape as `SeverityModel` and a *different quantity*: severity is how much
     it matters clinically, difficulty is how easy it is to get wrong. They are
@@ -197,7 +197,7 @@ class DifficultyModel(Protocol):
 
     Runs after AI inference, so an implementation may read the model's predictive
     uncertainty and thereby *induce* the coupling from real data rather than impose
-    it from a hand-chosen prior (thesis §8.3). Result reaches the
+    it from a hand-chosen prior. Result reaches the
     doctor through ``PatientContext.signals["difficulty"]`` and the telemetry as
     ``sig.difficulty``, whether or not any reader consults it.
 
@@ -249,8 +249,8 @@ class FatigueCurve(Protocol):
     reaches the reader as ``PatientContext.signals["fatigue"]``, where a service-time
     model can stretch the read and a reader can degrade its own accuracy.
 
-    This seam is not optional polish — thesis §5.7 states that no analytic
-    fatigue curve exists for radiology (only isolated pre/post points) and that the
+    This seam is not optional polish — no analytic fatigue curve exists for
+    radiology (only isolated pre/post points), so the
     **shape of the curve is a mandatory sensitivity axis**. A mandatory
     sensitivity analysis over shapes is precisely a demand that the shape be
     swappable.
@@ -267,7 +267,7 @@ class ServiceTimeModel(Protocol):
 
     Split out of the actor because reading time is where three separate open
     questions meet: whether AI assistance speeds a reader up or costs them
-    verification time (thesis §5.7: the literature supports both signs, so the sign
+    verification time (the literature supports both signs, so the sign
     is a sensitivity axis), whether acute fatigue slows reading as well as degrading
     accuracy, and what an empirical reading-time
     distribution looks like. All three are answered by swapping this, not by editing
@@ -296,8 +296,8 @@ class ArrivalProcess(Protocol):
 
     Splitting *when* from *who* is what lets the same dataset stream be driven by a
     flat rate, a 24x7 piecewise-constant rate, or a deterministic metronome without
-    touching the generator that samples images. Thesis §5.4 already names
-    three of those and makes the choice conditional on a statistical test —
+    touching the generator that samples images. Those are the three options, and
+    the choice among them is conditional on a statistical test —
     a decision that has to be *testable*, i.e. swappable.
     """
 

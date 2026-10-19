@@ -9,7 +9,7 @@ the cells with ``ai.cache_mode: require``.
 
     # Build every member of the VinDr ensemble over 15k images, on GPU 0:
     PYTHONUTF8=1 uv run python scripts/materialize_cache.py \
-        --scenario configs/examples/v4_vindr_ensemble.yaml \
+        --scenario configs/cache/vindr_ensemble.yaml \
         --limit 0 --device cuda:0 --checkpoint-every 200
 
     # Just one member, and just inspect the plan:

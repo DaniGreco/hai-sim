@@ -139,7 +139,7 @@ def test_every_service_time_model_satisfies_the_protocol(model):
 
 
 def test_scaled_service_time_can_model_either_sign_of_the_ai_effect():
-    """The open question of thesis §5.7, made a swept parameter, not a buried constant."""
+    """An open question of the reader model, made a swept parameter, not a buried constant."""
     base = ConstantServiceTime(10.0)
     assert ScaledServiceTime(base, 0.7).sample(IMAGES, _context()) == pytest.approx(7.0)
     assert ScaledServiceTime(base, 1.3).sample(IMAGES, _context()) == pytest.approx(13.0)

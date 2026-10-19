@@ -1,0 +1,71 @@
+# Builds the four DenseNet-121 cells on VinDr-CXR: data/cache/vindr__<member>.
+#
+#   uv run python scripts/materialize_cache.py --scenario configs/cache/vindr_ensemble.yaml \
+#       --limit 0 --device cuda:0 --checkpoint-every 200
+#
+# Images: the 15,000 VinDr-CXR training images, as the 1024 px PNG release on Kaggle
+# (`awsaf49/vinbigdata-1024-image-dataset`); data/vindr/images points to its train/ folder.
+# Labels: three radiologists per image, reduced by scripts/build_vindr_labels.py to a
+# presence table (a finding is present when at least 2 of the 3 readers boxed it) in
+# VinDr's own 14-finding vocabulary, then mapped into the model's 18 labels here.
+#
+# No member of the ensemble was trained on VinDr-CXR, so this dataset is out of domain for
+# all of them, while NIH ChestX-ray14 is in domain for some.
+name: vindr_ensemble
+seed: 42
+label_schema: xrv
+
+patient_generator:
+  kind: image_folder
+  dataset_id: vindr                 # cache-matrix dataset id -> data/cache/vindr__<member>
+  imgpath: data/vindr/images        # the 1024 px VinDr-CXR train PNGs
+  image_ext: .png
+  arrival_rate: 0.5
+  n_patients: 200
+  resize: 224                       # the DenseNet's native input resolution
+  gt_source: native
+  label_sources:
+    - name: majority                # >= 2 of 3 radiologists (built with --k 2)
+      kind: csv
+      path: data/vindr/labels.csv
+      id_column: image_id           # VinDr's native id column (= the PNG stem)
+      space: vindr                  # the CSV columns are VinDr's 14 findings
+      map: vindr14->xrv             # rename / split into the 18-label xrv schema
+
+# Score only the findings VinDr-CXR and the model share. The ten findings the studies use
+# are these minus Lung Opacity, which NIH ChestX-ray14 does not annotate.
+label_view:
+  mode: subset
+  targets:
+    - Cardiomegaly
+    - Effusion
+    - Consolidation
+    - Atelectasis
+    - Infiltration
+    - Nodule
+    - Mass
+    - Pleural_Thickening
+    - Pneumothorax
+    - Fibrosis
+    - Lung Opacity
+
+ai:
+  kind: torchxrv
+  weights:
+    - densenet121-res224-chex
+    - densenet121-res224-mimic_ch
+    - densenet121-res224-pc
+    - densenet121-res224-rsna
+  uq: ensemble
+  ensemble_measure: mutual_information
+  decision_threshold: 0.5
+  device: cpu
+  # "off" runs the live ensemble (a quick smoke test with `hai-sim run`); after the build,
+  # "require" replays data/cache/vindr__<member> and "fill" builds any missing image inline.
+  cache_mode: "off"
+
+persona: senior_skeptical
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean

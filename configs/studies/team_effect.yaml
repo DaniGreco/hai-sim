@@ -1,11 +1,12 @@
-# Experiment E4: what does a reader gain from seeing the AI, per pathology?
+# The human-AI team study with all three AIs: what does a reader gain from seeing the AI,
+# per pathology? (RQ4 of the paper runs it with MedGemma 27B.)
 #
 #   hai-sim study configs/studies/team_effect.yaml
 #
 # Four library personas (senior or junior, skeptical or trusting) read the same patients
 # with and without the AI's calibrated advice. Two rules combine the opinions: the linear
 # pool averages probabilities, the logarithmic pool adds evidence after putting both
-# opinions on the same prior (docs/STUDY_calibrated_advice.md). Three AIs give the advice.
+# opinions on the same prior (docs/calibration-and-fusion.md). Three AIs give the advice.
 # Every read keeps the reader's own unaided call next to the team's (`actors.doctor` vs
 # `actors.hybrid`), so the effect of the advice is measured on the same read, same noise. The team calls a finding present at 0.5, an
 # arbitrary and declared operating point. Patients come from the cache rows the

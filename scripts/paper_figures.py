@@ -1,6 +1,6 @@
-"""Figures, table and numbers of the ICSE-SEIS 2027 paper (RQ1 to RQ4), from the caches.
+"""Figures, table and numbers of the paper (RQ1 to RQ4), from the caches.
 
-    uv run python scripts/paper_icse_seis.py \
+    uv run python scripts/paper_figures.py \
         --queue-summary out/study_queue_load_medgemma27b_<stamp>_summary.csv \
         --team-long out/study_team_effect_medgemma27b_<stamp>_long.csv \
         --out ../overleaf-paper/images

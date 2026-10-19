@@ -1,7 +1,6 @@
 """Fit a probability calibrator against an inference cache, and print the config block.
 
-Without calibration a log-odds fusion can be *worse* than the doctor alone (thesis
-§2.4), because an over-confident model contributes a huge log-odds term and simply
+Without calibration a log-odds fusion can be *worse* than the doctor alone, because an over-confident model contributes a huge log-odds term and simply
 overrides its partner.
 Both backends measured so far are over-confident — the ensemble at an expected
 calibration error (ECE) of 0.266, MedGemma at 0.798 — so this is not hypothetical.

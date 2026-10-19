@@ -74,7 +74,7 @@ class ActorKPIs:
     """Total false negatives (FN) = (patient, label) pairs where the truth is 1 but the
     actor predicted 0. Clinically: a **missed** pathology — the expensive mistake, and
     the reason this simulator never judges a change by one combined score. Weighing FN
-    against FP explicitly is a cost model (thesis §2.4), left to the analysis."""
+    against FP explicitly is a cost model, left to the analysis."""
 
     n_fp: int
     """Total false positives (FP) = (patient, label) pairs where the truth is 0 but the
@@ -503,7 +503,7 @@ def _system_metrics(records: Sequence[PatientRecord]) -> dict[str, float]:
 class JointTable:
     """AI x Doctor x ground-truth joint contingency over labeled (patient, label) entries.
 
-    The AIxDoctorxGT table the thesis' contingency analysis needs (cf. tabella-TPFNFPTN):
+    The AIxDoctorxGT table a contingency analysis needs:
     two 2x2 confusion matrices (``ai_confusion`` = AI vs GT, ``doctor_confusion`` =
     Doctor vs GT) plus ``joint`` — the 8 cells that, for each ground-truth sign, give the
     2x2 count of (AI positive/negative) x (Doctor positive/negative). 'Doctor' is the final

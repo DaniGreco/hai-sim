@@ -1,10 +1,10 @@
 """How worn a reading station is: four shapes plus a way to combine them.
 
-**Why this is a seam and not a constant.** Thesis §8.3 lists among its limitations
-that *no analytic fatigue curve exists for radiology* — the literature offers isolated
+**Why this is a seam and not a constant.** *No analytic fatigue curve exists for
+radiology* — the literature offers isolated
 pre/post measurements (Krupinski 2010/2012, Vosshenrich 2021, Hanna 2023) and no
 functional form. The shape must therefore be imported from the human-factors
-literature, and thesis §5.7 treats it as **a mandatory sensitivity axis**. A mandatory
+literature, and it is **a mandatory sensitivity axis**. A mandatory
 sensitivity analysis over shapes is a requirement that the shape be swappable, which is
 what this module provides.
 

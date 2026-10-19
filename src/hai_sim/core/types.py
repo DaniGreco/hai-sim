@@ -251,7 +251,7 @@ class PatientContext:
     implementations each. Well-known keys:
 
     - ``difficulty`` — how hard this case is to read, from a `DifficultyModel`.
-      The latent ``delta`` of thesis §5.7, and the only route by which a
+      The latent ``delta`` of the reader model, and the only route by which a
       simulated reader's error can be made to correlate with the AI's.
     - ``fatigue`` — how worn the reader is *at the moment it picks this patient
       up*, from a `FatigueCurve` over the station's `ReaderState`. A property of

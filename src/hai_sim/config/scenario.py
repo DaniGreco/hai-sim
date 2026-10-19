@@ -59,7 +59,7 @@ class AIModelConfig(_Strict):
     name: str | None = None
     service_time: float = 0.05
     # fixed_accuracy params: a synthetic signal-detection AI whose skill is a dial, for the
-    # "AI performs well — is it trusted?" study (thesis §5.5). Give `d_prime` to set skill
+    # "AI performs well — is it trusted?" study. Give `d_prime` to set skill
     # directly (the natural quality-sweep axis) or a `sensitivity`/`specificity` operating
     # point; `prior` is the base rate its calibrated belief assumes. Needs the patient
     # generator's `embed_truth` so the synthetic reader can see the case it is scoring.
@@ -118,8 +118,8 @@ class AIModelConfig(_Strict):
     both_polarities: bool = False
     dtype: str = "auto"
     # vLLM HTTP backend: serve medgemma from a running vLLM OpenAI-compatible endpoint
-    # instead of loading the weights in this process (e.g. the k3s node's pods — which also
-    # lets the 27B run on one 96 GB card with no in-process sharding). `endpoint` is the base
+    # instead of loading the weights in this process (which also lets the 27B run on one
+    # 96 GB card with no in-process sharding). `endpoint` is the base
     # URL up to and including /v1; `served_model_name` is the server's --served-model-name,
     # which the request's `model` field must match. Only the `independent_question` readout
     # is supported over HTTP (teacher-forcing needs per-position logits the API hides). See
@@ -132,7 +132,7 @@ class AIModelConfig(_Strict):
     top_logprobs: int = 20
     # Optional post-hoc probability calibration, applied to member probabilities before
     # they are fused. Omit → raw model output, which for both backends measured so far
-    # is badly over-confident (measured during development; thesis §2.4).
+    # is badly over-confident (measured during development).
     calibration: CalibrationConfig | None = None
 
 
@@ -142,12 +142,12 @@ class ServiceTimeConfig(_Strict):
     ``lognormal`` (default) is the conventional right-skewed shape. The two wrappers
     compose on top of it:
 
-    - ``scale`` multiplies by a constant — the knob for the open question (thesis §5.7) of
+    - ``scale`` multiplies by a constant — the knob for the open question of
       whether AI assistance speeds a reader up (``factor < 1``, Seah 2021 measured
       81 s → 56 s) or costs them verification time (``factor > 1``). Sweep it; the
       literature does not settle it.
     - ``fatigue_slope`` stretches the read in proportion to the ``sig.fatigue`` signal,
-      which is the time dimension of the doctor model (thesis §5.7).
+      which is the time dimension of the doctor model.
 
     Both may be set at once: the scale is applied to the fatigue-modulated draw.
     """
@@ -168,7 +168,7 @@ class CapabilityConfig(_Strict):
     service_time_sigma: float = 0.4
     # fixed_accuracy / sdt params (scalar applied to all labels, or per-label vector).
     # `fixed_accuracy` keeps or flips each label on a fixed-bias coin; `sdt` is the
-    # signal-detection observer of thesis §5.7, whose belief varies case by case (so an
+    # signal-detection observer, whose belief varies case by case (so an
     # integration policy becomes a curve, not a step). For `sdt`, capability is set either
     # by `d_prime` (the SDT-native skill axis) or by the sens/spec operating point below,
     # and `prior` is the base rate its belief is calibrated to.
@@ -190,7 +190,7 @@ class CapabilityConfig(_Strict):
     # How much of its accuracy this reader loses at difficulty 1.0 / fatigue 1.0.
     # Both default to 0, so a persona is case-blind unless a scenario says otherwise —
     # and a case-blind reader errs independently of the AI by construction, which is
-    # what pins the human-AI error correlation at zero (thesis §5.7).
+    # what pins the human-AI error correlation at zero.
     difficulty_slope: float = Field(default=0.0, ge=0.0)
     fatigue_slope: float = Field(default=0.0, ge=0.0)
     # Accuracy floor: degradation stops at a coin flip rather than inverting.
@@ -281,8 +281,8 @@ class SeverityConfig(_Strict):
 class DifficultyConfig(_Strict):
     """Optional per-case difficulty model. Omit the block → no difficulty computed.
 
-    The latent ``delta`` of thesis §5.7, and the only route by which a simulated
-    reader's errors can correlate with the AI's. Thesis §8.3 states that there is no
+    The latent ``delta`` of the reader model, and the only route by which a simulated
+    reader's errors can correlate with the AI's. There is no
     canonical difficulty model and that the ``Beta(2, 5)`` prior is chosen by hand; the
     response is to make it a configuration line and report the sensitivity.
 
@@ -306,7 +306,7 @@ class DifficultyConfig(_Strict):
     kind: Literal["constant", "prior", "uncertainty", "image_quality", "table"] = "prior"
     # constant
     value: float = Field(default=0.5, ge=0.0, le=1.0)
-    # prior: Beta(a, b) — Beta(2, 5) is the default and an explicit assumption (thesis §8.3)
+    # prior: Beta(a, b) — Beta(2, 5) is the default and an explicit assumption
     a: float = Field(default=2.0, gt=0.0)
     b: float = Field(default=5.0, gt=0.0)
     # uncertainty
@@ -327,9 +327,8 @@ class DifficultyConfig(_Strict):
 class FatigueConfig(_Strict):
     """Optional reader fatigue curve. Omit the block → readers never tire.
 
-    Thesis §5.7 records that radiology has no analytic fatigue curve — only
-    isolated pre/post points — and treats the shape as **a mandatory sensitivity
-    axis**. Hence four shapes rather than one, and a ``composite`` that
+    Radiology has no analytic fatigue curve — only isolated pre/post points — so
+    the shape is **a mandatory sensitivity axis**. Hence four shapes rather than one, and a ``composite`` that
     combines them, since a night shift is circadian *and* time-on-task.
 
     ⚠️ Time has no units: parameters are in simulation time units and the defaults
@@ -357,7 +356,7 @@ class FatigueConfig(_Strict):
 class ArrivalConfig(_Strict):
     """How arrival times are generated. Omit → homogeneous Poisson at ``arrival_rate``.
 
-    Thesis §5.4 makes the escalation conditional on a test rather than on
+    The escalation is conditional on a test rather than on
     taste: start homogeneous, move to a non-homogeneous Poisson process (NHPP) with a
     piecewise-constant rate, and go further only if a conditional Kolmogorov-Smirnov
     test rejects. Kim & Whitt (2014) explain the caution — much of the reported burstiness in
@@ -420,7 +419,7 @@ class PatientGenConfig(_Strict):
     arrival_rate: float = Field(gt=0)
     n_patients: int = Field(gt=0)
     # *When* patients arrive, separated from *which* patient arrives. Omit → a
-    # homogeneous Poisson process at `arrival_rate`, the baseline of thesis §5.4. Note that load
+    # homogeneous Poisson process at `arrival_rate`, the baseline. Note that load
     # is not background: order effects only exist under saturation, so a triage study
     # is a study of what this block produces.
     arrivals: ArrivalConfig | None = None

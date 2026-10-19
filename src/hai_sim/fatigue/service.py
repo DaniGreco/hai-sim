@@ -1,11 +1,11 @@
 """How long one read takes — the quantity that creates the queue.
 
 Reading time used to be a hardcoded lognormal draw inside each actor. Pulling it out is
-not tidying: three separate open questions of the design (thesis §5.7) all turn on it,
+not tidying: three separate open questions of the design all turn on it,
 and none of them can be answered by editing a doctor.
 
 1. **Does AI assistance speed a reader up or slow them down?** The literature supports
-   both signs, so thesis §5.7 treats the sign as a sensitivity axis. Seah 2021 measured
+   both signs, so the sign is a sensitivity axis. Seah 2021 measured
    81 s -> 56 s; the verification-cost argument predicts the opposite.
    `ScaledServiceTime` makes the factor a swept parameter instead of a buried constant.
 2. **Does acute fatigue slow reading, or only degrade accuracy?** This was the one
@@ -81,7 +81,7 @@ class LognormalServiceTime:
 class ScaledServiceTime:
     """Multiply another model's draw by a fixed factor.
 
-    The knob for the open question of thesis §5.7. ``factor < 1`` is the acceleration
+    The knob for this open question. ``factor < 1`` is the acceleration
     hypothesis (the AI's pre-read saves the reader time); ``factor > 1`` is the
     verification-cost hypothesis (the reader now has a second opinion to adjudicate).
     Both are defensible and the literature is contradictory, so the honest treatment is
