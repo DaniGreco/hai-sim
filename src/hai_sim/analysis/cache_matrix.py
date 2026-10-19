@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from hai_sim.analysis.inference_cache import InferenceCache
+from hai_sim.analysis.inference_cache import InferenceCache, cache_files
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -198,7 +198,7 @@ def inspect_cell(
     as "unknown, do not block" rather than a mismatch.
     """
     stem = spec.stem(dataset_id_, root)
-    if not stem.with_suffix(".npz").exists():
+    if not cache_files(stem)[0].exists():
         return CellStatus(spec, stem, exists=False, conflict=None, present_ids=frozenset())
     cache = InferenceCache.load(stem)
     conflict: str | None = None

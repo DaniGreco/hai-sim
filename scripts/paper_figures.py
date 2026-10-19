@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -34,6 +33,7 @@ from scipy.stats import friedmanchisquare, wilcoxon
 
 from hai_sim.analysis import capture_figures
 from hai_sim.analysis.capture_study import load_config, run_capture_study
+from hai_sim.analysis.inference_cache import InferenceCache
 from hai_sim.analysis.study_figures import BAND, NEUTRAL, _mean_ci, _read, _study_of, _truth_counts
 
 # The ten findings annotated on both datasets (Lung Opacity is VinDr-CXR only), most
@@ -157,9 +157,9 @@ def render_wait(summary: Path, out: Path) -> None:
             if r["metric"] == "system.mean_wait_to_doctor" and r["group"].endswith(":positive")]
     cell = {(r["patient_generator.arrival_rate"], r["sort.kind"], r["group"][6:-9]): r for r in rows}
     rates = sorted({r["patient_generator.arrival_rate"] for r in rows}, key=float)
-    stem = "data/cache/composed/vindr__ens4"  # same ids and truth as every cell
-    labels = json.loads(Path(f"{stem}.json").read_text(encoding="utf-8"))["pathologies"]
-    gt = np.load(f"{stem}.npz", allow_pickle=True)["ground_truth"][1::2]  # the odd half the study reads
+    cache = InferenceCache.load("data/cache/composed/vindr__ens4")  # same ids and truth as every cell
+    labels = list(cache.pathologies)
+    gt = cache.ground_truth[1::2]  # the odd half the study reads
     share = {f: 100 * gt[:, labels.index(f)].mean() for f in COMMON}
     findings = sorted(COMMON, key=lambda f: -share[f])
     sorts = [("random", NEUTRAL, "o", "Random order"),

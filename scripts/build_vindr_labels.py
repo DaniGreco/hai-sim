@@ -1,6 +1,17 @@
 """Turn the raw VinDr / VinBigData ``train.csv`` (per-radiologist boxes) into the tidy
 tables the framework consumes.
 
+The VinDr-CXR labels are not redistributed with this repository, so run this once before
+any study on VinDr-CXR; the shipped VinDr-CXR caches read their ground truth from the
+``labels.csv`` it writes:
+
+    uv run python scripts/build_vindr_labels.py
+
+It downloads ``train.csv`` (about 2 MB) of the Kaggle competition
+``vinbigdata-chest-xray-abnormalities-detection`` with kagglehub. This needs a Kaggle API
+token (``~/.kaggle/kaggle.json`` or ``KAGGLE_API_TOKEN``) and the competition rules
+accepted once on its Kaggle page. ``--train-csv`` uses a file you already have.
+
 Reads one row per box (columns ``image_id, class_name, rad_id, ...``) and writes, in the
 raw 14-finding VinDr vocabulary:
 
@@ -42,6 +53,24 @@ def read_rows(path: Path) -> list[dict[str, str]]:
     return list(csv.DictReader(io.StringIO(text)))
 
 
+def download_train_csv() -> Path:
+    """The competition ``train.csv``, downloaded once into the kagglehub cache."""
+    try:
+        import kagglehub
+    except ImportError:
+        raise SystemExit("kagglehub is missing: `uv sync --extra analysis`, or pass --train-csv") from None
+    try:
+        path = kagglehub.competition_download(
+            "vinbigdata-chest-xray-abnormalities-detection", path="train.csv"
+        )
+    except Exception as exc:
+        raise SystemExit(
+            f"could not download train.csv ({exc}). Check the Kaggle API token and accept the "
+            "rules on https://www.kaggle.com/competitions/vinbigdata-chest-xray-abnormalities-detection"
+        ) from exc
+    return Path(path)
+
+
 def _delta(count: int, n_readers: int) -> float:
     """Normalised inter-reader disagreement 4p(1-p): 0 unanimous, 1 at an even split."""
     p = count / n_readers if n_readers else 0.0
@@ -53,9 +82,8 @@ def main() -> None:
     ap.add_argument(
         "--train-csv",
         type=Path,
-        default=Path.home()
-        / ".cache/kagglehub/competitions"
-        / "vinbigdata-chest-xray-abnormalities-detection/train.csv",
+        default=None,
+        help="the competition train.csv (default: download it with kagglehub)",
     )
     ap.add_argument("--out-dir", type=Path, default=Path("data/vindr"))
     ap.add_argument(
@@ -66,7 +94,8 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    rows = read_rows(args.train_csv)
+    train_csv = args.train_csv or download_train_csv()
+    rows = read_rows(train_csv)
     readers_of: dict[str, set[str]] = defaultdict(set)  # image -> {rad_id}
     boxed: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for r in rows:

@@ -42,7 +42,7 @@ factors:
     - *ensemble
     - name: medgemma-4b
       kind: cached
-      cache_stem: data/cache/vindr__medgemma-1
+      cache_stem: data/cache/vindr__medgemma-1.5-4b
       service_time: 0.25
       decision_threshold: prevalence_matched
       calibration: {kind: platt, path: data/cache/calibration/vindr__medgemma-4b.json}

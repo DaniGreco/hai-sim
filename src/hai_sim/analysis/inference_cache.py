@@ -18,6 +18,11 @@ Storage layout — one cache is two sibling files sharing a stem:
 - ``<stem>.npz``  : the arrays (member_probs, ground_truth, inference_seconds, ids).
 - ``<stem>.json`` : a human-readable manifest (weights, pathologies, dataset, timing).
 
+A cache may leave its ground truth out of the ``.npz`` and name a per-image label table
+in its manifest instead (``label_table``). The VinDr-CXR cells ship this way, because
+the VinDr-CXR labels may not be redistributed: `load` rebuilds the ground truth from
+the table, which ``scripts/build_vindr_labels.py`` writes once on each machine.
+
 Writes are atomic (temp file + ``os.replace``) so an interrupted checkpoint never
 leaves a half-written cache behind — important because the build loop checkpoints
 periodically while it runs.
@@ -92,6 +97,12 @@ class InferenceCache:
     xrv; model_id + prompt_set + readout for MedGemma). The decision threshold, UQ
     measure and calibration are applied downstream, so they are NOT part of it."""
 
+    label_table: dict[str, str] | None = None
+    """Where the ground truth comes from when the ``.npz`` does not carry it: the ``path``
+    of a per-image label table, its ``id_column``, its label ``space``, the ``map`` into
+    ``pathologies``, and the ``build`` command that writes the table. ``None`` = the
+    ground truth is stored in the ``.npz``, the usual case."""
+
     @property
     def n_images(self) -> int:
         return int(self.member_probs.shape[0])
@@ -105,23 +116,25 @@ class InferenceCache:
         return int(self.member_probs.shape[2])
 
     def save(self, stem: str | Path) -> None:
-        """Persist to ``<stem>.npz`` + ``<stem>.json`` atomically."""
-        stem = Path(stem)
-        npz_path = stem.with_suffix(".npz")
-        json_path = stem.with_suffix(".json")
+        """Persist to ``<stem>.npz`` + ``<stem>.json`` atomically.
+
+        With a ``label_table`` the ground truth is not written: it stays in the table.
+        """
+        npz_path, json_path = cache_files(stem)
         npz_path.parent.mkdir(parents=True, exist_ok=True)
 
         tmp_npz = npz_path.with_name(npz_path.name + ".tmp")
         # Pass a file handle so np.savez does NOT append its own ".npz" suffix.
+        arrays: dict[str, np.ndarray] = {
+            "member_probs": self.member_probs,
+            "inference_seconds": self.inference_seconds,
+            "dataset_indices": self.dataset_indices,
+            "image_ids": np.asarray(self.image_ids),  # unicode array, no pickle needed
+        }
+        if self.label_table is None:
+            arrays["ground_truth"] = self.ground_truth
         with open(tmp_npz, "wb") as fh:
-            np.savez(
-                fh,
-                member_probs=self.member_probs,
-                ground_truth=self.ground_truth,
-                inference_seconds=self.inference_seconds,
-                dataset_indices=self.dataset_indices,
-                image_ids=np.asarray(self.image_ids),  # unicode array, no pickle needed
-            )
+            np.savez_compressed(fh, **arrays)
         os.replace(tmp_npz, npz_path)
 
         manifest: dict[str, Any] = {
@@ -142,6 +155,8 @@ class InferenceCache:
                 "total": float(np.sum(self.inference_seconds)),
             },
         }
+        if self.label_table is not None:
+            manifest["label_table"] = self.label_table
         tmp_json = json_path.with_name(json_path.name + ".tmp")
         tmp_json.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         os.replace(tmp_json, json_path)
@@ -149,16 +164,25 @@ class InferenceCache:
     @classmethod
     def load(cls, stem: str | Path) -> InferenceCache:
         """Load a cache previously written by :meth:`save`."""
-        stem = Path(stem)
-        npz_path = stem.with_suffix(".npz")
-        json_path = stem.with_suffix(".json")
+        npz_path, json_path = cache_files(stem)
         with np.load(npz_path) as data:
             member_probs = np.asarray(data["member_probs"])
-            ground_truth = np.asarray(data["ground_truth"])
+            stored_truth = (
+                np.asarray(data["ground_truth"]) if "ground_truth" in data.files else None
+            )
             inference_seconds = np.asarray(data["inference_seconds"])
             dataset_indices = np.asarray(data["dataset_indices"])
             image_ids = tuple(str(x) for x in data["image_ids"])
         manifest = json.loads(json_path.read_text(encoding="utf-8"))
+        label_table = manifest.get("label_table")
+        if stored_truth is not None:
+            ground_truth = stored_truth
+        elif label_table is not None:
+            ground_truth = ground_truth_from_table(
+                label_table, image_ids, tuple(manifest["pathologies"])
+            )
+        else:
+            raise ValueError(f"{npz_path}: no ground truth, and the manifest names no label table")
         return cls(
             member_probs=member_probs,
             ground_truth=ground_truth,
@@ -171,7 +195,52 @@ class InferenceCache:
             batch_size=int(manifest["batch_size"]),
             dataset_fingerprint=str(manifest.get("dataset_fingerprint", "")),
             model_fingerprint=str(manifest.get("model_fingerprint", "")),
+            label_table=label_table,
         )
+
+
+def cache_files(stem: str | Path) -> tuple[Path, Path]:
+    """``(<stem>.npz, <stem>.json)``.
+
+    The suffix is appended, never swapped: a cell alias such as ``medgemma-1.5-4b``
+    contains dots, and `Path.with_suffix` would cut the name at the last one.
+    """
+    stem = Path(stem)
+    return stem.with_name(f"{stem.name}.npz"), stem.with_name(f"{stem.name}.json")
+
+
+def ground_truth_from_table(
+    spec: dict[str, str], image_ids: Sequence[str], pathologies: tuple[str, ...]
+) -> np.ndarray:
+    """The ``(N, L)`` ground truth of a cache shipped without it, read from its label table.
+
+    Rows are matched by image id; the table's labels are mapped into ``pathologies`` the
+    same way a scenario's ``label_sources`` entry maps them, so the result is exactly the
+    ground truth the cache was built with.
+    """
+    from hai_sim.core.types import LabelSchema
+    from hai_sim.data.sources import CsvLabelSource
+    from hai_sim.factory import build_label_schema
+    from hai_sim.labels import resolve_label_map
+
+    path = Path(spec["path"])
+    if not path.exists():
+        how = spec.get("build", "")
+        raise FileNotFoundError(
+            f"{path} not found: this cache ships without its labels."
+            + (f" Build them once with `{how}`." if how else "")
+        )
+    label_map = resolve_label_map(
+        spec.get("map"), build_label_schema(spec["space"]), LabelSchema(labels=pathologies)
+    )
+    source = CsvLabelSource(path, label_map, id_column=spec.get("id_column", "example_id"))
+    rows: list[tuple[int, ...]] = []
+    for image_id in image_ids:
+        row = source.labels_for(image_id)
+        if row is None:
+            raise ValueError(f"{path} has no row for image {image_id!r}")
+        rows.append(row)
+    return np.asarray(rows, dtype=np.int8).reshape(len(image_ids), len(pathologies))
 
 
 def _ground_truth_row(lab: np.ndarray) -> np.ndarray:
@@ -309,6 +378,7 @@ def build_inference_cache(
             batch_size=batch_size,
             dataset_fingerprint=dataset_fingerprint,
             model_fingerprint=model_fingerprint,
+            label_table=prior.label_table if prior is not None else None,
         )
 
     processed = 0

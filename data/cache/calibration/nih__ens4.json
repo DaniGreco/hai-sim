@@ -1,0 +1,224 @@
+{
+  "kind": "platt",
+  "provenance": {
+    "caches": [
+      "data/cache/nih__chex",
+      "data/cache/nih__mimic_ch",
+      "data/cache/nih__pc",
+      "data/cache/nih__rsna"
+    ],
+    "model_fingerprints": [
+      "torchxrv|densenet121-res224-chex",
+      "torchxrv|densenet121-res224-mimic_ch",
+      "torchxrv|densenet121-res224-pc",
+      "torchxrv|densenet121-res224-rsna"
+    ],
+    "dataset_fingerprint": "xrv:nih|views=PA,AP|unique=True|resize=224",
+    "fitted_on": "even split, 15403 images",
+    "calibrated_quantity": "fused probability (mean over members)",
+    "ece_held_out": {
+      "Atelectasis": {
+        "raw": 0.27629134444281855,
+        "calibrated": 0.00341469054521931
+      },
+      "Consolidation": {
+        "raw": 0.22318266399738768,
+        "calibrated": 0.0022086322306858128
+      },
+      "Infiltration": {
+        "raw": 0.223031282555877,
+        "calibrated": 0.005299445595951804
+      },
+      "Pneumothorax": {
+        "raw": 0.2698862213239403,
+        "calibrated": 0.0013665501638966612
+      },
+      "Edema": {
+        "raw": 0.22988611189340477,
+        "calibrated": 0.00031553500163684635
+      },
+      "Emphysema": {
+        "raw": 0.14592035445442153,
+        "calibrated": 0.0005145296869203137
+      },
+      "Fibrosis": {
+        "raw": 0.04989857772465771,
+        "calibrated": 0.00030873389367525386
+      },
+      "Effusion": {
+        "raw": 0.18678881137710762,
+        "calibrated": 0.0051031964095576525
+      },
+      "Pneumonia": {
+        "raw": 0.2423728057266945,
+        "calibrated": 6.927011843361856e-05
+      },
+      "Pleural_Thickening": {
+        "raw": 0.17083733029505033,
+        "calibrated": 0.002361511804010223
+      },
+      "Cardiomegaly": {
+        "raw": 0.2273924499397222,
+        "calibrated": 0.0041210927308244555
+      },
+      "Nodule": {
+        "raw": 0.31402583168471254,
+        "calibrated": 0.007860357190002304
+      },
+      "Mass": {
+        "raw": 0.16420884028091765,
+        "calibrated": 0.005754212302239906
+      },
+      "Hernia": {
+        "raw": 0.10002752455537806,
+        "calibrated": 0.0006192156730109285
+      }
+    }
+  },
+  "per_label": {
+    "Atelectasis": {
+      "a": 0.8789452659380628,
+      "b": -2.466269573444418,
+      "n_positive": 832,
+      "prevalence": 0.054015451535415177,
+      "threshold_raw": 0.6852186453355593,
+      "threshold_calibrated": 0.14398565228709634
+    },
+    "Consolidation": {
+      "a": 0.8787305046513215,
+      "b": -3.3497674059292506,
+      "n_positive": 232,
+      "prevalence": 0.015062000908913848,
+      "threshold_raw": 0.6611015169154447,
+      "threshold_calibrated": 0.059379333169291094
+    },
+    "Infiltration": {
+      "a": 0.11314019543040957,
+      "b": -1.8895059966284322,
+      "n_positive": 1825,
+      "prevalence": 0.11848341232227488,
+      "threshold_raw": 0.63024684151202,
+      "threshold_calibrated": 0.13833705362178597
+    },
+    "Pneumothorax": {
+      "a": 1.0686150151843223,
+      "b": -3.920988693809142,
+      "n_positive": 124,
+      "prevalence": 0.00805037979614361,
+      "threshold_raw": 0.5392643704901741,
+      "threshold_calibrated": 0.022914406688912942
+    },
+    "Edema": {
+      "a": 2.053800100092727,
+      "b": -5.260217967727161,
+      "n_positive": 39,
+      "prevalence": 0.0025319742907225864,
+      "threshold_raw": 0.7595026189289917,
+      "threshold_calibrated": 0.05223067611128694
+    },
+    "Emphysema": {
+      "a": 0.29673252366218156,
+      "b": -4.0198528868575725,
+      "n_positive": 136,
+      "prevalence": 0.008829448808673635,
+      "threshold_raw": 0.5180496719451119,
+      "threshold_calibrated": 0.018014140520867566
+    },
+    "Fibrosis": {
+      "a": 0.1617761835650419,
+      "b": -3.103482180360223,
+      "n_positive": 283,
+      "prevalence": 0.01837304421216646,
+      "threshold_raw": 0.5072756289336803,
+      "threshold_calibrated": 0.043157864730815836
+    },
+    "Effusion": {
+      "a": 0.9538653517435532,
+      "b": -2.5330661621539825,
+      "n_positive": 629,
+      "prevalence": 0.04083620074011556,
+      "threshold_raw": 0.7506285961651663,
+      "threshold_calibrated": 0.18513495972100388
+    },
+    "Pneumonia": {
+      "a": 0.9344111395813188,
+      "b": -4.31775147066888,
+      "n_positive": 89,
+      "prevalence": 0.005778095176264364,
+      "threshold_raw": 0.7001721486347657,
+      "threshold_calibrated": 0.028601967449040366
+    },
+    "Pleural_Thickening": {
+      "a": 0.3588123695976721,
+      "b": -3.120145545899735,
+      "n_positive": 363,
+      "prevalence": 0.023566837629033305,
+      "threshold_raw": 0.5652417176761835,
+      "threshold_calibrated": 0.04626630768583347
+    },
+    "Cardiomegaly": {
+      "a": 1.070798056185214,
+      "b": -3.0582220765885317,
+      "n_positive": 359,
+      "prevalence": 0.02330714795818996,
+      "threshold_raw": 0.7326957840928677,
+      "threshold_calibrated": 0.12147988117982948
+    },
+    "Nodule": {
+      "a": 0.7203746812808131,
+      "b": -2.4687227375253937,
+      "n_positive": 874,
+      "prevalence": 0.056742193079270274,
+      "threshold_raw": 0.5329254528984407,
+      "threshold_calibrated": 0.0851994883621611
+    },
+    "Mass": {
+      "a": 0.8118758012396023,
+      "b": -2.1005159198766887,
+      "n_positive": 680,
+      "prevalence": 0.04414724404336817,
+      "threshold_raw": 0.5204888469002846,
+      "threshold_calibrated": 0.1156851340349278
+    },
+    "Hernia": {
+      "a": 1.1305746008969608,
+      "b": -4.269668136301052,
+      "n_positive": 43,
+      "prevalence": 0.0027916639615659287,
+      "threshold_raw": 0.6923803931543134,
+      "threshold_calibrated": 0.03381453230086416
+    },
+    "Lung Lesion": {
+      "a": 1.0,
+      "b": 0.0,
+      "n_positive": 0,
+      "prevalence": null,
+      "threshold_raw": null,
+      "threshold_calibrated": null
+    },
+    "Fracture": {
+      "a": 1.0,
+      "b": 0.0,
+      "n_positive": 0,
+      "prevalence": null,
+      "threshold_raw": null,
+      "threshold_calibrated": null
+    },
+    "Lung Opacity": {
+      "a": 1.0,
+      "b": 0.0,
+      "n_positive": 0,
+      "prevalence": null,
+      "threshold_raw": null,
+      "threshold_calibrated": null
+    },
+    "Enlarged Cardiomediastinum": {
+      "a": 1.0,
+      "b": 0.0,
+      "n_positive": 0,
+      "prevalence": null,
+      "threshold_raw": null,
+      "threshold_calibrated": null
+    }
+  }
+}

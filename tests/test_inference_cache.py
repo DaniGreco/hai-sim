@@ -71,6 +71,52 @@ def test_save_is_atomic_no_tmp_left(tmp_path: Path) -> None:
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_alias_with_dots_keeps_its_full_name(tmp_path: Path) -> None:
+    """A MedGemma alias contains dots; the file name must keep all of it."""
+    stem = tmp_path / "nih__medgemma-1.5-4b"
+    _synthetic_cache().save(stem)
+    assert (tmp_path / "nih__medgemma-1.5-4b.npz").exists()
+    assert (tmp_path / "nih__medgemma-1.5-4b.json").exists()
+    assert InferenceCache.load(stem).n_images == 6
+
+
+def _vindr_table(path: Path, ids: tuple[str, ...]) -> None:
+    """A label table in VinDr's 14-finding vocabulary: image i has Cardiomegaly iff i is odd,
+    and Nodule/Mass on image 2 only."""
+    vindr = LabelSchema.vindr().labels
+    rows = ["image_id," + ",".join(vindr)]
+    for i, image_id in enumerate(ids):
+        cells = ["0"] * len(vindr)
+        cells[vindr.index("Cardiomegaly")] = str(i % 2)
+        cells[vindr.index("Nodule/Mass")] = "1" if i == 2 else "0"
+        rows.append(image_id + "," + ",".join(cells))
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+
+def test_label_table_keeps_the_ground_truth_out_of_the_cache(tmp_path: Path) -> None:
+    cache = _synthetic_cache()
+    table = tmp_path / "labels.csv"
+    _vindr_table(table, cache.image_ids)
+    cache.label_table = {"path": str(table), "id_column": "image_id", "space": "vindr",
+                         "map": "vindr14->xrv", "build": "make the table"}
+    stem = tmp_path / "vindr__c"
+    cache.save(stem)
+    with np.load(tmp_path / "vindr__c.npz") as data:
+        assert "ground_truth" not in data.files
+
+    loaded = InferenceCache.load(stem)
+    xrv = LabelSchema.xrv().labels
+    np.testing.assert_array_equal(loaded.ground_truth[:, xrv.index("Cardiomegaly")], [0, 1, 0, 1, 0, 1])
+    np.testing.assert_array_equal(loaded.ground_truth[:, xrv.index("Nodule")], [0, 0, 1, 0, 0, 0])
+    np.testing.assert_array_equal(loaded.ground_truth[:, xrv.index("Mass")], [0, 0, 1, 0, 0, 0])
+    assert (loaded.ground_truth[:, xrv.index("Edema")] == -1).all()  # VinDr does not annotate it
+    assert loaded.label_table == cache.label_table
+
+    table.unlink()
+    with pytest.raises(FileNotFoundError, match="make the table"):
+        InferenceCache.load(stem)
+
+
 def test_least_confidence_present_and_rank_equiv_to_predictive_entropy() -> None:
     from hai_sim.analysis.error_curve import _rankdata_avg
 
