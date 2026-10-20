@@ -1,4 +1,4 @@
-# Experiment E3 with MedGemma 27B: the waiting-time study of the ICSE-SEIS 2027 paper (RQ3).
+# RQ3 of the paper: the waiting-time study with MedGemma 27B.
 #
 #   hai-sim study configs/studies/queue_load_medgemma27b.yaml
 #

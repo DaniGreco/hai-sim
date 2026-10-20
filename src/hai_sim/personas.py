@@ -14,14 +14,14 @@ team's outcome and whether it relies on the AI appropriately?".
 Capability is a sensitivity/specificity operating point (senior 0.95/0.95, junior
 0.85/0.88), the same for every finding, driving a signal-detection reader (`SDTDoctor`).
 The reader is blind to the image, so its errors are independent of the AI's, and the
-benefit of the advice is an upper bound (thesis §8.3). Trust is the **weight of advice (WOA)** — how much of an advisor's
+benefit of the advice is an upper bound. Trust is the **weight of advice (WOA)** — how much of an advisor's
 opinion a judge adopts, 0 = ignored, 1 = adopted wholesale — applied here as the AI's
 share of a linear pool:
 
     skeptical:  senior 0.20 < junior 0.40      trusting: senior 0.45 < junior 0.65
 
 **What is anchored and what is not** — the two axes differ sharply, and papers should say
-so (see thesis §5.8 and §8.3):
+so:
 
 - `weight_ai` default 0.39 = the pooled mean WOA of Bailey et al. 2023 (346 effects,
   N~17,000). Anchored, but that meta-analysis covers *generic* numeric-estimate
@@ -57,7 +57,7 @@ _JUNIOR = (0.85, 0.88)
 
 def _cap(sens_spec: tuple[float, float]) -> CapabilityConfig:
     # An SDT reader, not a fixed-bias coin: its belief varies case by case, which is what
-    # lets a trust weight act as a reliance curve instead of a step (thesis §5.7).
+    # lets a trust weight act as a reliance curve instead of a step.
     return CapabilityConfig(kind="sdt", sensitivity=sens_spec[0], specificity=sens_spec[1])
 
 

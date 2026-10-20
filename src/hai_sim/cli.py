@@ -256,7 +256,7 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
         table.add_column("ai", justify="right")
         table.add_column("doctor", justify="right")
         table.add_column("hybrid", justify="right")
-        for row, getter in [
+        rows: list[tuple[str, Callable[[Any], Any]]] = [
             ("F1 macro", lambda a: a.f1_macro),
             ("precision macro", lambda a: a.precision_macro),
             ("recall macro", lambda a: a.recall_macro),
@@ -266,7 +266,8 @@ def _print_kpi_table(name: str, report: dict[str, Any]) -> None:
             ("TTFE", lambda a: a.ttfe),
             ("MTTF", lambda a: a.mttf),
             ("mean t-to-FN", lambda a: a.mttfn),
-        ]:
+        ]
+        for row, getter in rows:
             table.add_row(
                 row,
                 _fmt(getter(actors["ai"])),
@@ -426,141 +427,6 @@ def _fmt(v: object) -> str:
     return str(v)
 
 
-def _validate_from_cache(args: argparse.Namespace, out_dir: Path) -> int:
-    from hai_sim.analysis.localization.cache import LocalizationCache
-    from hai_sim.analysis.localization.evaluate import evaluate_from_cache
-    from hai_sim.analysis.localization.metrics import Dice, EnergyInMask, IoU, PointingGame
-    from hai_sim.core.protocols import LocalizationMetric
-
-    cache = LocalizationCache.load(args.from_cache)
-    # --pointing-tolerance is given in 224px (model-input) units; the cache scores at
-    # mask_resolution, so scale the Chebyshev radius to match the live validator.
-    tol = round(args.pointing_tolerance * cache.mask_resolution / 224)
-    metrics: list[LocalizationMetric] = [
-        PointingGame(tolerance=tol),
-        EnergyInMask(),
-        IoU(0.5),
-        Dice(0.5),
-    ]
-    report = evaluate_from_cache(
-        cache,
-        metrics=metrics,
-        threshold=args.threshold,
-        member_aggregation=args.aggregation,
-        split=args.split,
-        model_name="+".join(cache.weights),
-    )
-    name = Path(args.from_cache).stem + (f"_{args.split}" if args.split else "")
-    console.print(
-        f"[bold]validation (from cache)[/bold]: {name}  members={cache.n_members}  "
-        f"images={report.n_images}  thr={args.threshold}  agg={args.aggregation}  "
-        f"split={args.split or 'all'}"
-    )
-    report_path = out_dir / f"{name}_thr{args.threshold:g}_{args.aggregation}_report.json"
-    _write_json(report_path, report.to_dict())
-    _print_validation(name, report)
-    console.print(f"[green]report -> {report_path}[/green]")
-    return 0
-
-
-def cmd_validate(args: argparse.Namespace) -> int:
-    out_dir = _prepare_out(args.out_dir)
-
-    if args.from_cache:
-        return _validate_from_cache(args, out_dir)
-
-    from hai_sim.config.scenario import load_validation_scenario
-    from hai_sim.factory import build_validation
-
-    if not args.scenario:
-        console.print("[red]provide a scenario YAML or --from-cache <cache-stem>[/red]")
-        return 2
-    scenario_path = Path(args.scenario)
-    if not scenario_path.exists():
-        console.print(f"[red]scenario not found: {scenario_path}[/red]")
-        return 2
-    scenario = load_validation_scenario(scenario_path)
-
-    _schema, dataset, validator = build_validation(scenario)
-    n_total = len(dataset)
-    limit = args.limit if args.limit is not None else scenario.limit
-    indices = list(range(n_total))
-    if limit and limit > 0:
-        indices = indices[:limit]
-
-    console.print(
-        f"[bold]validation[/bold]: {scenario.name}  model={validator.actor.name}  "
-        f"dataset={dataset.name} (n={len(indices)}/{n_total})  saliency={scenario.saliency}"
-    )
-    records_path = out_dir / f"{scenario.name}_records.json"
-
-    progress = _make_progress("processed")
-
-    t0 = time.time()
-    report = validator.run(
-        indices=indices,
-        records_path=records_path,
-        checkpoint_every=args.checkpoint_every,
-        progress=progress,
-    )
-    wall = time.time() - t0
-
-    report_path = out_dir / f"{scenario.name}_report.json"
-    _write_json(report_path, report.to_dict())
-    _print_validation(scenario.name, report)
-    console.print(f"[green]report  -> {report_path}[/green]")
-    console.print(f"[green]records -> {records_path}[/green]  ({wall:.1f}s)")
-    return 0
-
-
-def _fmt_agg(agg: object) -> str:
-    mean = getattr(agg, "mean", None)
-    if mean is None:
-        return "-"
-    return f"{mean:.3f} (n={getattr(agg, 'n_valid', 0)})"
-
-
-def _print_validation(name: str, report) -> None:
-    pooled = report.localization_pooled
-    if pooled and any(m.n_total for m in pooled):
-        metric_names = [m.metric for m in pooled]
-        pp = {m.metric: m for m in report.localization_pooled_predicted}
-        t = Table(title=f"Localization pooled - {name}")
-        t.add_column("metric")
-        t.add_column("all GT-present", justify="right")
-        t.add_column("predicted+ only", justify="right")
-        for m in pooled:
-            t.add_row(m.metric, _fmt_agg(m), _fmt_agg(pp.get(m.metric)))
-        console.print(t)
-
-        per = Table(title="Localization per pathology (mean; n instances)")
-        per.add_column("pathology")
-        for mn in metric_names:
-            per.add_column(mn, justify="right")
-        for path, aggs in report.localization_per_label.items():
-            by = {a.metric: a for a in aggs}
-            per.add_row(path, *[_fmt_agg(by.get(mn)) for mn in metric_names])
-        console.print(per)
-    else:
-        console.print("[yellow]no localization scored (saliency: none or no localized findings)[/yellow]")
-
-    lab = Table(title=f"Labels vs expert GT - {name}")
-    lab.add_column("pathology")
-    lab.add_column("n_pos", justify="right")
-    lab.add_column("n_neg", justify="right")
-    lab.add_column("sens", justify="right")
-    lab.add_column("spec", justify="right")
-    for path, c in report.label_confusion.items():
-        if c.n_pos == 0 and c.n_neg == 0:
-            continue
-        lab.add_row(path, str(c.n_pos), str(c.n_neg), _fmt(c.sensitivity), _fmt(c.specificity))
-    console.print(lab)
-    console.print(
-        f"macro sens={_fmt(report.macro_sensitivity)}  "
-        f"macro spec={_fmt(report.macro_specificity)}"
-    )
-
-
 def cmd_plot(args: argparse.Namespace) -> int:
     """Figure of a simulation study, from the CSV the study wrote."""
     from hai_sim.analysis.study_figures import (
@@ -625,31 +491,6 @@ def main(argv: list[str] | None = None) -> int:
     plot_p.add_argument("--mean-read", type=float, default=13.2,
                         help="queue_load: the reader's mean reading time, the unit waits are shown in")
     plot_p.set_defaults(func=cmd_plot)
-
-    val_p = sub.add_parser("validate", help="validate a model's labels + heatmaps vs expert GT")
-    val_p.add_argument("scenario", nargs="?", help="validation scenario YAML (direct mode)")
-    val_p.add_argument(
-        "--from-cache", help="evaluate offline from a localization cache stem instead"
-    )
-    val_p.add_argument(
-        "--out-dir",
-        default="out/analysis/localization",
-        help="output directory (default: out/analysis/localization/)",
-    )
-    val_p.add_argument("--limit", type=int, default=None, help="cap images (direct mode)")
-    val_p.add_argument(
-        "--checkpoint-every", type=int, default=25, help="persist records every N images"
-    )
-    # --from-cache options (offline, swappable):
-    val_p.add_argument("--threshold", type=float, default=0.5, help="decision threshold")
-    val_p.add_argument(
-        "--aggregation", choices=["mean", "max"], default="mean", help="member CAM aggregation"
-    )
-    val_p.add_argument("--split", default=None, help="restrict to a split (train/test)")
-    val_p.add_argument(
-        "--pointing-tolerance", type=int, default=16, help="pointing-game radius px (from-cache)"
-    )
-    val_p.set_defaults(func=cmd_validate)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

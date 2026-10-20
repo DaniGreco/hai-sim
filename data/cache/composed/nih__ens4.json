@@ -1,0 +1,42 @@
+{
+  "n_images": 30805,
+  "n_members": 4,
+  "n_labels": 18,
+  "weights": [
+    "densenet121-res224-chex",
+    "densenet121-res224-mimic_ch",
+    "densenet121-res224-pc",
+    "densenet121-res224-rsna"
+  ],
+  "pathologies": [
+    "Atelectasis",
+    "Consolidation",
+    "Infiltration",
+    "Pneumothorax",
+    "Edema",
+    "Emphysema",
+    "Fibrosis",
+    "Effusion",
+    "Pneumonia",
+    "Pleural_Thickening",
+    "Cardiomegaly",
+    "Nodule",
+    "Mass",
+    "Hernia",
+    "Lung Lesion",
+    "Fracture",
+    "Lung Opacity",
+    "Enlarged Cardiomediastinum"
+  ],
+  "dataset": "nih",
+  "dataset_fingerprint": "xrv:nih|views=PA,AP|unique=True|resize=224",
+  "model_fingerprint": "ensemble:densenet121-res224-chex,densenet121-res224-mimic_ch,densenet121-res224-pc,densenet121-res224-rsna",
+  "batch_size": 16,
+  "inference_seconds_per_image": {
+    "mean": 0.11465771588862077,
+    "median": 0.11568452861683909,
+    "min": 0.08512035878375172,
+    "max": 0.12599573680199683,
+    "total": 3532.0309379489627
+  }
+}

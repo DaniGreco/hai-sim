@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, cast
 
 import numpy as np
 
@@ -43,7 +43,6 @@ from hai_sim.config.scenario import (
     SeverityConfig,
     SortConfig,
     TrustConfig,
-    ValidationScenarioConfig,
 )
 from hai_sim.core.protocols import (
     ArrivalProcess,
@@ -462,7 +461,7 @@ def build_arrivals(
         if not cfg.rates:
             raise ValueError(
                 "arrivals.kind=nhpp requires arrivals.rates: one rate per slot. For the "
-                "day-of-week stratification of thesis §5.4, that is 168 hourly "
+                "usual day-of-week stratification, that is 168 hourly "
                 "rates with period 168."
             )
         rate = PiecewiseConstantRate(cfg.rates, period=cfg.period)
@@ -525,7 +524,7 @@ def build_capability(
 
 
 def build_trust_policy(
-    cfg: TrustConfig, ai_prior: Sequence[float] | None = None
+    cfg: TrustConfig, ai_prior: Sequence[float] | np.ndarray | None = None
 ) -> IntegrationPolicy:
     """Build the swappable AI-integration policy that models the persona's trust.
 
@@ -565,7 +564,7 @@ def build_persona(
     rng: np.random.Generator,
     *,
     fusion: FusionConfig | None = None,
-    ai_prior: Sequence[float] | None = None,
+    ai_prior: Sequence[float] | np.ndarray | None = None,
 ) -> DiagnosticActor:
     """Assemble a doctor persona = capability x visibility x trust into an actor.
 
@@ -743,7 +742,7 @@ def _xrv_preprocess(resize: int) -> Any:
 
     def preprocess(image: np.ndarray) -> np.ndarray:
         norm = xrv.datasets.normalize(image, maxval=255, reshape=True)
-        return transform(norm)
+        return cast(np.ndarray, transform(norm))
 
     return preprocess
 
@@ -795,7 +794,12 @@ def build_patient_generator(
 ) -> Iterable[tuple[float, Patient]]:
     """Build the patient stream: *who* arrives (this function) driven by *when* they
     arrive (an `ArrivalProcess`, built here from ``cfg.arrivals``)."""
+    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
+        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     arrivals = build_arrivals(cfg.arrivals, cfg.arrival_rate, arrival_rng or rng)
+    dataset_mode: Literal["sequential", "random"] = (
+        "random" if cfg.sample_mode == "random" else "sequential"
+    )
     if cfg.kind == "poisson":
         if cfg.gt_source != "native":
             raise ValueError(
@@ -824,7 +828,7 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
     if cfg.kind == "xrv_dataset":
@@ -834,7 +838,7 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
     if cfg.kind == "image_folder":
@@ -843,11 +847,9 @@ def build_patient_generator(
             arrivals=arrivals,
             n_patients=cfg.n_patients,
             rng=rng,
-            sample_mode=cfg.sample_mode,
+            sample_mode=dataset_mode,
             gt_source=cfg.gt_source,
         )
-    if cfg.sample_mode == "permutation" and cfg.kind != "inference_cache":
-        raise ValueError("sample_mode 'permutation' is implemented for kind=inference_cache only")
     if cfg.kind == "inference_cache":
         from hai_sim.analysis.inference_cache import InferenceCache
         from hai_sim.sim.cache_generator import CachedPatientGenerator
@@ -1018,47 +1020,3 @@ def build_from_scenario(scenario: ScenarioConfig) -> BuiltScenario:
         difficulty=build_difficulty(scenario.difficulty, seed=scenario.seed),
         fatigue=build_fatigue(scenario.fatigue),
     )
-
-
-def build_validation(scenario: ValidationScenarioConfig):
-    """Build the localization validator from a `ValidationScenarioConfig`.
-
-    Returns ``(schema, dataset, validator)``. Reuses `build_ai`, so the model
-    validated here is constructed identically to the one a simulation would run.
-    """
-    from hai_sim.analysis.localization.chestxdet import ChestXDetDataset
-    from hai_sim.analysis.localization.metrics import Dice, EnergyInMask, IoU, PointingGame
-    from hai_sim.analysis.localization.saliency import GradCAMSaliency
-    from hai_sim.analysis.localization.validator import LocalizationValidator
-
-    rngs = build_rngs(scenario.seed)
-    schema = build_label_schema(scenario.label_schema)
-    ai = build_ai(scenario.ai, schema, rngs["ai"])
-
-    d = scenario.dataset
-    if d.kind != "chestxdet":
-        raise ValueError(f"unknown validation dataset kind: {d.kind}")
-    dataset = ChestXDetDataset(d.annotation_path, d.image_dir, schema=schema, resize=d.resize)
-
-    saliency = None
-    if scenario.saliency == "grad_cam":
-        from hai_sim.models.torchxrv import TorchXRayVisionAI
-
-        if not isinstance(ai, TorchXRayVisionAI):
-            raise ValueError(
-                "saliency: grad_cam needs ai.kind=torchxrv (a model with conv features); "
-                "use saliency: none for label-only validation"
-            )
-        saliency = GradCAMSaliency(ai)
-
-    m = scenario.metrics
-    metrics: list[Any] = []
-    if m.pointing_game:
-        metrics.append(PointingGame(tolerance=m.pointing_tolerance))
-    if m.energy_in_mask:
-        metrics.append(EnergyInMask())
-    metrics.extend(IoU(t) for t in m.iou_thresholds)
-    metrics.extend(Dice(t) for t in m.dice_thresholds)
-
-    validator = LocalizationValidator(ai, dataset, saliency, metrics or None)
-    return schema, dataset, validator

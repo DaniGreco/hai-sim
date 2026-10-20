@@ -1,6 +1,6 @@
 """Conditioned metrics: any bundle, over any subgroup.
 
-The thesis' methodology asks for recall conditioned on severity, waiting time in the
+A workflow study asks for recall conditioned on severity, waiting time in the
 saturated regime, and per-pathology figures. None of those were expressible while every
 bundle folded the whole run into one number.
 """

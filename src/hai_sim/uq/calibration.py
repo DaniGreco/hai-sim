@@ -9,7 +9,7 @@ meaningless. The ensemble is better but still badly over-confident at ECE 0.266.
 
 That matters because every rule that mixes the doctor's belief with the AI's on a
 common scale is only as sound as the number. Without calibration a log-odds fusion
-**can be worse than the doctor alone** (thesis §2.4) — an over-confident model contributes a huge
+**can be worse than the doctor alone** — an over-confident model contributes a huge
 log-odds term and simply overrides its partner. With ECE 0.8 the fusion is not a
 compromise, it is a takeover.
 

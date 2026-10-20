@@ -1,4 +1,4 @@
-# Experiment E4 with MedGemma 27B: the human-AI team study of the ICSE-SEIS 2027 paper (RQ4).
+# RQ4 of the paper: the human-AI team study with MedGemma 27B.
 #
 #   hai-sim study configs/studies/team_effect_medgemma27b.yaml
 #

@@ -1,0 +1,39 @@
+{
+  "n_images": 30805,
+  "n_members": 1,
+  "n_labels": 18,
+  "weights": [
+    "single#0"
+  ],
+  "pathologies": [
+    "Atelectasis",
+    "Consolidation",
+    "Infiltration",
+    "Pneumothorax",
+    "Edema",
+    "Emphysema",
+    "Fibrosis",
+    "Effusion",
+    "Pneumonia",
+    "Pleural_Thickening",
+    "Cardiomegaly",
+    "Nodule",
+    "Mass",
+    "Hernia",
+    "Lung Lesion",
+    "Fracture",
+    "Lung Opacity",
+    "Enlarged Cardiomediastinum"
+  ],
+  "dataset": "nih",
+  "dataset_fingerprint": "xrv:nih|views=PA,AP|unique=True|resize=896",
+  "model_fingerprint": "medgemma|google/medgemma-27b-it|prompt_set=single|readout=independent_question|both_polarities=False",
+  "batch_size": 1,
+  "inference_seconds_per_image": {
+    "mean": 1.117571309884771,
+    "median": 1.1177023999989615,
+    "min": 1.0145692079968285,
+    "max": 1.2271021300039138,
+    "total": 34426.78420100037
+  }
+}

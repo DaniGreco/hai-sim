@@ -1,4 +1,4 @@
-# Experiments E1 + E2: does the proposed reading order put the right cases first?
+# RQ1 and RQ2 of the paper: does the proposed reading order put the right cases first?
 #
 #   hai-sim capture configs/studies/capture.yaml
 #
@@ -20,7 +20,7 @@ models:
     calibration: ens4
   medgemma-4b:
     label: MedGemma 1.5 4B
-    cells: [medgemma-1]            # on-disk stem of medgemma-1.5-4b (see cache matrix notes)
+    cells: [medgemma-1.5-4b]
   medgemma-27b:
     label: MedGemma 27B
     cells: [medgemma-27b]

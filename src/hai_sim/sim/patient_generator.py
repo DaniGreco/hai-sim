@@ -2,8 +2,7 @@
 
 *When* patients arrive is delegated to an `ArrivalProcess`, so the same stream can be
 driven by a flat rate, a 24x7 time-varying one, or a metronome. Passing ``arrival_rate``
-instead builds a homogeneous Poisson process, which stays the default baseline
-(thesis §5.4).
+instead builds a homogeneous Poisson process, which stays the default baseline.
 
 Ground truth is drawn per label from a configured prevalence, and the image is a
 placeholder: nothing in this stream looks at pixels. For real images and real ground

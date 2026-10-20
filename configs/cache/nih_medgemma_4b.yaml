@@ -1,0 +1,49 @@
+# Builds data/cache/nih__medgemma-1.5-4b: MedGemma 1.5 4B on the 30,805 NIH ChestX-ray14
+# images of configs/cache/nih_ensemble.yaml (same selection, so the cells align image by image).
+#
+# The model answers one yes/no question per finding and the cache keeps P(yes), read from
+# the token log-probabilities. Serve it with vLLM (v0.23.0; the weights are gated on
+# Hugging Face, accept the licence first), then build:
+#
+#   vllm serve google/medgemma-1.5-4b-it --served-model-name medgemma-4b --max-model-len 8192
+#   uv run python scripts/materialize_cache.py --scenario configs/cache/nih_medgemma_4b.yaml \
+#       --limit 0 --mode fill --checkpoint-every 200
+#
+# The shipped cells were built with the 4B in BF16. MedGemma 27B is a first-generation
+# model and the 4B a 1.5 one: the two differ in size and in generation.
+name: nih_medgemma_4b
+seed: 42
+label_schema: xrv
+
+patient_generator:
+  kind: xrv_dataset
+  dataset: nih
+  imgpath: data/nih_full/images
+  csvpath: data/nih_full/Data_Entry_2017.csv
+  arrival_rate: 0.5
+  n_patients: 200
+  sample_mode: sequential
+  views: [PA, AP]
+  unique_patients: true
+  resize: 896                 # MedGemma's input size
+
+ai:
+  kind: medgemma
+  backend: vllm
+  model_id: google/medgemma-1.5-4b-it     # identity + cache alias (-> medgemma-1.5-4b)
+  served_model_name: medgemma-4b          # the server's --served-model-name
+  endpoint: http://localhost:8000/v1
+  readout: independent_question           # one yes/no question per label; P(yes) from logprobs
+  prompt_set: single
+  uq: entropy
+  decision_threshold: 0.5
+  concurrency: 6                          # in-flight questions; <= the server's --max-num-seqs
+  top_logprobs: 20
+  service_time: 30.0
+  cache_mode: require
+
+persona: senior_skeptical
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean

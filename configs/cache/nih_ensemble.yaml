@@ -1,0 +1,57 @@
+# Builds the four DenseNet-121 cells on NIH ChestX-ray14: data/cache/nih__<member>.
+#
+#   uv run python scripts/materialize_cache.py --scenario configs/cache/nih_ensemble.yaml \
+#       --limit 0 --device cuda:0 --checkpoint-every 200
+#
+# Images: NIH ChestX-ray14, PA and AP views, one image per patient -> 30,805 images
+# (scripts/fetch_nih_images.py downloads them into data/nih_full/). The MedGemma NIH
+# configs select the same images, so every NIH cell lists the same ids in the same order.
+#
+# The ensemble: four TorchXRayVision weight sets (CheXpert, MIMIC-CXR, PadChest, RSNA).
+# The NIH-trained weight set is left out on purpose: it was trained on these images, so it
+# would leak in-domain predictions. The cache stores the raw probability of every member;
+# averaging, calibration and the decision threshold are applied when a study replays it.
+name: nih_ensemble
+seed: 42
+label_schema: xrv
+
+patient_generator:
+  kind: xrv_dataset
+  dataset: nih
+  imgpath: data/nih_full/images            # repo-relative; run from the repo root
+  csvpath: data/nih_full/Data_Entry_2017.csv
+  arrival_rate: 0.5
+  n_patients: 200
+  sample_mode: sequential
+  views: [PA, AP]          # include AP (portable/ICU) frontals, not just PA
+  unique_patients: true    # one image per patient -> independent samples (30,805)
+  resize: 224
+
+ai:
+  kind: torchxrv
+  weights:
+    - densenet121-res224-chex
+    - densenet121-res224-mimic_ch
+    - densenet121-res224-pc
+    - densenet121-res224-rsna
+  uq: ensemble
+  ensemble_measure: mutual_information
+  decision_threshold: 0.5
+  service_time: 0.25
+  # "off" runs the live ensemble (a quick smoke test with `hai-sim run`); after the build,
+  # "require" replays data/cache/nih__<member> and "fill" builds any missing image inline.
+  cache_mode: "off"
+
+persona:
+  capability:
+    kind: fixed_accuracy
+    sensitivity: 0.85
+    specificity: 0.90
+  sees_ai: false
+
+sort:
+  kind: uncertainty_desc
+  aggregator: mean
+
+n_ai_workers: 1
+n_doctor_workers: 1

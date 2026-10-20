@@ -1,7 +1,7 @@
 """Conditioned metrics: compute any bundle over subgroups of the run telemetry.
 
-Every bundle folded the whole run into one number, so questions the thesis' own
-methodology demands could not be asked of it: recall *conditioned on severity*, waiting
+Every bundle folded the whole run into one number, so questions a workflow study
+has to ask could not be asked of it: recall *conditioned on severity*, waiting
 time *in the saturated regime* (order effects only exist under saturation, so an
 unconditioned temporal mean hides exactly the effect a triage study is looking for), or
 metrics *per pathology* rather than macro-averaged.

@@ -1,0 +1,46 @@
+{
+  "n_images": 15000,
+  "n_members": 1,
+  "n_labels": 18,
+  "weights": [
+    "densenet121-res224-mimic_ch"
+  ],
+  "pathologies": [
+    "Atelectasis",
+    "Consolidation",
+    "Infiltration",
+    "Pneumothorax",
+    "Edema",
+    "Emphysema",
+    "Fibrosis",
+    "Effusion",
+    "Pneumonia",
+    "Pleural_Thickening",
+    "Cardiomegaly",
+    "Nodule",
+    "Mass",
+    "Hernia",
+    "Lung Lesion",
+    "Fracture",
+    "Lung Opacity",
+    "Enlarged Cardiomediastinum"
+  ],
+  "dataset": "vindr",
+  "dataset_fingerprint": "image_folder:vindr|resize=224|ext=.png",
+  "model_fingerprint": "torchxrv|densenet121-res224-mimic_ch",
+  "batch_size": 16,
+  "inference_seconds_per_image": {
+    "mean": 0.08261329851771394,
+    "median": 0.10259920469252393,
+    "min": 0.01257056192116579,
+    "max": 0.2158657861291431,
+    "total": 1239.1994777657092
+  },
+  "label_table": {
+    "path": "data/vindr/labels.csv",
+    "id_column": "image_id",
+    "space": "vindr",
+    "map": "vindr14->xrv",
+    "build": "uv run python scripts/build_vindr_labels.py"
+  }
+}

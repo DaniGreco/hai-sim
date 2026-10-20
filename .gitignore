@@ -38,6 +38,11 @@ out/
 runs/
 *.log
 
-# Local data (datasets / large files) — not versioned.
-# Layout and download instructions: see README.md ("Data & caches").
+# Data: the model outputs (data/cache) and the provenance lists ship with the repository;
+# images, the VinDr-CXR labels and anything else under data/ stay local (see data/README.md).
 /data/*
+!/data/README.md
+!/data/cache/
+!/data/provenance/
+/data/cache/provenance/
+*.tmp

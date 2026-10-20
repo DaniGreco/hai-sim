@@ -1,0 +1,43 @@
+# A first run, in seconds, with no download:
+#
+#   uv run hai-sim run configs/examples/quickstart.yaml
+#
+# 2,000 NIH ChestX-ray14 patients arrive at the pace one radiologist can just keep up
+# with. MedGemma 27B reads each image first (its answers are replayed from
+# data/cache/nih__medgemma-27b), the worklist puts the most suspicious patients first, and
+# a senior radiologist who trusts the AI reads them in that order, combining their own
+# opinion with the AI's calibrated advice. The run prints how often the AI alone, the
+# reader alone and the two together miss a finding or raise a false alarm, and how long
+# patients wait. Change one line, run again, and compare.
+name: quickstart
+seed: 0
+label_schema: xrv
+
+patient_generator:
+  kind: inference_cache
+  cache_stem: data/cache/nih__medgemma-27b
+  arrival_rate: 0.075        # the reader needs 13.2 time units per image on average
+  n_patients: 2000
+  sample_mode: permutation   # each image at most once, in a random order
+  split: odd                 # the calibration was fitted on the even rows
+
+ai:
+  name: medgemma-27b
+  kind: cached
+  cache_stem: data/cache/nih__medgemma-27b
+  service_time: 0.25
+  decision_threshold: prevalence_matched   # the AI flags as many cases as there are positives
+  calibration: {kind: platt, path: data/cache/calibration/nih__medgemma-27b.json}
+
+# The ten findings both datasets annotate.
+label_view:
+  mode: subset
+  targets: [Cardiomegaly, Effusion, Consolidation, Atelectasis, Infiltration, Nodule, Mass,
+            Pleural_Thickening, Pneumothorax, Fibrosis]
+
+persona: senior_trusting                 # try junior_skeptical, or solo_senior (no AI advice)
+fusion: {kind: log_odds_fusion, beta: 0.0}   # try linear_pool
+
+sort:
+  kind: probability_desc                 # try random, or uncertainty_desc
+  aggregator: max
