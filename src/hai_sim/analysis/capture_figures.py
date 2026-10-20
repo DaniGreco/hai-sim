@@ -133,23 +133,30 @@ def _frame(ax: Any, curve: CurveResult) -> None:
         ax.spines[side].set_visible(False)
 
 
-def _label(ax: Any, pathology: str, n: int) -> None:
-    ax.set_title(_pretty(pathology), fontsize=7.8, color=INK, loc="left", pad=3)
+def _label(ax: Any, pathology: str, n: int, size: float = 7.8) -> None:
+    ax.set_title(_pretty(pathology), fontsize=size, color=INK, loc="left", pad=3)
     ax.text(0.97, 0.06, f"n = {n}", transform=ax.transAxes, ha="right", va="bottom",
-            fontsize=6.8, color=INK_2)
+            fontsize=size - 1.0, color=INK_2)
 
 
-def _grid(plt: Any, n: int, cols: int = 4) -> tuple[Any, list[Any]]:
+def _grid(plt: Any, n: int, cols: int = 4, column: bool = False) -> tuple[Any, list[Any]]:
+    """``column``: one column of a two-column paper (3.5 in), tick labels on the outer
+    panels only, so that small panels keep their room for the curves."""
     rows = math.ceil(n / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(7.2, 1.62 * rows + 1.35), squeeze=False)
+    size = (3.5, 0.9 * rows + 0.5) if column else (7.2, 1.62 * rows + 1.35)
+    fig, axes = plt.subplots(rows, cols, figsize=size, squeeze=False)
     flat = [a for row in axes for a in row]
     for a in flat[n:]:
         a.set_visible(False)
+    if column:
+        for i, a in enumerate(flat[:n]):
+            a.tick_params(labelsize=6, pad=1.5, labelleft=i % cols == 0, labelbottom=i + cols >= n)
     return fig, flat[:n]
 
 
 def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, out: Path,
-            show_title: bool = True) -> None:
+            show_title: bool = True, column: bool = False) -> None:
+    """``column``: no title, and the legend goes in the empty cells of the last row."""
     from matplotlib.lines import Line2D
 
     refs = [
@@ -157,26 +164,41 @@ def _finish(fig: Any, handles: list[Any], title: str, subtitle: str, ylab: str, 
         Line2D([], [], color=IDEAL, lw=1.0, ls=(0, (2, 2)), label="Random ordering"),
     ]
     h = fig.get_figheight()
-    if show_title:
+    gap = [a for a in fig.axes if not a.get_visible()] if column else []
+    if show_title and not column:
         fig.suptitle(title, x=0.01, y=1 - 0.04 / h, ha="left", va="top", fontsize=10, color=INK,
                      weight="bold")
         fig.text(0.01, 1 - 0.27 / h, _wrap(subtitle), ha="left", va="top", fontsize=7.6, color=INK_2,
                  linespacing=1.35)
-    fig.legend(
-        handles=handles + refs,
-        loc="lower center",
-        ncol=3,
-        frameon=False,
-        fontsize=7.5,
-        labelcolor=INK_2,
-        handlelength=2.6,
-        columnspacing=1.6,
-    )
-    fig.supxlabel("share of images read, in the proposed order", fontsize=8, color=INK_2,
-                  y=(0.52 if show_title else 0.46) / h)
-    fig.supylabel(ylab, fontsize=8, color=INK_2, x=0.005)
-    top, bottom = (1 - 0.78 / h, 0.62 / h) if show_title else (1, 0.3 / h)
-    fig.tight_layout(rect=(0.015, bottom, 1, top), h_pad=1.1, w_pad=0.8)
+    if not gap:
+        fig.legend(
+            handles=handles + refs,
+            loc="lower center",
+            ncol=3,
+            frameon=False,
+            fontsize=7.5,
+            labelcolor=INK_2,
+            handlelength=2.6,
+            columnspacing=1.6,
+        )
+    small = 6.8 if column else 8
+    fig.supxlabel("share of images read, in the proposed order", fontsize=small, color=INK_2,
+                  y=(0.03 if gap else 0.52 if show_title else 0.46) / h)
+    fig.supylabel(ylab, fontsize=small, color=INK_2, x=0.005)
+    if gap:  # fixed margins in inches: tight_layout leaves a band for the legend it cannot see
+        w = fig.get_figwidth()
+        fig.subplots_adjust(left=0.4 / w, right=1 - 0.04 / w, top=1 - 0.17 / h, bottom=0.36 / h,
+                            hspace=0.38, wspace=0.16)
+    else:
+        top, bottom = (1 - 0.78 / h, 0.62 / h) if show_title else (1, 0.3 / h)
+        fig.tight_layout(rect=(0.015, bottom, 1, top), h_pad=1.1, w_pad=0.8)
+    if gap:
+        boxes = [a.get_position() for a in gap]
+        x0, x1 = min(b.x0 for b in boxes), max(b.x1 for b in boxes)
+        y0, y1 = min(b.y0 for b in boxes), max(b.y1 for b in boxes)
+        fig.legend(handles=handles + refs, loc="center", bbox_to_anchor=((x0 + x1) / 2, (y0 + y1) / 2),
+                   ncol=1, frameon=False, fontsize=6.3, labelcolor=INK_2, handlelength=2.4,
+                   labelspacing=0.35)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out.with_suffix(".png"), dpi=220)
     fig.savefig(out.with_suffix(".pdf"))
@@ -197,15 +219,19 @@ def _pathologies(curves: dict[Any, CurveResult], dataset: str, target: str) -> l
 
 
 def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, target: str, out: Path,
-                     split: str = "odd", names_of: dict[str, str] | None = None) -> None:
+                     split: str = "odd", names_of: dict[str, str] | None = None,
+                     pathologies: list[str] | None = None, cols: int = 4, column: bool = False) -> None:
+    """One line per ordering criterion of one model. ``pathologies`` and ``cols`` as in
+    :func:`render_models`; ``column`` draws it for one column of a paper, without title."""
     from matplotlib.lines import Line2D
 
     plt = _plt()
-    names = [p for p in _pathologies(curves, dataset, target)
+    names = [p for p in (pathologies or _pathologies(curves, dataset, target))
              if (dataset, model, p, target, "probability", "raw") in curves]
     if not names:
         return
-    fig, axes = _grid(plt, len(names))
+    fig, axes = _grid(plt, len(names), cols, column)
+    lw = 1.1 if column else 1.5
     for ax, pathology in zip(axes, names, strict=True):
         first = curves[(dataset, model, pathology, target, "probability", "raw")]
         _frame(ax, first)
@@ -213,8 +239,8 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
             c = curves.get((dataset, model, pathology, target, ordering, kind))
             if c is None:
                 continue
-            ax.plot(*_thin(c), color=color, lw=1.5, ls=dash, zorder=3)
-        _label(ax, pathology, first.n_errors)
+            ax.plot(*_thin(c), color=color, lw=lw, ls=dash, zorder=3)
+        _label(ax, pathology, first.n_errors, 7.0 if column else 7.8)
     handles = [
         Line2D([], [], color=col, lw=1.5, ls=dash,
                label=ORDERING_LABEL[o] + (" (calibrated)" if k == "calibrated" else ""))
@@ -228,7 +254,7 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
         f"{_data_line(curves, dataset, split)} Model: {(names_of or MODEL_NAME).get(model, model)}. "
         f"One panel per finding; n = {unit}.{meaning} The closer a line is to the ideal ordering, the "
         "earlier those cases are read.",
-        TARGET_TITLE[target], out,
+        TARGET_TITLE[target], out, column=column,
     )
     plt.close(fig)
 
@@ -236,11 +262,13 @@ def render_orderings(curves: dict[Any, CurveResult], dataset: str, model: str, t
 def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: str, target: str, out: Path,
                   split: str = "odd", names_of: dict[str, str] | None = None,
                   ordering: str = "probability", kind: str = "raw",
-                  pathologies: list[str] | None = None, cols: int = 4, show_title: bool = True) -> None:
+                  pathologies: list[str] | None = None, cols: int = 4, show_title: bool = True,
+                  column: bool = False) -> None:
     """One line per model, every model ordering by the same criterion.
 
     ``pathologies`` keeps only those panels, in that order (the same set and order on two
     datasets); by default every pathology with enough targets, most frequent first.
+    ``column`` draws it for one column of a paper, without title.
     """
     from matplotlib.lines import Line2D
 
@@ -251,16 +279,17 @@ def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: st
     if not names or len(models) < 2:
         return
     shown = models[: len(SERIES)]
-    fig, axes = _grid(plt, len(names), cols)
-    if not show_title:
+    fig, axes = _grid(plt, len(names), cols, column)
+    if not show_title and not column:
         fig.set_figheight(1.2 * math.ceil(len(names) / cols) + 0.5)  # no title band, tighter rows
+    lw = 1.1 if column else 1.5
     for ax, pathology in zip(axes, names, strict=True):
         first = curves[(dataset, shown[0], pathology, target, *key)]
         _frame(ax, first)
         for m, color, dash in zip(shown, SERIES, DASHES, strict=False):
             ax.plot(*_thin(curves[(dataset, m, pathology, target, *key)]),
-                    color=color, lw=1.5, ls=dash, zorder=3)
-        _label(ax, pathology, first.n_errors)
+                    color=color, lw=lw, ls=dash, zorder=3)
+        _label(ax, pathology, first.n_errors, 7.0 if column else 7.8)
     named = names_of or MODEL_NAME
     handles = [Line2D([], [], color=c, lw=1.5, ls=d, label=named.get(m, m))
                for m, c, d in zip(shown, SERIES, DASHES, strict=False)]
@@ -272,7 +301,7 @@ def render_models(curves: dict[Any, CurveResult], models: list[str], dataset: st
         f"{what} met along the reading order, by model",
         f"{_data_line(curves, dataset, split)} Each model orders the images by its own {crit}. "
         f"One panel per finding; n = {unit}.{meaning}" + ("" if target == "positive" else THRESHOLD_TEXT),
-        TARGET_TITLE[target], out, show_title,
+        TARGET_TITLE[target], out, show_title, column,
     )
     plt.close(fig)
 

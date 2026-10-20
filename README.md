@@ -820,6 +820,8 @@ carries its own seed, so the result does not depend on the order of execution.
   defense slide "E4 · WHO GAINS".
 - `configs/studies/queue_load_medgemma27b.yaml` — E3 with MedGemma 27B ordering the
   worklist, on the ten findings both datasets annotate; RQ3 of the ICSE-SEIS 2027 paper.
+- `configs/studies/team_effect_medgemma27b.yaml` — E4 with MedGemma 27B as the only AI, on
+  the ten findings both datasets annotate; RQ4 of the ICSE-SEIS 2027 paper.
 
 ---
 
@@ -1049,7 +1051,7 @@ every pathology. Binary entropy in nats.
 | `build_vindr_labels.py` | VinDr-CXR raw annotations → `labels.csv`, `difficulty.csv`, `readers.csv` |
 | `download_chestxdet.py` | ChestX-Det images and masks, the ground truth of `hai-sim validate` |
 | `build_localization_cache.py` | forward-only feature maps (~2.8 GB fp32) for offline Grad-CAM (`validate --from-cache`) |
-| `paper_icse_seis.py` | figures, skill table and tests of the ICSE-SEIS 2027 paper (RQ2 and RQ3) |
+| `paper_icse_seis.py` | figures, skill table and tests of the ICSE-SEIS 2027 paper (RQ1 to RQ4) |
 
 ---
 
